@@ -119,8 +119,7 @@ access, allow it.
   slot). The phone's video is written to `~/Movies/Mirror Wall` as it arrives, without
   re-encoding, so it's full quality and costs almost nothing. The tile shows ● REC and the time.
   A recording carries on across disconnects and reconnects, starting a new file ("… part 2")
-  each time, and also when the phone rotates. A piece under 3 seconds cut short by a rotation
-  (iOS often reports sideways for a moment as mirroring starts) is thrown away. Frames are timed
+  each time, and also when the phone rotates. Frames are timed
   from the stream's own timestamps rather than their bursty arrival, so the file plays smoothly
   in QuickTime. Video only: the receivers run without audio. Quitting the app finishes any
   recording properly.
