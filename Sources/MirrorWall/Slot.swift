@@ -181,7 +181,7 @@ final class Slot: ObservableObject, Identifiable {
         case .clientConnecting(let name, _):
             // A new connection starts a new stream: drop the old picture and decoder so nothing
             // stale is left showing.
-            renderer.reset()
+            renderer.requestReset()
             lastFrameAt = nil
             phoneName = name
             connectedSince = Date()
