@@ -8,8 +8,19 @@ final class SlotStats: ObservableObject {
     @Published var codec: String?
     /// Network round trip to the phone, in seconds.
     @Published var roundTrip: Double?
-    /// How long ago the phone captured the frame uxplay just received, in seconds.
-    @Published var latency: Double?
+    /// How far the latest frame's arrival is behind its timestamp, compared with the smallest
+    /// such gap this connection, in seconds. The phone's timestamps run ahead of the Mac's clock
+    /// by a fixed amount that differs per phone, so only this change is meaningful: it rises
+    /// when the stream falls behind.
+    @Published private(set) var lag: Double?
+    private var bestLatency: Double?
+
+    /// A latency report from uxplay: the frame's arrival time minus its timestamp.
+    func recordLatency(_ seconds: Double) {
+        let best = min(bestLatency ?? seconds, seconds)
+        bestLatency = best
+        lag = seconds - best
+    }
     /// The phone's model identifier, e.g. "iPhone16,2".
     @Published var phoneModel: String?
     /// Phones that have connected since the app started.
@@ -29,7 +40,8 @@ final class SlotStats: ObservableObject {
         stream = nil
         codec = nil
         roundTrip = nil
-        latency = nil
+        lag = nil
+        bestLatency = nil
         lastHeartbeatAt = nil
         heartbeatInterval = nil
     }
@@ -82,12 +94,8 @@ struct StatsOverlay: View {
             rows.append(Row(label: "Frames", value: String(format: "%.0f/s", stream.framesPerSecond)))
             rows.append(Row(label: "Bitrate", value: Self.bitrate(stream.bitsPerSecond)))
         }
-        // Latency is the phone's capture to the frame reaching the Mac, plus the Mac's decode.
-        let toMac = stats.latency
-        let decode = stream?.macTime
-        rows.append(Row(label: "Latency", value: toMac.map { Self.milliseconds($0 + (decode ?? 0)) } ?? "–"))
-        rows.append(Row(label: " to Mac", value: toMac.map(Self.milliseconds) ?? "not reported"))
-        rows.append(Row(label: " decode", value: decode.map(Self.milliseconds) ?? "–"))
+        rows.append(Row(label: "Lag vs best", value: stats.lag.map { "+" + Self.milliseconds($0) } ?? "not reported"))
+        rows.append(Row(label: "Decode", value: stream?.macTime.map(Self.milliseconds) ?? "–"))
         rows.append(Row(label: "Round trip", value: stats.roundTrip.map(Self.milliseconds) ?? "–"))
         if let stream {
             rows.append(Row(label: "Jitter", value: Self.milliseconds(stream.frameJitter)))

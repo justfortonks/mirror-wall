@@ -249,7 +249,7 @@ final class Slot: ObservableObject, Identifiable {
         case .networkRoundTrip(let seconds):
             stats.roundTrip = seconds
         case .videoLatency(let seconds):
-            stats.latency = seconds
+            stats.recordLatency(seconds)
         case .openConnections:
             break
         }

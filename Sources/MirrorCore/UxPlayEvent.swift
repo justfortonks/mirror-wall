@@ -16,8 +16,9 @@ public enum UxPlayEvent: Equatable {
     case heartbeat
     /// Network round trip to the phone, in seconds, from uxplay's clock sync (every few seconds).
     case networkRoundTrip(Double)
-    /// How long ago, in seconds, the phone captured a frame that uxplay just received. Printed
-    /// once a second by a uxplay with `patches/uxplay-latency-report.patch`.
+    /// A frame's arrival time at uxplay minus the phone's timestamp for it, in seconds (offset by
+    /// a fixed, unknown amount per phone). Printed once a second by a uxplay with
+    /// `patches/uxplay-latency-report.patch`.
     case videoLatency(Double)
 
     public init?(line: String) {

@@ -53,8 +53,8 @@ macOS 27, it needs Apple Silicon and macOS 27.
   `scripts/build-app.sh` looks in the same places, or takes `UXPLAY=/path/to/uxplay`.
 - For the latency figure in Stats for Nerds, build uxplay with
   `patches/uxplay-latency-report.patch` (`git apply` it in the UxPlay checkout, then rebuild).
-  It makes uxplay report one frame's latency a second at `-d 1`, converting the phone's capture
-  time with uxplay's clock-sync offset. Unpatched, uxplay only reports latency in its full debug
+  It makes uxplay report one frame's timing a second at `-d 1`, converting the phone's frame
+  timestamp with uxplay's clock-sync offset. Unpatched, uxplay only reports latency in its full debug
   mode (which also dumps every packet), and in UxPlay 1.74 that report always reads 0. Everything
   else works without the patch.
 
@@ -107,9 +107,12 @@ access, allow it.
 - **Stats for Nerds** (View menu, ⌥⌘I, or a tile's ⋯ menu) puts each stream's numbers over its
   tile in the main window; the slots' own windows stay clean for OBS. It shows the phone model and
   codec, picture size, frames and bitrate per second, latency, network round trip, frame jitter,
-  keyframes, losses, and the phone's check-ins. Latency is the phone's capture time to the
-  frame reaching the Mac (from the phone's own timestamps and uxplay's clock sync), plus the
-  Mac's decode; the display's own delay isn't included. iOS only sends frames when the screen
+  keyframes, losses, and the phone's check-ins. **Lag vs best** compares each frame's arrival
+  with the phone's timestamp for it, relative to the best this connection has seen: it reads
+  about +0 ms and rises if the stream falls behind. The absolute phone-to-Mac delay can't be read
+  from the timestamps, which run ahead of the Mac's clock by a fixed amount that differs per
+  phone (60–100 ms in testing). **Decode** is the Mac's time from a frame arriving to it going on
+  screen. iOS only sends frames when the screen
   changes, so a still screen shows few frames per second. Losses are packets dropped between
   uxplay and the app; the phone's own connection to the Mac is TCP and doesn't lose any.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
