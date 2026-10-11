@@ -42,6 +42,16 @@ final class H264Renderer {
         return layer
     }
 
+    /// Puts the latest picture into a layer again, e.g. when its view is shown after being hidden.
+    func refresh(_ layer: AVSampleBufferDisplayLayer) {
+        lock.lock()
+        let picture = lastPicture
+        lock.unlock()
+        guard let picture else { return }
+        layer.sampleBufferRenderer.flush()
+        layer.sampleBufferRenderer.enqueue(picture)
+    }
+
     func removeLayer(_ layer: AVSampleBufferDisplayLayer) {
         lock.lock()
         layers.removeAll { $0 === layer }
@@ -160,8 +170,9 @@ final class H264Renderer {
         Self.markDisplayImmediately(picture)
         lastPicture = picture
         for layer in layers {
-            if layer.sampleBufferRenderer.status == .failed { layer.sampleBufferRenderer.flush() }
-            layer.sampleBufferRenderer.enqueue(picture)
+            let renderer = layer.sampleBufferRenderer
+            if renderer.status == .failed || renderer.requiresFlushToResumeDecoding { renderer.flush() }
+            renderer.enqueue(picture)
         }
     }
 

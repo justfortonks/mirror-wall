@@ -29,9 +29,11 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         window.isMovableByWindowBackground = true
         window.backgroundColor = .black
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.contentView = NSHostingView(rootView: PopOutView(slot: slot) { [weak self] hovering in
-            self?.showWindowButtons(hovering)
-        })
+        window.contentView = NSHostingView(rootView: PopOutView(
+            slot: slot,
+            onClose: { [weak self] in self?.close() },
+            onHover: { [weak self] hovering in self?.showWindowButtons(hovering) }
+        ))
         window.delegate = self
         window.center()
         // Restores the size and place the window had last time, if any.
@@ -84,13 +86,13 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
 /// The pop-out window's content: the picture and nothing else once a phone is mirroring.
 struct PopOutView: View {
     @ObservedObject var slot: Slot
+    let onClose: () -> Void
     let onHover: (Bool) -> Void
 
     var body: some View {
         ZStack {
             Color.black
-            VideoLayerView(renderer: slot.renderer)
-                .opacity(showsPicture ? 1 : 0)
+            VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
             if !showsPicture {
                 Text(waitingText)
                     .font(.callout)
@@ -101,6 +103,10 @@ struct PopOutView: View {
         }
         .ignoresSafeArea()
         .onHover(perform: onHover)
+        .contextMenu {
+            Button("Show Mirror Wall Window") { MainWindow.show() }
+            Button("Close This Window", action: onClose)
+        }
     }
 
     private var showsPicture: Bool {

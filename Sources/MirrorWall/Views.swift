@@ -101,8 +101,7 @@ struct SlotTile: View {
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
-                VideoLayerView(renderer: slot.renderer)
-                    .opacity(showsPicture ? 1 : 0)
+                VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
                 if !showsPicture {
                     placeholder
                 } else if slot.state == .paused {
@@ -305,12 +304,17 @@ struct LogView: View {
 /// in several places (its tile and its own window).
 struct VideoLayerView: NSViewRepresentable {
     let renderer: H264Renderer
+    var isShowing = true
 
     func makeNSView(context: Context) -> LayerHostView {
-        LayerHostView(renderer: renderer)
+        let view = LayerHostView(renderer: renderer)
+        view.isShowing = isShowing
+        return view
     }
 
-    func updateNSView(_ view: LayerHostView, context: Context) {}
+    func updateNSView(_ view: LayerHostView, context: Context) {
+        view.isShowing = isShowing
+    }
 
     static func dismantleNSView(_ view: LayerHostView, coordinator: ()) {
         view.detach()
@@ -332,6 +336,20 @@ struct VideoLayerView: NSViewRepresentable {
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("not used") }
+
+        /// Hidden while there's no current picture. When shown again (a phone reconnecting), the
+        /// layer is re-laid out and given the latest picture, so it doesn't sit on a stale one.
+        var isShowing = true {
+            didSet {
+                guard isShowing != oldValue else { return }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                videoLayer.isHidden = !isShowing
+                videoLayer.frame = bounds
+                CATransaction.commit()
+                if isShowing { renderer.refresh(videoLayer) }
+            }
+        }
 
         func detach() {
             renderer.removeLayer(videoLayer)
