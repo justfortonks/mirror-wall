@@ -2,19 +2,24 @@ import AVFoundation
 import CoreMedia
 import MirrorCore
 
-/// Writes one slot's video to movie files as it arrives, without re-encoding: the phone's own
-/// H.264 goes straight into the file, so recording costs almost nothing and loses no quality.
+/// Writes one slot's pictures to movie files, compressing them with the Mac's video encoder.
 ///
-/// A file starts at the next keyframe. A new file starts whenever the stream's format changes
-/// (the phone rotates) or a new connection begins, because one movie track can't change size.
-/// Frames are timed from the stream's own timestamps (`RecordingClock`), not their bursty arrival.
+/// It records the pictures already decoded for the tile rather than copying the phone's video,
+/// because a copied stream can only start on a keyframe, and an iPhone sends one only when
+/// mirroring starts, the screen wakes or it rotates. Re-compressing lets a recording start the
+/// moment it's asked for.
+///
+/// A new file starts when the picture changes size (the phone rotates) or a new connection
+/// begins. Frames are timed from the stream's own timestamps where it has them
+/// (`RecordingClock`), not their bursty arrival.
 ///
 /// Not thread-safe: the slot calls it under its own lock.
 final class SlotRecorder {
     private let folder: URL
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
-    private var format: CMVideoFormatDescription?
+    private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
+    private var size: (width: Int, height: Int)?
     /// Names later files, e.g. after the phone that's mirroring.
     var baseName: String
     private var part = 0
@@ -34,29 +39,29 @@ final class SlotRecorder {
         self.baseName = baseName
     }
 
-    /// Adds a compressed frame stamped `rtpTimestamp` that arrived at `arrival` (seconds of
-    /// `DispatchTime` uptime).
-    func append(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool, rtpTimestamp: UInt32, arrival: Double) {
-        if let current = self.format, !CMFormatDescriptionEqual(current, otherFormatDescription: format) {
+    /// Adds a decoded picture stamped `rtpTimestamp` (nil if unknown) that arrived at `arrival`
+    /// (seconds of `DispatchTime` uptime).
+    func append(image: CVImageBuffer, rtpTimestamp: UInt32?, arrival: Double) {
+        let width = CVPixelBufferGetWidth(image)
+        let height = CVPixelBufferGetHeight(image)
+        if let size, size.width != width || size.height != height {
             endFile(at: arrival)
         }
         if writer == nil {
-            guard isKeyframe else { return }
             clock = RecordingClock()
-            startFile(format: format)
+            startFile(width: width, height: height)
         }
-        guard let writer, let input, writer.status == .writing else { return }
+        guard let writer, let input, let adaptor, writer.status == .writing else { return }
         let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
-        guard input.isReadyForMoreMediaData,
-              let sample = H264Renderer.makeSampleBuffer(avcc: avcc, format: format, presentationTime: time) else {
-            return // dropped; writing is far faster than a phone sends, so this is rare
+        guard input.isReadyForMoreMediaData else {
+            return // dropped; the encoder keeps up with a phone easily, so this is rare
         }
-        if !input.append(sample) {
+        if !adaptor.append(image, withPresentationTime: time) {
             fail(writer)
         }
     }
 
-    /// Finishes the current file but keeps recording: the next connection starts a new one.
+    /// Finishes the current file but keeps recording: the next picture starts a new one.
     func endFile(wait: Bool = false) {
         endFile(at: Double(DispatchTime.now().uptimeNanoseconds) / 1e9, wait: wait)
     }
@@ -65,7 +70,8 @@ final class SlotRecorder {
         guard let writer, let input else { return }
         self.writer = nil
         self.input = nil
-        format = nil
+        adaptor = nil
+        size = nil
         currentURL = nil
         guard writer.status == .writing else { return }
         input.markAsFinished()
@@ -80,7 +86,7 @@ final class SlotRecorder {
         if wait { _ = done.wait(timeout: .now() + 3) }
     }
 
-    private func startFile(format: CMVideoFormatDescription) {
+    private func startFile(width: Int, height: Int) {
         part += 1
         if part == 1 { startedAt = Date() }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -88,14 +94,15 @@ final class SlotRecorder {
         do {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: format)
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(width: width, height: height))
             input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else {
-                onError?("couldn't record this video format")
+                onError?("couldn't record a \(width)×\(height) picture")
                 return
             }
             writer.add(input)
+            let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
             guard writer.startWriting() else {
                 fail(writer)
                 return
@@ -103,11 +110,31 @@ final class SlotRecorder {
             writer.startSession(atSourceTime: .zero)
             self.writer = writer
             self.input = input
-            self.format = format
+            self.adaptor = adaptor
+            size = (width, height)
             currentURL = url
         } catch {
             onError?("couldn't create \(url.lastPathComponent): \(error.localizedDescription)")
         }
+    }
+
+    /// H.264, which every player and editor reads, at a generous bitrate so the copy looks like
+    /// what the phone sent: about 4 Mbps for a portrait phone, 12 Mbps for landscape 1920×884.
+    static func videoSettings(width: Int, height: Int) -> [String: Any] {
+        let bitsPerSecond = max(4_000_000, Double(width * height) * 60 * 0.12)
+        return [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitsPerSecond,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoExpectedSourceFrameRateKey: 60,
+                // A keyframe every 2 seconds so players can jump around the file.
+                AVVideoMaxKeyFrameIntervalDurationKey: 2,
+                AVVideoAllowFrameReorderingKey: false,
+            ] as [String: Any],
+        ]
     }
 
     private func fail(_ writer: AVAssetWriter) {

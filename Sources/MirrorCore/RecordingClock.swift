@@ -12,19 +12,21 @@ public struct RecordingClock {
     static let minStep = 0.001
 
     private var start: Double?
-    private var last: (rtp: UInt32, arrival: Double, time: Double)?
+    private var last: (rtp: UInt32?, arrival: Double, time: Double)?
 
     public init() {}
 
     /// Seconds into the recording for a frame stamped `rtp` that arrived at `arrival` (seconds
-    /// on any steady clock). Always later than the previous frame's.
-    public mutating func time(rtp: UInt32, arrival: Double) -> Double {
+    /// on any steady clock). Always later than the previous frame's. A nil stamp (a picture whose
+    /// stamp isn't known, such as the one on screen when recording starts) is timed by arrival,
+    /// and so is the frame after it.
+    public mutating func time(rtp: UInt32?, arrival: Double) -> Double {
         guard let last, let start else {
             start = arrival
             last = (rtp, arrival, 0)
             return 0
         }
-        let stamped = Double(rtp &- last.rtp) / Self.rtpRate
+        let stamped = rtp.flatMap { rtp in last.rtp.map { Double(rtp &- $0) / Self.rtpRate } } ?? -1
         var time = last.time + (stamped > 0 && stamped <= Self.maxStep ? stamped : arrival - last.arrival)
         let wall = arrival - start
         if abs(time - wall) > Self.maxDrift { time = wall }
