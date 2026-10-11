@@ -48,6 +48,12 @@ final class Slot: ObservableObject, Identifiable {
     /// screen), so frames only count as a resume once they keep coming after this.
     private var pausedAt: Date?
     private var logFile: FileHandle?
+    /// When the phone last checked in or sent video. A phone on a charger, its screen off, can go
+    /// quiet without ending the session, and uxplay never notices; the watchdog does.
+    private var lastSignOfLifeAt: Date?
+    private var wentSilent = false
+    private var watchdog: Timer?
+    static let silenceLimit: TimeInterval = 10
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
     private var generation = 0
 
@@ -102,12 +108,17 @@ final class Slot: ObservableObject, Identifiable {
             return
         }
         self.process = process
+        startWatchdog()
         append("Started: uxplay \(config.uxplayArguments.joined(separator: " "))")
         state = .waiting
     }
 
     func stop() {
         generation += 1
+        watchdog?.invalidate()
+        watchdog = nil
+        lastSignOfLifeAt = nil
+        wentSilent = false
         process?.stop()
         process = nil
         receiver?.stop()
@@ -158,6 +169,11 @@ final class Slot: ObservableObject, Identifiable {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
             }
+            self.lastSignOfLifeAt = Date()
+            if self.state == .disconnected && self.wentSilent {
+                self.wentSilent = false
+                self.state = .live
+            }
             let pauseSettled = self.pausedAt.map { Date().timeIntervalSince($0) > 3 } ?? true
             if self.state != .live && self.state != .disconnected && (self.state != .paused || pauseSettled) {
                 self.state = .live
@@ -179,10 +195,9 @@ final class Slot: ObservableObject, Identifiable {
     private func apply(_ event: UxPlayEvent) {
         switch event {
         case .clientConnecting(let name, _):
-            // A new connection starts a new stream: drop the old picture and decoder so nothing
-            // stale is left showing.
-            renderer.requestReset()
-            lastFrameAt = nil
+            // The decoder needs no reset here: a new stream starts with new parameter sets, which
+            // rebuild it. (This line can also arrive after the new stream's first frames.)
+            lastSignOfLifeAt = nil
             phoneName = name
             connectedSince = Date()
             if config.lastPhoneName != name {
@@ -197,11 +212,35 @@ final class Slot: ObservableObject, Identifiable {
             pausedAt = Date()
             if state == .live || state == .connecting { state = .paused }
         case .openConnections(0), .lostConnection:
+            wentSilent = false
             connectedSince = nil
             if state != .waiting { state = .disconnected }
+        case .heartbeat:
+            lastSignOfLifeAt = Date()
+            if state == .disconnected && wentSilent {
+                // It was only quiet; it's still mirroring.
+                wentSilent = false
+                state = .paused
+            }
         case .openConnections:
             break
         }
+    }
+
+    private func startWatchdog() {
+        watchdog?.invalidate()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.checkForSilence()
+        }
+    }
+
+    private func checkForSilence() {
+        guard let lastSignOfLifeAt, state == .live || state == .paused || state == .connecting,
+              Date().timeIntervalSince(lastSignOfLifeAt) > Self.silenceLimit else { return }
+        append("No check-in or video from the phone for \(Int(Self.silenceLimit)) seconds; treating it as disconnected")
+        wentSilent = true
+        connectedSince = nil
+        state = .disconnected
     }
 
     /// Mirrors the log to ~/Library/Logs/MirrorWall/slot-N.log (replaced on each start) for troubleshooting.
