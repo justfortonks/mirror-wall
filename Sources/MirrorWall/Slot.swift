@@ -78,8 +78,8 @@ final class Slot: ObservableObject, Identifiable {
 
     init(config: SlotConfig) {
         self.config = config
-        renderer.onCompressedFrame = { [weak self] avcc, format, isKeyframe in
-            self?.record(avcc: avcc, format: format, isKeyframe: isKeyframe)
+        renderer.onCompressedFrame = { [weak self] avcc, format, isKeyframe, rtpTimestamp in
+            self?.record(avcc: avcc, format: format, isKeyframe: isKeyframe, rtpTimestamp: rtpTimestamp)
         }
     }
 
@@ -197,9 +197,9 @@ final class Slot: ObservableObject, Identifiable {
     }
 
     /// UDP thread: hands a compressed frame to the recorder, if recording.
-    private func record(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool) {
+    private func record(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool, rtpTimestamp: UInt32) {
         recorderLock.withLock {
-            recorder?.append(avcc: avcc, format: format, isKeyframe: isKeyframe, time: CMClockGetTime(CMClockGetHostTimeClock()))
+            recorder?.append(avcc: avcc, format: format, isKeyframe: isKeyframe, rtpTimestamp: rtpTimestamp, arrival: Self.uptime())
         }
     }
 

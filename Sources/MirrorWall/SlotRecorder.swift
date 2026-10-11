@@ -1,11 +1,16 @@
 import AVFoundation
 import CoreMedia
+import MirrorCore
 
 /// Writes one slot's video to movie files as it arrives, without re-encoding: the phone's own
 /// H.264 goes straight into the file, so recording costs almost nothing and loses no quality.
 ///
 /// A file starts at the next keyframe. A new file starts whenever the stream's format changes
 /// (the phone rotates) or a new connection begins, because one movie track can't change size.
+/// A piece cut short by a format change within `minimumPiece` seconds (the phone briefly thinking
+/// it's sideways as mirroring starts) is thrown away rather than kept as a stub.
+///
+/// Frames are timed from the stream's own timestamps (`RecordingClock`), not their bursty arrival.
 ///
 /// Not thread-safe: the slot calls it under its own lock.
 final class SlotRecorder {
@@ -17,6 +22,11 @@ final class SlotRecorder {
     var baseName: String
     private var part = 0
     private var startedAt = Date()
+    private var clock = RecordingClock()
+
+    static let minimumPiece = 3.0
+    /// Fine enough that frames a few milliseconds apart never share a time.
+    static let timescale: CMTimeScale = 90_000
 
     /// The file being written, if any.
     private(set) var currentURL: URL?
@@ -28,16 +38,19 @@ final class SlotRecorder {
         self.baseName = baseName
     }
 
-    /// Adds a compressed frame that arrived at `time`.
-    func append(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool, time: CMTime) {
+    /// Adds a compressed frame stamped `rtpTimestamp` that arrived at `arrival` (seconds of
+    /// `DispatchTime` uptime).
+    func append(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool, rtpTimestamp: UInt32, arrival: Double) {
         if let current = self.format, !CMFormatDescriptionEqual(current, otherFormatDescription: format) {
-            endFile()
+            endFile(at: arrival, discardIfShort: true)
         }
         if writer == nil {
             guard isKeyframe else { return }
-            startFile(format: format, time: time)
+            clock = RecordingClock()
+            startFile(format: format)
         }
         guard let writer, let input, writer.status == .writing else { return }
+        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
         guard input.isReadyForMoreMediaData,
               let sample = H264Renderer.makeSampleBuffer(avcc: avcc, format: format, presentationTime: time) else {
             return // dropped; writing is far faster than a phone sends, so this is rare
@@ -49,15 +62,26 @@ final class SlotRecorder {
 
     /// Finishes the current file but keeps recording: the next connection starts a new one.
     func endFile(wait: Bool = false) {
+        endFile(at: Double(DispatchTime.now().uptimeNanoseconds) / 1e9, discardIfShort: false, wait: wait)
+    }
+
+    private func endFile(at arrival: Double, discardIfShort: Bool, wait: Bool = false) {
         guard let writer, let input else { return }
+        let url = currentURL
         self.writer = nil
         self.input = nil
         format = nil
         currentURL = nil
         guard writer.status == .writing else { return }
+        if discardIfShort, clock.duration < Self.minimumPiece {
+            writer.cancelWriting()
+            if let url { try? FileManager.default.removeItem(at: url) }
+            part -= 1 // the next piece takes this one's name
+            return
+        }
         input.markAsFinished()
         // Keep the last picture on screen until now, e.g. through a still screen that sent no frames.
-        writer.endSession(atSourceTime: CMClockGetTime(CMClockGetHostTimeClock()))
+        writer.endSession(atSourceTime: CMTime(seconds: clock.time(atArrival: arrival), preferredTimescale: Self.timescale))
         let done = DispatchSemaphore(value: 0)
         writer.finishWriting { [weak self] in
             if writer.status == .failed { self?.fail(writer) }
@@ -67,14 +91,16 @@ final class SlotRecorder {
         if wait { _ = done.wait(timeout: .now() + 3) }
     }
 
-    private func startFile(format: CMVideoFormatDescription, time: CMTime) {
+    private func startFile(format: CMVideoFormatDescription) {
         part += 1
         if part == 1 { startedAt = Date() }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(Self.fileName(base: baseName, startedAt: startedAt, part: part))
         do {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+            writer.movieTimeScale = Self.timescale
             let input = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: format)
+            input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else {
                 onError?("couldn't record this video format")
@@ -85,7 +111,7 @@ final class SlotRecorder {
                 fail(writer)
                 return
             }
-            writer.startSession(atSourceTime: time)
+            writer.startSession(atSourceTime: .zero)
             self.writer = writer
             self.input = input
             self.format = format

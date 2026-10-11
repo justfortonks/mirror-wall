@@ -283,3 +283,39 @@ final class StreamMeterTests: XCTestCase {
         XCTAssertEqual(h264Description(sps: [0x67]), "H.264")
     }
 }
+
+final class RecordingClockTests: XCTestCase {
+    func testTimesFramesFromStampsNotBurstyArrival() {
+        var clock = RecordingClock()
+        let start: UInt32 = 1000
+        XCTAssertEqual(clock.time(rtp: start, arrival: 10.000), 0)
+        // Three frames 1/60 s apart that arrived together.
+        XCTAssertEqual(clock.time(rtp: start + 1500, arrival: 10.050), 1.0 / 60, accuracy: 1e-9)
+        XCTAssertEqual(clock.time(rtp: start + 3000, arrival: 10.051), 2.0 / 60, accuracy: 1e-9)
+        XCTAssertEqual(clock.time(rtp: start + 4500, arrival: 10.052), 3.0 / 60, accuracy: 1e-9)
+    }
+
+    func testHandlesWrapAround() {
+        var clock = RecordingClock()
+        _ = clock.time(rtp: UInt32.max - 499, arrival: 0)
+        XCTAssertEqual(clock.time(rtp: 1000, arrival: 0.0167), 1500 / RecordingClock.rtpRate, accuracy: 1e-9)
+    }
+
+    func testFallsBackToArrivalOnBadStamps() {
+        var clock = RecordingClock()
+        _ = clock.time(rtp: 90_000, arrival: 5)
+        // Backwards stamp: use the time between arrivals.
+        XCTAssertEqual(clock.time(rtp: 0, arrival: 5.5), 0.5, accuracy: 1e-9)
+        // Repeated stamp: still moves forward.
+        XCTAssertGreaterThan(clock.time(rtp: 0, arrival: 5.5), 0.5)
+    }
+
+    func testStaysNearArrivalTime() {
+        var clock = RecordingClock()
+        _ = clock.time(rtp: 0, arrival: 0)
+        // Stamps claim 1.9 s each while only 0.1 s passes: pulled back to the wall clock.
+        _ = clock.time(rtp: 171_000, arrival: 0.1)
+        XCTAssertEqual(clock.time(rtp: 342_000, arrival: 0.2), 0.2, accuracy: 1e-9)
+        XCTAssertEqual(clock.time(atArrival: 1.2), 1.2, accuracy: 1e-9)
+    }
+}
