@@ -2,15 +2,22 @@ import AppKit
 import Foundation
 import MirrorCore
 
-/// The list of slots, the uxplay location, and persistence of both.
+/// The list of slots, their own windows, the uxplay location, and persistence of all three.
 @MainActor
 final class SlotStore: ObservableObject {
     @Published private(set) var slots: [Slot] = []
     @Published private(set) var uxplayURL: URL?
+    /// Slots currently shown in a window of their own.
+    @Published private(set) var poppedOutIDs: Set<Int> = []
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
     private let uxplayPathKey = "uxplayPath"
+    private let poppedOutKey = "poppedOutSlots"
+
+    private var popOutWindows: [Int: PopOutWindow] = [:]
+    /// Set while quitting, so windows closing then are still reopened next launch.
+    private var terminating = false
 
     static let maxSlots = 8
 
@@ -19,6 +26,17 @@ final class SlotStore: ObservableObject {
         let configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0)) }
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
+        slots.forEach(watch)
+    }
+
+    /// Saves a slot's config when it learns a new phone's name, and retitles windows to match.
+    private func watch(_ slot: Slot) {
+        slot.onConfigChanged = { [weak self] in
+            MainActor.assumeIsolated {
+                self?.save()
+                self?.updateWindowTitles()
+            }
+        }
     }
 
     // MARK: - uxplay
@@ -90,16 +108,20 @@ final class SlotStore: ObservableObject {
         let used = Set(slots.map(\.id))
         guard let id = (1...Self.maxSlots).first(where: { !used.contains($0) }) else { return }
         let slot = Slot(config: SlotConfig(id: id, name: SlotConfig.defaultName(for: id)))
+        watch(slot)
         slots.append(slot)
         slots.sort { $0.id < $1.id }
         if let uxplayURL { slot.start(uxplay: uxplayURL) }
         save()
+        updateWindowTitles()
     }
 
     func remove(_ slot: Slot) {
+        closeOwnWindow(slot)
         slot.stop()
         slots.removeAll { $0 === slot }
         save()
+        updateWindowTitles()
     }
 
     func restart(_ slot: Slot) {
@@ -112,7 +134,59 @@ final class SlotStore: ObservableObject {
         guard !trimmed.isEmpty, trimmed != slot.name else { return }
         slot.rename(to: trimmed, uxplay: uxplayURL)
         save()
+        updateWindowTitles()
         objectWillChange.send()
+    }
+
+    // MARK: - Own windows
+
+    func openOwnWindow(_ slot: Slot) {
+        if let existing = popOutWindows[slot.id] {
+            existing.show()
+            return
+        }
+        let window = PopOutWindow(slot: slot, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
+        let id = slot.id
+        window.onClose = { [weak self] in self?.ownWindowClosed(id) }
+        popOutWindows[id] = window
+        poppedOutIDs.insert(id)
+        window.show()
+        savePoppedOut()
+    }
+
+    func closeOwnWindow(_ slot: Slot) {
+        popOutWindows[slot.id]?.close()
+    }
+
+    /// Reopens the windows that were open when the app last quit.
+    func restoreOwnWindows() {
+        let ids = Set(defaults.array(forKey: poppedOutKey) as? [Int] ?? [])
+        slots.filter { ids.contains($0.id) }.forEach(openOwnWindow)
+    }
+
+    func prepareForTermination() {
+        terminating = true
+    }
+
+    private var windowTitles: [Int: String] {
+        SlotConfig.windowTitles(for: slots.map(\.config))
+    }
+
+    private func updateWindowTitles() {
+        let titles = windowTitles
+        for (id, window) in popOutWindows {
+            if let title = titles[id], window.window.title != title { window.window.title = title }
+        }
+    }
+
+    private func ownWindowClosed(_ id: Int) {
+        popOutWindows[id] = nil
+        poppedOutIDs.remove(id)
+        if !terminating { savePoppedOut() }
+    }
+
+    private func savePoppedOut() {
+        defaults.set(poppedOutIDs.sorted(), forKey: poppedOutKey)
     }
 
     private func save() {
