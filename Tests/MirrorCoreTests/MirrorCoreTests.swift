@@ -181,3 +181,31 @@ final class WindowTitleTests: XCTestCase {
         XCTAssertNil(slots[0].lastPhoneName)
     }
 }
+
+
+final class PackagedReceiverTests: XCTestCase {
+    private let packaged = "/Applications/MirrorWall.app/Contents/Resources/receiver/bin/uxplay"
+
+    func testPackagedReceiverUsesOnlyItsOwnPlugins() throws {
+        let environment = try XCTUnwrap(PackagedReceiver.environment(
+            forExecutableAt: packaged,
+            inheriting: ["HOME": "/Users/me", "GST_PLUGIN_PATH": "/opt/homebrew/lib/gstreamer-1.0"],
+            registryPath: "/Users/me/Library/Caches/MirrorWall/gstreamer-registry.bin",
+            fileExists: { $0 == "/Applications/MirrorWall.app/Contents/Resources/receiver/lib/gstreamer-1.0" }
+        ))
+        XCTAssertEqual(environment["GST_PLUGIN_SYSTEM_PATH"], "/Applications/MirrorWall.app/Contents/Resources/receiver/lib/gstreamer-1.0")
+        XCTAssertEqual(environment["GST_PLUGIN_SCANNER"], "/Applications/MirrorWall.app/Contents/Resources/receiver/libexec/gst-plugin-scanner")
+        XCTAssertEqual(environment["GST_REGISTRY"], "/Users/me/Library/Caches/MirrorWall/gstreamer-registry.bin")
+        XCTAssertNil(environment["GST_PLUGIN_PATH"])
+        XCTAssertEqual(environment["HOME"], "/Users/me")
+    }
+
+    func testOtherReceiversInheritTheEnvironment() {
+        // A uxplay built against Homebrew has no plugins folder beside it.
+        for path in ["/opt/homebrew/bin/uxplay", "/Users/me/UxPlay/build/uxplay", "/usr/local/bin/somethingelse"] {
+            XCTAssertNil(PackagedReceiver.environment(
+                forExecutableAt: path, inheriting: [:], registryPath: "/tmp/registry.bin", fileExists: { _ in false }
+            ))
+        }
+    }
+}

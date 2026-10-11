@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MirrorCore
 
 /// Runs one uxplay process and streams its output lines.
 ///
@@ -18,11 +19,29 @@ final class ReceiverProcess {
         self.onLine = onLine
         process.executableURL = executable
         process.arguments = arguments
+        if let environment = Self.packagedEnvironment(for: executable) {
+            process.environment = environment
+        }
         process.standardInput = FileHandle.nullDevice
         process.terminationHandler = { process in
             let status = process.terminationStatus
             DispatchQueue.main.async { onExit(status) }
         }
+    }
+
+    /// The environment for a uxplay that ships with its own GStreamer (the one inside
+    /// MirrorWall.app); nil for any other, which inherits the app's.
+    private static func packagedEnvironment(for executable: URL) -> [String: String]? {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let folder = caches.appendingPathComponent("MirrorWall")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return PackagedReceiver.environment(
+            forExecutableAt: executable.path,
+            inheriting: ProcessInfo.processInfo.environment,
+            registryPath: folder.appendingPathComponent("gstreamer-registry.bin").path,
+            fileExists: FileManager.default.fileExists(atPath:)
+        )
     }
 
     func start() throws {
