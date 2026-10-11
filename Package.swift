@@ -11,7 +11,11 @@ let package = Package(
         // Platform-independent pieces: RTP parsing, H.264 reassembly, slot settings.
         .target(name: "MirrorCore"),
         // The macOS app: runs one uxplay receiver per slot and shows each phone in a tile.
-        .executableTarget(name: "MirrorWall", dependencies: ["MirrorCore"]),
+        .executableTarget(
+            name: "MirrorWall",
+            dependencies: ["MirrorCore"],
+            resources: [.copy("Resources/AppIcon.png")]
+        ),
         .testTarget(name: "MirrorCoreTests", dependencies: ["MirrorCore"]),
     ]
 )
