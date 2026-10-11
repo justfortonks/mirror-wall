@@ -128,8 +128,21 @@ final class UxPlayEventTests: XCTestCase {
 
     func testStreamPauseAndResume() {
         XCTAssertEqual(UxPlayEvent(line: "This packet indicates video stream is stopping"), .streamPaused)
-        XCTAssertEqual(UxPlayEvent(line: "begin video stream wxh = 498x1080; source 498x1080"), .streamStarted)
+        XCTAssertEqual(
+            UxPlayEvent(line: "Received unencrypted codec packet from client: payload_size 37 header 01 00 56 01  ts_client = 1791738799.849069"),
+            .streamPaused
+        )
+        XCTAssertEqual(
+            UxPlayEvent(line: "Received unencrypted codec packet from client: payload_size 37 header 01 00 16 01  ts_client = 1791738808.749092"),
+            .streamStarted
+        )
+        XCTAssertEqual(UxPlayEvent(line: "video renderer resumed: state PAUSED"), .streamStarted)
         XCTAssertEqual(UxPlayEvent(line: "raop_rtp_mirror starting mirroring"), .streamStarted)
+    }
+
+    func testBeginVideoStreamIsNotAResume() {
+        // uxplay prints this right after a stop too.
+        XCTAssertNil(UxPlayEvent(line: "begin video stream wxh = 498x1080; source 498x1080"))
     }
 
     func testOtherLinesAreIgnored() {

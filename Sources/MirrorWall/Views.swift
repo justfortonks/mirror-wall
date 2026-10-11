@@ -162,35 +162,40 @@ struct SlotTile: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-            Text(slot.name)
-                .font(.headline)
-                .lineLimit(1)
-            if let phone = slot.phoneName, slot.state != .disconnected {
-                Text(phone)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                Text(slot.name)
+                    .font(.headline)
                     .lineLimit(1)
+                Spacer(minLength: 4)
+                Menu {
+                    menuItems
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            Spacer(minLength: 4)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(statusText(now: context.date))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                // The phone's name gives way when space is short; the status never does.
+                Text(slot.state == .disconnected ? "" : slot.phoneName ?? "")
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(statusText(now: context.date))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
-            Menu {
-                menuItems
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.button)
-            .buttonStyle(.borderless)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.leading, 14)
         }
     }
 

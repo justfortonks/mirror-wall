@@ -36,6 +36,10 @@ final class Slot: ObservableObject, Identifiable {
 
     private var process: ReceiverProcess?
     private var receiver: UDPReceiver?
+    /// When the phone last paused its stream. A locked phone can still send a frame or two (its lock
+    /// screen), so frames only count as a resume once they keep coming after this.
+    private var pausedAt: Date?
+    private var logFile: FileHandle?
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
     private var generation = 0
 
@@ -55,6 +59,7 @@ final class Slot: ObservableObject, Identifiable {
         generation += 1
         let currentGeneration = generation
         log = []
+        openLogFile()
         depacketizer.reset()
 
         let receiver = UDPReceiver(port: config.rtpPort) { [weak self] datagram in
@@ -144,13 +149,17 @@ final class Slot: ObservableObject, Identifiable {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
             }
-            if self.state != .live && self.state != .disconnected { self.state = .live }
+            let pauseSettled = self.pausedAt.map { Date().timeIntervalSince($0) > 3 } ?? true
+            if self.state != .live && self.state != .disconnected && (self.state != .paused || pauseSettled) {
+                self.state = .live
+            }
         }
     }
 
     // MARK: - Main queue
 
     private func append(_ line: String) {
+        logFile?.write(Data((line + "\n").utf8))
         log.append(line)
         if log.count > 300 { log.removeFirst(log.count - 300) }
         if let event = UxPlayEvent(line: line) {
@@ -166,12 +175,23 @@ final class Slot: ObservableObject, Identifiable {
         case .streamStarted:
             if state == .connecting || state == .paused || state == .disconnected { state = .live }
         case .streamPaused:
-            if state == .live { state = .paused }
+            pausedAt = Date()
+            if state == .live || state == .connecting { state = .paused }
         case .openConnections(0), .lostConnection:
             if state != .waiting { state = .disconnected }
         case .openConnections:
             break
         }
+    }
+
+    /// Mirrors the log to ~/Library/Logs/MirrorWall/slot-N.log (replaced on each start) for troubleshooting.
+    private func openLogFile() {
+        try? logFile?.close()
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/MirrorWall")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent("slot-\(config.id).log")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        logFile = try? FileHandle(forWritingTo: url)
     }
 
     private func processExited(_ status: Int32) {

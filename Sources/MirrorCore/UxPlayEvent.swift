@@ -33,7 +33,16 @@ public enum UxPlayEvent: Equatable {
             self = .lostConnection
         } else if line.contains("video stream is stopping") {
             self = .streamPaused
-        } else if line.hasPrefix("begin video stream") || line.contains("starting mirroring") {
+        } else if line.contains("codec packet from client"), let range = line.range(of: " header ") {
+            // "... header 01 00 56 01 ..." when the stream stops, "... header 01 00 16 01 ..." when it
+            // (re)starts: the third byte's 0x40 bit marks a stop.
+            let bytes = line[range.upperBound...].split(separator: " ").prefix(3)
+            guard bytes.count == 3, let flags = UInt8(bytes[bytes.index(bytes.startIndex, offsetBy: 2)], radix: 16) else {
+                return nil
+            }
+            self = flags & 0x40 != 0 ? .streamPaused : .streamStarted
+        } else if line.contains("video renderer resumed") || line.contains("starting mirroring") {
+            // Not "begin video stream": uxplay prints that after a stop as well as a start.
             self = .streamStarted
         } else {
             return nil

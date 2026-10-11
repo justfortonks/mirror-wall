@@ -51,7 +51,8 @@ access, allow it.
 
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
-  Show Log and Remove Slot.
+  Show Log and Remove Slot. Each slot's log is also written to
+  `~/Library/Logs/MirrorWall/slot-N.log`.
 - The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Locked or
   Disconnected. "No change for …" while live just means the screen hasn't changed.
 - **Locked phones:** when an iPhone's screen locks, its tile keeps the last picture and says
