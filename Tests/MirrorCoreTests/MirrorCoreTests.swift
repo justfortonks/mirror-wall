@@ -310,6 +310,13 @@ final class RecordingClockTests: XCTestCase {
         XCTAssertGreaterThan(clock.time(rtp: 0, arrival: 5.5), 0.5)
     }
 
+    func testUnknownStampUsesArrival() {
+        var clock = RecordingClock()
+        XCTAssertEqual(clock.time(rtp: nil, arrival: 3), 0)
+        XCTAssertEqual(clock.time(rtp: 45_000, arrival: 3.2), 0.2, accuracy: 1e-9)
+        XCTAssertEqual(clock.time(rtp: 46_500, arrival: 3.3), 0.2 + 1.0 / 60, accuracy: 1e-9)
+    }
+
     func testStaysNearArrivalTime() {
         var clock = RecordingClock()
         _ = clock.time(rtp: 0, arrival: 0)

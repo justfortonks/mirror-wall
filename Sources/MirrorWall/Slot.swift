@@ -78,8 +78,8 @@ final class Slot: ObservableObject, Identifiable {
 
     init(config: SlotConfig) {
         self.config = config
-        renderer.onCompressedFrame = { [weak self] avcc, format, isKeyframe, rtpTimestamp in
-            self?.record(avcc: avcc, format: format, isKeyframe: isKeyframe, rtpTimestamp: rtpTimestamp)
+        renderer.onPicture = { [weak self] image, rtpTimestamp in
+            self?.record(image: image, rtpTimestamp: rtpTimestamp)
         }
     }
 
@@ -179,7 +179,13 @@ final class Slot: ObservableObject, Identifiable {
                 self?.append("Recording: \(message)")
             }
         }
-        recorderLock.withLock { self.recorder = recorder }
+        recorderLock.withLock {
+            self.recorder = recorder
+            // Start with the picture on screen now: a still screen sends nothing until it changes.
+            if let image = renderer.currentImage {
+                recorder.append(image: image, rtpTimestamp: nil, arrival: Self.uptime())
+            }
+        }
         recordingError = nil
         recordingSince = Date()
         append("Recording to \(SlotRecorder.defaultFolder.path)")
@@ -196,10 +202,10 @@ final class Slot: ObservableObject, Identifiable {
         append("Recording stopped")
     }
 
-    /// UDP thread: hands a compressed frame to the recorder, if recording.
-    private func record(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool, rtpTimestamp: UInt32) {
+    /// Decoder thread: hands a picture to the recorder, if recording.
+    private func record(image: CVImageBuffer, rtpTimestamp: UInt32) {
         recorderLock.withLock {
-            recorder?.append(avcc: avcc, format: format, isKeyframe: isKeyframe, rtpTimestamp: rtpTimestamp, arrival: Self.uptime())
+            recorder?.append(image: image, rtpTimestamp: rtpTimestamp, arrival: Self.uptime())
         }
     }
 

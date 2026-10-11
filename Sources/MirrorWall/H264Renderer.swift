@@ -29,9 +29,16 @@ final class H264Renderer {
         formatDescription.map(CMVideoFormatDescriptionGetDimensions)
     }
 
-    /// Called with each frame handed to the decoder, still compressed (AVCC), for recording.
-    /// Runs on the UDP thread.
-    var onCompressedFrame: ((_ avcc: [UInt8], _ format: CMVideoFormatDescription, _ isKeyframe: Bool, _ rtpTimestamp: UInt32) -> Void)?
+    /// Called with each decoded picture and its frame's RTP timestamp, for recording. Runs on
+    /// the decoder's thread.
+    var onPicture: ((_ image: CVImageBuffer, _ rtpTimestamp: UInt32) -> Void)?
+
+    /// The picture on screen now, if any, e.g. to start a recording with.
+    var currentImage: CVImageBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastPicture.flatMap(CMSampleBufferGetImageBuffer)
+    }
 
     /// The stream's codec, profile and level, e.g. "H.264 High 4.2". Read on the UDP thread.
     var codecDescription: String? {
@@ -99,10 +106,8 @@ final class H264Renderer {
             guard frame.isKeyframe else { return false }
             waitingForKeyframe = false
         }
-        let avcc = avccData(for: videoNALs)
-        onCompressedFrame?(avcc, formatDescription, frame.isKeyframe, frame.timestamp)
         guard let session = session ?? makeSession(format: formatDescription),
-              let sample = Self.makeSampleBuffer(avcc: avcc, format: formatDescription) else {
+              let sample = Self.makeSampleBuffer(avcc: avccData(for: videoNALs), format: formatDescription) else {
             return false
         }
 
@@ -111,6 +116,7 @@ final class H264Renderer {
         ) { [weak self] status, _, imageBuffer, _, _ in
             guard status == noErr, let imageBuffer else { return }
             self?.show(imageBuffer)
+            self?.onPicture?(imageBuffer, frame.timestamp)
         }
         if status == kVTInvalidSessionErr {
             // The Mac slept or the GPU changed: start over at the next keyframe.
@@ -206,8 +212,7 @@ final class H264Renderer {
         return status == noErr ? description : nil
     }
 
-    /// A compressed frame as a sample buffer, with a presentation time if one is given.
-    static func makeSampleBuffer(avcc: [UInt8], format: CMVideoFormatDescription, presentationTime: CMTime? = nil) -> CMSampleBuffer? {
+    private static func makeSampleBuffer(avcc: [UInt8], format: CMVideoFormatDescription) -> CMSampleBuffer? {
         var blockBuffer: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
@@ -228,14 +233,13 @@ final class H264Renderer {
 
         var sampleBuffer: CMSampleBuffer?
         var sampleSize = avcc.count
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: presentationTime ?? .invalid, decodeTimeStamp: .invalid)
         status = CMSampleBufferCreateReady(
             allocator: kCFAllocatorDefault,
             dataBuffer: blockBuffer,
             formatDescription: format,
             sampleCount: 1,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
+            sampleTimingEntryCount: 0,
+            sampleTimingArray: nil,
             sampleSizeEntryCount: 1,
             sampleSizeArray: &sampleSize,
             sampleBufferOut: &sampleBuffer
