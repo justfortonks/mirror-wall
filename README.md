@@ -115,6 +115,9 @@ access, allow it.
   screen. iOS only sends frames when the screen
   changes, so a still screen shows few frames per second. Losses are packets dropped between
   uxplay and the app; the phone's own connection to the Mac is TCP and doesn't lose any.
+- **Frame rate:** View › Frame Rate Limit asks phones for at most 30 (uxplay's default) or 60
+  frames a second. A phone may still send fewer. Changing it restarts the receivers, so phones
+  have to reconnect. 60 roughly doubles the data while the screen is busy.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet
