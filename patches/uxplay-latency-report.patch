@@ -1,0 +1,29 @@
+diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
+index feb9b16..a677bf1 100644
+--- a/lib/raop_rtp_mirror.c
++++ b/lib/raop_rtp_mirror.c
+@@ -192,6 +192,8 @@ raop_rtp_mirror_thread(void *arg)
+     unsigned char nal_start_code[4] = { 0x00, 0x00, 0x00, 0x01 };
+     bool logger_debug = (logger_get_level(raop_rtp_mirror->logger) >= LOGGER_DEBUG);
+     bool logger_debug_data = (logger_get_level(raop_rtp_mirror->logger) >= LOGGER_DEBUG_DATA);
++    /* Mirror Wall: at plain debug level (-d 1), report one frame's latency per second */
++    uint64_t last_latency_report = 0;
+     bool h265_video = false;
+     video_codec_t codec = VIDEO_CODEC_UNKNOWN;
+     const char h264[] = "h264";
+@@ -396,8 +398,13 @@ raop_rtp_mirror_thread(void *arg)
+                 // counting nano seconds since last boot.
+ 
+                 ntp_timestamp_local = raop_ntp_convert_remote_time(raop_rtp_mirror->ntp, ntp_timestamp_remote);
+-                if (logger_debug_data) {
+-                    uint64_t ntp_now = raop_ntp_get_local_time();
++                uint64_t ntp_now = raop_ntp_get_local_time();
++                bool report_latency = logger_debug_data;
++                if (!report_latency && logger_debug && ntp_timestamp_local && ntp_now - last_latency_report >= SEC) {
++                    report_latency = true;
++                    last_latency_report = ntp_now;
++                }
++                if (report_latency) {
+                     int64_t latency = (ntp_timestamp_local ? ((int64_t) ntp_now) - ((int64_t) ntp_timestamp_local) : 0);
+                     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
+                                "raop_rtp video: now = %8.6f, ntp = %8.6f, latency = %9.6f, ts = %8.6f, %s %s, size: %d",

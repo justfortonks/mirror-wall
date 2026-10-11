@@ -39,6 +39,8 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var phoneName: String?
 
     let renderer = H264Renderer()
+    /// Numbers for the Stats for Nerds overlay, kept apart so they don't redraw everything else.
+    let stats = SlotStats()
     /// Called when the config changes on its own (a new phone's name), so it can be saved.
     var onConfigChanged: (() -> Void)?
 
@@ -60,6 +62,8 @@ final class Slot: ObservableObject, Identifiable {
 
     // Touched only on the UDP thread.
     private let depacketizer = H264Depacketizer()
+    private let meter = StreamMeter()
+    private var lostPacketsCounted = 0
     private var lastNotified: CFAbsoluteTime = 0
     private var lastDimensions: CMVideoDimensions?
 
@@ -80,6 +84,7 @@ final class Slot: ObservableObject, Identifiable {
             openLogFile()
         }
         depacketizer.reset()
+        meter.reset()
 
         let receiver = UDPReceiver(port: config.rtpPort) { [weak self] datagram in
             self?.handle(datagram)
@@ -128,6 +133,7 @@ final class Slot: ObservableObject, Identifiable {
         receiver?.stop()
         receiver = nil
         renderer.reset()
+        stats.clearStream()
         lastFrameAt = nil
         videoSize = nil
         phoneName = nil
@@ -152,9 +158,23 @@ final class Slot: ObservableObject, Identifiable {
 
     private func handle(_ datagram: [UInt8]) {
         guard let packet = RTPPacket(datagram) else { return }
+        let frames = depacketizer.push(packet)
+        let arrivedAt = Self.uptime()
+        meter.packet(bytes: packet.payload.count, lost: depacketizer.lostPackets - lostPacketsCounted, at: arrivedAt)
+        lostPacketsCounted = depacketizer.lostPackets
         var rendered = false
-        for frame in depacketizer.push(packet) where renderer.render(frame) {
-            rendered = true
+        for frame in frames {
+            let shown = renderer.render(frame)
+            meter.frame(at: arrivedAt, isKeyframe: frame.isKeyframe, macTime: shown ? Self.uptime() - arrivedAt : nil)
+            rendered = rendered || shown
+        }
+        if let snapshot = meter.snapshotIfDue(at: arrivedAt) {
+            let codec = renderer.codecDescription
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.process != nil else { return }
+                self.stats.stream = snapshot
+                self.stats.codec = codec
+            }
         }
         guard rendered else { return }
 
@@ -184,22 +204,28 @@ final class Slot: ObservableObject, Identifiable {
     // MARK: - Main queue
 
     private func append(_ line: String) {
-        logFile?.write(Data((line + "\n").utf8))
-        log.append(line)
-        if log.count > 300 { log.removeFirst(log.count - 300) }
-        if let event = UxPlayEvent(line: line) {
+        let event = UxPlayEvent(line: line)
+        // Latency reports come every second; they feed the stats overlay, not the log.
+        if case .videoLatency? = event {} else {
+            logFile?.write(Data((line + "\n").utf8))
+            log.append(line)
+            if log.count > 300 { log.removeFirst(log.count - 300) }
+        }
+        if let event {
             apply(event)
         }
     }
 
     private func apply(_ event: UxPlayEvent) {
         switch event {
-        case .clientConnecting(let name, _):
+        case .clientConnecting(let name, let model):
             // The decoder needs no reset here: a new stream starts with new parameter sets, which
             // rebuild it. (This line can also arrive after the new stream's first frames.)
             lastSignOfLifeAt = nil
             phoneName = name
             connectedSince = Date()
+            stats.phoneModel = model.isEmpty ? nil : model
+            stats.connections += 1
             if config.lastPhoneName != name {
                 objectWillChange.send()
                 config.lastPhoneName = name
@@ -219,6 +245,11 @@ final class Slot: ObservableObject, Identifiable {
             }
         case .heartbeat:
             lastSignOfLifeAt = Date()
+            stats.heartbeat()
+        case .networkRoundTrip(let seconds):
+            stats.roundTrip = seconds
+        case .videoLatency(let seconds):
+            stats.latency = seconds
         case .openConnections:
             break
         }
@@ -259,6 +290,11 @@ final class Slot: ObservableObject, Identifiable {
                 self.state = .disconnected
             }
         }
+    }
+
+    /// Seconds on a steady clock, for timing frames.
+    private static func uptime() -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds) / 1e9
     }
 
     /// Mirrors the log to ~/Library/Logs/MirrorWall/slot-N.log (replaced on each start) for troubleshooting.

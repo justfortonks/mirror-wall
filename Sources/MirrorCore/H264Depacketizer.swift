@@ -41,6 +41,8 @@ public final class H264Depacketizer {
 
     /// Number of gaps seen in RTP sequence numbers.
     public private(set) var sequenceGaps = 0
+    /// Number of packets missing from those gaps.
+    public private(set) var lostPackets = 0
 
     public init() {}
 
@@ -53,6 +55,9 @@ public final class H264Depacketizer {
 
         if let last = lastSequence, packet.sequenceNumber != last &+ 1 {
             sequenceGaps += 1
+            let missing = Int(packet.sequenceNumber &- last &- 1)
+            // A packet arriving late looks like a gap of almost 65536; it isn't a loss.
+            if missing < 1000 { lostPackets += missing }
             fragment = nil
         }
         lastSequence = packet.sequenceNumber

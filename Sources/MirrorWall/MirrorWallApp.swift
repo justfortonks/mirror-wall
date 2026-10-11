@@ -20,6 +20,7 @@ struct MirrorWallApp: App {
                 ShowMainWindowButton()
                 Divider()
             }
+            StatsCommands()
         }
     }
 }
