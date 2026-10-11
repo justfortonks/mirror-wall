@@ -95,6 +95,7 @@ struct SlotTile: View {
     let toggleFocus: () -> Void
 
     @State private var showingLog = false
+    @AppStorage(StatsSetting.key) private var showStats = false
     @State private var renaming = false
     @State private var newName = ""
 
@@ -106,6 +107,9 @@ struct SlotTile: View {
                     placeholder
                 } else if slot.state == .paused {
                     pausedBanner
+                }
+                if showStats {
+                    StatsOverlay(slot: slot, stats: slot.stats)
                 }
             }
             .aspectRatio(aspectRatio, contentMode: .fit)
@@ -234,6 +238,7 @@ struct SlotTile: View {
         }
         Button("Restart") { store.restart(slot) }
         Button("Show Log") { showingLog = true }
+        Toggle("Stats for Nerds", isOn: $showStats)
         Divider()
         Button("Remove Slot", role: .destructive) { store.remove(slot) }
     }

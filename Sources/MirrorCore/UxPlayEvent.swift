@@ -14,6 +14,12 @@ public enum UxPlayEvent: Equatable {
     case streamStarted
     /// The phone's regular check-in ("POST /feedback", every 2 seconds while it's connected).
     case heartbeat
+    /// Network round trip to the phone, in seconds, from uxplay's clock sync (every few seconds).
+    case networkRoundTrip(Double)
+    /// A frame's arrival time at uxplay minus the phone's timestamp for it, in seconds (offset by
+    /// a fixed, unknown amount per phone). Printed once a second by a uxplay with
+    /// `patches/uxplay-latency-report.patch`.
+    case videoLatency(Double)
 
     public init?(line: String) {
         if let range = line.range(of: "connection request from "),
@@ -31,6 +37,10 @@ public enum UxPlayEvent: Equatable {
             let digits = line[range.upperBound...].prefix { $0.isNumber }
             guard let count = Int(digits) else { return nil }
             self = .openConnections(count)
+        } else if line.contains("raop_rtp video:"), let latency = Self.number(after: "latency = ", in: line) {
+            self = .videoLatency(latency)
+        } else if line.contains("best NTP data:"), let delay = Self.number(after: "delay ", in: line) {
+            self = .networkRoundTrip(delay)
         } else if line.contains("POST /feedback") {
             self = .heartbeat
         } else if line.contains("lost connection with client") {
@@ -51,5 +61,12 @@ public enum UxPlayEvent: Equatable {
         } else {
             return nil
         }
+    }
+
+    /// The number following `label`, e.g. 0.0079 in "latency =  0.007900, ts = ...".
+    private static func number(after label: String, in line: String) -> Double? {
+        guard let range = line.range(of: label) else { return nil }
+        let text = line[range.upperBound...].drop { $0 == " " }.prefix { $0.isNumber || $0 == "." || $0 == "-" }
+        return Double(text)
     }
 }

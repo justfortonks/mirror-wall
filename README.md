@@ -51,6 +51,12 @@ macOS 27, it needs Apple Silicon and macOS 27.
   Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
   `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
   `scripts/build-app.sh` looks in the same places, or takes `UXPLAY=/path/to/uxplay`.
+- For the latency figure in Stats for Nerds, build uxplay with
+  `patches/uxplay-latency-report.patch` (`git apply` it in the UxPlay checkout, then rebuild).
+  It makes uxplay report one frame's timing a second at `-d 1`, converting the phone's frame
+  timestamp with uxplay's clock-sync offset. Unpatched, uxplay only reports latency in its full debug
+  mode (which also dumps every packet), and in UxPlay 1.74 that report always reads 0. Everything
+  else works without the patch.
 
 ## Build and run
 
@@ -98,6 +104,20 @@ access, allow it.
   the tile says Disconnected once it has gone 10 seconds without checking in.
   After any disconnect the slot restarts its receiver (uxplay sometimes fails to restart its
   video output on its own), so the slot's name disappears from Screen Mirroring for a second or two. To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
+- **Stats for Nerds** (View menu, ⌥⌘I, or a tile's ⋯ menu) puts each stream's numbers over its
+  tile in the main window; the slots' own windows stay clean for OBS. It shows the phone model and
+  codec, picture size, frames and bitrate per second, latency, network round trip, frame jitter,
+  keyframes, losses, and the phone's check-ins. **Lag vs best** compares each frame's arrival
+  with the phone's timestamp for it, relative to the best this connection has seen: it reads
+  about +0 ms and rises if the stream falls behind. The absolute phone-to-Mac delay can't be read
+  from the timestamps, which run ahead of the Mac's clock by a fixed amount that differs per
+  phone (60–100 ms in testing). **Decode** is the Mac's time from a frame arriving to it going on
+  screen. iOS only sends frames when the screen
+  changes, so a still screen shows few frames per second. Losses are packets dropped between
+  uxplay and the app; the phone's own connection to the Mac is TCP and doesn't lose any.
+- **Frame rate:** View › Frame Rate Limit asks phones for at most 30 (uxplay's default) or 60
+  frames a second. A phone may still send fewer. Changing it restarts the receivers, so phones
+  have to reconnect. 60 roughly doubles the data while the screen is busy.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet

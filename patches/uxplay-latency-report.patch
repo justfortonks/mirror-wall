@@ -1,0 +1,34 @@
+diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
+index feb9b16..e6a1788 100644
+--- a/lib/raop_rtp_mirror.c
++++ b/lib/raop_rtp_mirror.c
+@@ -192,6 +192,7 @@ raop_rtp_mirror_thread(void *arg)
+     unsigned char nal_start_code[4] = { 0x00, 0x00, 0x00, 0x01 };
+     bool logger_debug = (logger_get_level(raop_rtp_mirror->logger) >= LOGGER_DEBUG);
+     bool logger_debug_data = (logger_get_level(raop_rtp_mirror->logger) >= LOGGER_DEBUG_DATA);
++    uint64_t last_latency_report = 0;
+     bool h265_video = false;
+     video_codec_t codec = VIDEO_CODEC_UNKNOWN;
+     const char h264[] = "h264";
+@@ -404,6 +405,21 @@ raop_rtp_mirror_thread(void *arg)
+                                (double) ntp_now / SEC, (double) ntp_timestamp_local / SEC, (double) latency / SEC,
+                                (double) ntp_timestamp_remote / SEC, packet_description, (h265_video ? h265 : h264), payload_size);
+                 }
++                /* Mirror Wall: at plain debug level (-d 1), report one frame's latency a second.
++                 * raop_ntp_convert_remote_time() returns 0 here (client_time_received is never set),
++                 * so convert the frame's capture time with the clock-sync offset directly. */
++                if (logger_debug && !logger_debug_data) {
++                    uint64_t now = raop_ntp_get_local_time();
++                    int64_t offset_ns = 0;
++                    raop_ntp_get_sync_params(raop_rtp_mirror->ntp, &offset_ns, NULL);
++                    if (offset_ns && now - last_latency_report >= SEC) {
++                        last_latency_report = now;
++                        int64_t captured = ((int64_t) ntp_timestamp_remote) - offset_ns;
++                        logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
++                                   "raop_rtp video: now = %8.6f, ntp = %8.6f, latency = %9.6f (Mirror Wall report)",
++                                   (double) now / SEC, (double) captured / SEC, (double) (((int64_t) now) - captured) / SEC);
++                    }
++                }
+ 
+                 unsigned char* payload_out;
+                 unsigned char* payload_decrypted;
