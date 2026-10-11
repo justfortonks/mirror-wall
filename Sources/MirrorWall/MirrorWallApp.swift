@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         noNap = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .latencyCritical],
+            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
             reason: "Showing live iPhone screens that other apps may be capturing"
         )
         stopReceiversOnSignals()
