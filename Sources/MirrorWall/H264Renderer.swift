@@ -1,32 +1,74 @@
 import AVFoundation
 import CoreMedia
 import MirrorCore
+import VideoToolbox
 
-/// Decodes and displays H.264 frames with an AVSampleBufferDisplayLayer.
+/// Decodes H.264 frames once with VideoToolbox and shows each picture in any number of
+/// AVSampleBufferDisplayLayers, so a slot can appear in its tile and in its own window at once.
 ///
 /// Frames are shown the moment they arrive (no timestamp sync), which is what keeps the
 /// picture alive after a phone sleeps and wakes.
+///
+/// `render` and `reset` run on the slot's UDP thread or after it has stopped; layers are added
+/// and removed on the main thread.
 final class H264Renderer {
-    let layer = AVSampleBufferDisplayLayer()
-
     private var sps: [UInt8]?
     private var pps: [UInt8]?
     private var formatDescription: CMVideoFormatDescription?
+    private var session: VTDecompressionSession?
     private var waitingForKeyframe = true
 
-    init() {
-        layer.videoGravity = .resizeAspect
-        layer.backgroundColor = CGColor(gray: 0, alpha: 1)
-    }
+    private let lock = NSLock()
+    // Guarded by `lock`.
+    private var layers: [AVSampleBufferDisplayLayer] = []
+    private var lastPicture: CMSampleBuffer?
+    private var pictureFormat: CMVideoFormatDescription?
+    private var resetRequested = false
 
     /// Current picture size in pixels, once known.
     var dimensions: CMVideoDimensions? {
         formatDescription.map(CMVideoFormatDescriptionGetDimensions)
     }
 
-    /// Enqueues a frame. Returns true if it was handed to the decoder.
+    /// A new layer showing this slot's picture, starting with the latest one.
+    func makeLayer() -> AVSampleBufferDisplayLayer {
+        let layer = AVSampleBufferDisplayLayer()
+        layer.videoGravity = .resizeAspect
+        layer.backgroundColor = CGColor(gray: 0, alpha: 1)
+        lock.lock()
+        layers.append(layer)
+        let picture = lastPicture
+        lock.unlock()
+        if let picture { layer.sampleBufferRenderer.enqueue(picture) }
+        return layer
+    }
+
+    /// Puts the latest picture into a layer again, e.g. when its view is shown after being hidden.
+    func refresh(_ layer: AVSampleBufferDisplayLayer) {
+        lock.lock()
+        let picture = lastPicture
+        lock.unlock()
+        guard let picture else { return }
+        layer.sampleBufferRenderer.flush()
+        layer.sampleBufferRenderer.enqueue(picture)
+    }
+
+    func removeLayer(_ layer: AVSampleBufferDisplayLayer) {
+        lock.lock()
+        layers.removeAll { $0 === layer }
+        lock.unlock()
+        layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+    }
+
+    /// Decodes a frame. Returns true if it was handed to the decoder.
     @discardableResult
     func render(_ frame: H264Frame) -> Bool {
+        lock.lock()
+        let shouldReset = resetRequested
+        resetRequested = false
+        lock.unlock()
+        if shouldReset { reset() }
+
         var videoNALs: [[UInt8]] = []
         var parametersChanged = false
         for nal in frame.nalUnits {
@@ -43,11 +85,10 @@ final class H264Renderer {
         }
 
         if parametersChanged || formatDescription == nil {
-            // New stream or rotation: rebuild the format and start clean at the next keyframe.
+            // New stream or rotation: a fresh decoder that starts at the next keyframe.
             if let sps, let pps, let description = Self.makeFormatDescription(sps: sps, pps: pps) {
-                if parametersChanged { layer.sampleBufferRenderer.flush() }
                 formatDescription = description
-                waitingForKeyframe = true
+                invalidateSession()
             }
         }
 
@@ -56,28 +97,100 @@ final class H264Renderer {
             guard frame.isKeyframe else { return false }
             waitingForKeyframe = false
         }
-
-        if layer.sampleBufferRenderer.status == .failed {
-            layer.sampleBufferRenderer.flush()
-            waitingForKeyframe = true
-            if !frame.isKeyframe { return false }
-            waitingForKeyframe = false
-        }
-
-        guard let sample = Self.makeSampleBuffer(avcc: avccData(for: videoNALs), format: formatDescription) else {
+        guard let session = session ?? makeSession(format: formatDescription),
+              let sample = Self.makeSampleBuffer(avcc: avccData(for: videoNALs), format: formatDescription) else {
             return false
         }
-        layer.sampleBufferRenderer.enqueue(sample)
-        return true
+
+        let status = VTDecompressionSessionDecodeFrame(
+            session, sampleBuffer: sample, flags: [._1xRealTimePlayback], infoFlagsOut: nil
+        ) { [weak self] status, _, imageBuffer, _, _ in
+            guard status == noErr, let imageBuffer else { return }
+            self?.show(imageBuffer)
+        }
+        if status == kVTInvalidSessionErr {
+            // The Mac slept or the GPU changed: start over at the next keyframe.
+            invalidateSession()
+        }
+        return status == noErr
     }
 
-    /// Clears the picture, e.g. when the slot stops.
+    /// Asks for a `reset` before the next frame, from any thread: the decoder state belongs to the
+    /// thread that renders.
+    func requestReset() {
+        lock.lock()
+        resetRequested = true
+        lock.unlock()
+    }
+
+    /// Clears the picture, e.g. when the slot stops. Only call it from the rendering thread, or
+    /// once rendering has stopped.
     func reset() {
-        layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+        invalidateSession()
         sps = nil
         pps = nil
         formatDescription = nil
+        lock.lock()
+        let current = layers
+        resetRequested = false
+        lastPicture = nil
+        pictureFormat = nil
+        lock.unlock()
+        for layer in current {
+            layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+        }
+    }
+
+    private func makeSession(format: CMVideoFormatDescription) -> VTDecompressionSession? {
+        let attributes: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [CFString: Any]()]
+        var newSession: VTDecompressionSession?
+        let status = VTDecompressionSessionCreate(
+            allocator: kCFAllocatorDefault,
+            formatDescription: format,
+            decoderSpecification: nil,
+            imageBufferAttributes: attributes as CFDictionary,
+            outputCallback: nil,
+            decompressionSessionOut: &newSession
+        )
+        guard status == noErr, let newSession else { return nil }
+        VTSessionSetProperty(newSession, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        session = newSession
+        return newSession
+    }
+
+    private func invalidateSession() {
+        if let session { VTDecompressionSessionInvalidate(session) }
+        session = nil
         waitingForKeyframe = true
+    }
+
+    /// Hands a decoded picture to every layer.
+    private func show(_ imageBuffer: CVImageBuffer) {
+        lock.lock()
+        defer { lock.unlock() }
+        if pictureFormat.map({ !CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: imageBuffer) }) ?? true {
+            var format: CMVideoFormatDescription?
+            CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: imageBuffer, formatDescriptionOut: &format)
+            pictureFormat = format
+        }
+        guard let pictureFormat else { return }
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .invalid, decodeTimeStamp: .invalid)
+        var picture: CMSampleBuffer?
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: imageBuffer,
+            formatDescription: pictureFormat,
+            sampleTiming: &timing,
+            sampleBufferOut: &picture
+        )
+        guard let picture else { return }
+        Self.markDisplayImmediately(picture)
+        lastPicture = picture
+        for layer in layers {
+            let renderer = layer.sampleBufferRenderer
+            if renderer.status == .failed || renderer.requiresFlushToResumeDecoding { renderer.flush() }
+            renderer.enqueue(picture)
+        }
     }
 
     private static func makeFormatDescription(sps: [UInt8], pps: [UInt8]) -> CMVideoFormatDescription? {
@@ -132,16 +245,17 @@ final class H264Renderer {
             sampleBufferOut: &sampleBuffer
         )
         guard status == noErr, let sampleBuffer else { return nil }
-
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
-           CFArrayGetCount(attachments) > 0 {
-            let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(
-                dictionary,
-                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
-            )
-        }
         return sampleBuffer
+    }
+
+    private static func markDisplayImmediately(_ sampleBuffer: CMSampleBuffer) {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+              CFArrayGetCount(attachments) > 0 else { return }
+        let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
+        CFDictionarySetValue(
+            dictionary,
+            Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+            Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
+        )
     }
 }

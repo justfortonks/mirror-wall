@@ -151,3 +151,29 @@ final class UxPlayEventTests: XCTestCase {
         XCTAssertNil(UxPlayEvent(line: "video renderer pause: NO PREROLL"))
     }
 }
+
+final class WindowTitleTests: XCTestCase {
+    func testUsesLastPhoneNameElseSlotName() {
+        let titles = SlotConfig.windowTitles(for: [
+            SlotConfig(id: 1, name: "Mirror Wall 1", lastPhoneName: "Tom’s iPhone"),
+            SlotConfig(id: 2, name: "Mirror Wall 2"),
+        ])
+        XCTAssertEqual(titles, [1: "MacMirror-Tom’s iPhone", 2: "MacMirror-Mirror Wall 2"])
+    }
+
+    func testClashingNamesGetTheSlotNumber() {
+        let titles = SlotConfig.windowTitles(for: [
+            SlotConfig(id: 1, name: "Mirror Wall 1", lastPhoneName: "iPhone"),
+            SlotConfig(id: 2, name: "Mirror Wall 2", lastPhoneName: "iPhone"),
+            SlotConfig(id: 3, name: "Mirror Wall 3", lastPhoneName: "iPad"),
+        ])
+        XCTAssertEqual(titles, [1: "MacMirror-iPhone-1", 2: "MacMirror-iPhone-2", 3: "MacMirror-iPad"])
+    }
+
+    func testOlderSavedSlotsStillDecode() throws {
+        let data = Data(#"[{"id":1,"name":"Desk"}]"#.utf8)
+        let slots = try JSONDecoder().decode([SlotConfig].self, from: data)
+        XCTAssertEqual(slots, [SlotConfig(id: 1, name: "Desk")])
+        XCTAssertNil(slots[0].lastPhoneName)
+    }
+}

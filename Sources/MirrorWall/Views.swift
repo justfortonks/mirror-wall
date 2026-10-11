@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import MirrorCore
 import SwiftUI
 
@@ -34,8 +35,8 @@ struct ContentView: View {
         focusedSlotID.flatMap { id in store.slots.first { $0.id == id } }
     }
 
-    /// One grid for both modes: focusing filters it down to one slot, so that slot's tile (and the
-    /// video layer inside it) stays the same view instead of being rebuilt, which blanked the picture.
+    /// One grid for both modes: focusing filters it down to one slot, so that slot's tile stays the
+    /// same view instead of being rebuilt.
     private var grid: some View {
         GeometryReader { geometry in
             let focused = focusedSlot
@@ -100,8 +101,7 @@ struct SlotTile: View {
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
-                VideoLayerView(videoLayer: slot.renderer.layer)
-                    .opacity(showsPicture ? 1 : 0)
+                VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
                 if !showsPicture {
                     placeholder
                 } else if slot.state == .paused {
@@ -223,6 +223,11 @@ struct SlotTile: View {
     @ViewBuilder
     private var menuItems: some View {
         Button(isFocused ? "Back to All Slots" : "Show Only This Slot", action: toggleFocus)
+        if store.poppedOutIDs.contains(slot.id) {
+            Button("Close Own Window") { store.closeOwnWindow(slot) }
+        } else {
+            Button("Open in Own Window") { store.openOwnWindow(slot) }
+        }
         Button("Rename…") {
             newName = slot.name
             renaming = true
@@ -295,52 +300,69 @@ struct LogView: View {
     }
 }
 
-/// Hosts the slot's AVSampleBufferDisplayLayer. A layer can only be in one place, so the view
-/// that is on screen claims it; a view on its way out never takes it back.
+/// Shows a slot's picture through a display layer of its own, so the same slot can be on screen
+/// in several places (its tile and its own window).
 struct VideoLayerView: NSViewRepresentable {
-    let videoLayer: CALayer
+    let renderer: H264Renderer
+    var isShowing = true
 
     func makeNSView(context: Context) -> LayerHostView {
-        LayerHostView(hostedLayer: videoLayer)
+        let view = LayerHostView(renderer: renderer)
+        view.isShowing = isShowing
+        return view
     }
 
-    func updateNSView(_ view: LayerHostView, context: Context) {}
+    func updateNSView(_ view: LayerHostView, context: Context) {
+        view.isShowing = isShowing
+    }
+
+    static func dismantleNSView(_ view: LayerHostView, coordinator: ()) {
+        view.detach()
+    }
 
     final class LayerHostView: NSView {
-        private let hostedLayer: CALayer
+        private let renderer: H264Renderer
+        private let videoLayer: AVSampleBufferDisplayLayer
 
-        init(hostedLayer: CALayer) {
-            self.hostedLayer = hostedLayer
+        init(renderer: H264Renderer) {
+            self.renderer = renderer
+            videoLayer = renderer.makeLayer()
             super.init(frame: .zero)
+            let host = CALayer()
+            host.addSublayer(videoLayer)
+            layer = host
             wantsLayer = true
         }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("not used") }
 
+        /// Hidden while there's no current picture. When shown again (a phone reconnecting), the
+        /// layer is re-laid out and given the latest picture, so it doesn't sit on a stale one.
+        var isShowing = true {
+            didSet {
+                guard isShowing != oldValue else { return }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                videoLayer.isHidden = !isShowing
+                videoLayer.frame = bounds
+                CATransaction.commit()
+                if isShowing { renderer.refresh(videoLayer) }
+            }
+        }
+
+        func detach() {
+            renderer.removeLayer(videoLayer)
+        }
+
         // Let SwiftUI handle clicks (double-click to focus, context menu).
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard window != nil, let layer else { return }
-            if hostedLayer.superlayer !== layer {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                hostedLayer.removeFromSuperlayer()
-                layer.addSublayer(hostedLayer)
-                hostedLayer.frame = bounds
-                CATransaction.commit()
-            }
-            needsLayout = true
-        }
-
         override func layout() {
             super.layout()
-            guard hostedLayer.superlayer === layer else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            hostedLayer.frame = bounds
+            videoLayer.frame = bounds
             CATransaction.commit()
         }
     }

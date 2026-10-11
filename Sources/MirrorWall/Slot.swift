@@ -39,6 +39,8 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var phoneName: String?
 
     let renderer = H264Renderer()
+    /// Called when the config changes on its own (a new phone's name), so it can be saved.
+    var onConfigChanged: (() -> Void)?
 
     private var process: ReceiverProcess?
     private var receiver: UDPReceiver?
@@ -177,8 +179,17 @@ final class Slot: ObservableObject, Identifiable {
     private func apply(_ event: UxPlayEvent) {
         switch event {
         case .clientConnecting(let name, _):
+            // A new connection starts a new stream: drop the old picture and decoder so nothing
+            // stale is left showing.
+            renderer.requestReset()
+            lastFrameAt = nil
             phoneName = name
             connectedSince = Date()
+            if config.lastPhoneName != name {
+                objectWillChange.send()
+                config.lastPhoneName = name
+                onConfigChanged?()
+            }
             state = .connecting
         case .streamStarted:
             if state == .connecting || state == .paused || state == .disconnected { state = .live }
