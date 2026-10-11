@@ -68,7 +68,8 @@ access, allow it.
   Screen off. A locked phone whose screen lights up (button, notification) shows its lock
   screen live. iOS itself ends Screen Mirroring after about a minute with the screen off; the tile then says
   Disconnected, and the phone has to pick the slot again in Screen Mirroring (only the phone can
-  start AirPlay). To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
+  start AirPlay). A phone on a charger may just go quiet instead of ending the session;
+  the tile says Disconnected once it has gone 10 seconds without checking in. To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet

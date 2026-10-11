@@ -140,6 +140,10 @@ final class UxPlayEventTests: XCTestCase {
         XCTAssertEqual(UxPlayEvent(line: "raop_rtp_mirror starting mirroring"), .streamStarted)
     }
 
+    func testHeartbeat() {
+        XCTAssertEqual(UxPlayEvent(line: "httpd: request POST /feedback RTSP/1.0"), .heartbeat)
+    }
+
     func testBeginVideoStreamIsNotAResume() {
         // uxplay prints this right after a stop too.
         XCTAssertNil(UxPlayEvent(line: "begin video stream wxh = 498x1080; source 498x1080"))

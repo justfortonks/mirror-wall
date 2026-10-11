@@ -1,34 +1,24 @@
+import Darwin
 import Foundation
 
 /// Runs one uxplay process and streams its output lines.
+///
+/// uxplay's output goes to a pseudo-terminal rather than a pipe: into a pipe, it arrives in
+/// blocks of about 16 KB, which left the app up to ~18 seconds behind on connects, screen-offs
+/// and disconnects. On a terminal it arrives line by line.
 final class ReceiverProcess {
     private let process = Process()
-    private let output = Pipe()
+    private var masterFD: Int32 = -1
+    private var reader: DispatchSourceRead?
     private var partialLine = ""
+    private let onLine: (String) -> Void
 
     /// Both callbacks arrive on the main queue.
     init(executable: URL, arguments: [String], onLine: @escaping (String) -> Void, onExit: @escaping (Int32) -> Void) {
+        self.onLine = onLine
         process.executableURL = executable
         process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = output
         process.standardInput = FileHandle.nullDevice
-
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
-            let text = String(decoding: data, as: UTF8.self)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.partialLine += text
-                var lines = self.partialLine.components(separatedBy: "\n")
-                self.partialLine = lines.removeLast()
-                lines.filter { !$0.isEmpty }.forEach(onLine)
-            }
-        }
         process.terminationHandler = { process in
             let status = process.terminationStatus
             DispatchQueue.main.async { onExit(status) }
@@ -36,13 +26,31 @@ final class ReceiverProcess {
     }
 
     func start() throws {
-        try process.run()
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let terminal = FileHandle(fileDescriptor: slave, closeOnDealloc: true)
+        process.standardOutput = terminal
+        process.standardError = terminal
+        do {
+            try process.run()
+        } catch {
+            close(master)
+            throw error
+        }
+        // The child has its own copy now; ours would keep the terminal open after it exits.
+        try? terminal.close()
+        masterFD = master
+        startReading()
     }
 
     var isRunning: Bool { process.isRunning }
 
     /// Asks uxplay to shut down cleanly (SIGINT), then forces it if it hasn't exited.
     func stop(waitingUpTo timeout: TimeInterval = 1.5) {
+        defer { reader?.cancel() }
         guard process.isRunning else { return }
         process.interrupt()
         let deadline = Date().addingTimeInterval(timeout)
@@ -58,5 +66,32 @@ final class ReceiverProcess {
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
         }
+    }
+
+    private func startReading() {
+        let fd = masterFD
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .utility))
+        source.setEventHandler { [weak self, weak source] in
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let count = read(fd, &buffer, buffer.count)
+            // 0 or an error (EIO once uxplay has exited and the terminal is gone) ends the output.
+            guard count > 0 else {
+                source?.cancel()
+                return
+            }
+            let text = String(decoding: buffer[0..<count], as: UTF8.self)
+            DispatchQueue.main.async { self?.received(text) }
+        }
+        source.setCancelHandler { close(fd) }
+        reader = source
+        source.resume()
+    }
+
+    private func received(_ text: String) {
+        // A terminal ends lines with "\r\n".
+        partialLine += text.replacingOccurrences(of: "\r", with: "")
+        var lines = partialLine.components(separatedBy: "\n")
+        partialLine = lines.removeLast()
+        lines.filter { !$0.isEmpty }.forEach(onLine)
     }
 }
