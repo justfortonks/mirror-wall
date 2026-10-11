@@ -29,11 +29,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = SlotStore()
 
     private var signalSources: [DispatchSourceSignal] = []
+    /// Keeps macOS from napping the app while its windows are hidden, e.g. behind a full-screen
+    /// OBS projector: the pictures it draws are still being captured.
+    private var noNap: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Needed when launched with `swift run` rather than from an app bundle.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        noNap = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .latencyCritical],
+            reason: "Showing live iPhone screens that other apps may be capturing"
+        )
         stopReceiversOnSignals()
         SlotStore.stopLeftoverReceivers()
         store.startAll()
