@@ -32,7 +32,7 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 - macOS 14 or later, Xcode (or the Swift toolchain).
 - A `uxplay` build that supports `-vrtp` (UxPlay 1.72 or later). Homebrew has no UxPlay
   formula, so build it from source following UxPlay's README. The app looks for it in
-  `/opt/homebrew/bin`, `/usr/local/bin` and `~/Documents/Claude Code/Apple Casting App/UxPlay`,
+  `/opt/homebrew/bin`, `/usr/local/bin` and `~/Documents/Claude Code/casting app/UxPlay`,
   or you can pick it with **File › Choose uxplay…**.
 
 ## Build and run

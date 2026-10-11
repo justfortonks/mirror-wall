@@ -55,7 +55,7 @@ struct SetupView: View {
                 .foregroundStyle(.secondary)
             Text("Mirror Wall needs uxplay")
                 .font(.title2.bold())
-            Text("It looks in /opt/homebrew/bin, /usr/local/bin and the Apple Casting App folder. Point it at the uxplay you built.")
+            Text("It looks in /opt/homebrew/bin, /usr/local/bin and the casting app folder. Point it at the uxplay you built.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)

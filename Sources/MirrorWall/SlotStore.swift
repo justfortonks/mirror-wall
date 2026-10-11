@@ -26,13 +26,12 @@ final class SlotStore: ObservableObject {
     /// Places uxplay is commonly found, after any path the user picked.
     static func candidatePaths(savedPath: String?) -> [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let testFolder = home + "/Documents/Claude Code/Apple Casting App/UxPlay"
+        // Where the milestone 1 test built UxPlay.
+        let testFolders = ["casting app", "Apple Casting App"].map { home + "/Documents/Claude Code/\($0)/UxPlay" }
         return [savedPath].compactMap { $0 } + [
             "/opt/homebrew/bin/uxplay",
             "/usr/local/bin/uxplay",
-            testFolder + "/build/uxplay",
-            testFolder + "/uxplay",
-        ]
+        ] + testFolders.flatMap { [$0 + "/build/uxplay", $0 + "/uxplay"] }
     }
 
     static func locateUxPlay(savedPath: String?) -> URL? {
