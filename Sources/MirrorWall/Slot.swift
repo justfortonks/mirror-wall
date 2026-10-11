@@ -23,7 +23,13 @@ final class Slot: ObservableObject, Identifiable {
     private(set) var config: SlotConfig
     var id: Int { config.id }
 
-    @Published private(set) var state: State = .stopped
+    @Published private(set) var state: State = .stopped {
+        didSet { if state != oldValue { stateSince = Date() } }
+    }
+    /// When the current state began, e.g. how long the screen has been off.
+    @Published private(set) var stateSince = Date()
+    /// When the current phone connected; nil when none is.
+    @Published private(set) var connectedSince: Date?
     /// When the last picture arrived; nil until the first one.
     @Published private(set) var lastFrameAt: Date?
     /// Picture size in pixels, used for the tile's aspect ratio.
@@ -108,6 +114,7 @@ final class Slot: ObservableObject, Identifiable {
         lastFrameAt = nil
         videoSize = nil
         phoneName = nil
+        connectedSince = nil
         state = .stopped
     }
 
@@ -171,6 +178,7 @@ final class Slot: ObservableObject, Identifiable {
         switch event {
         case .clientConnecting(let name, _):
             phoneName = name
+            connectedSince = Date()
             state = .connecting
         case .streamStarted:
             if state == .connecting || state == .paused || state == .disconnected { state = .live }
@@ -178,6 +186,7 @@ final class Slot: ObservableObject, Identifiable {
             pausedAt = Date()
             if state == .live || state == .connecting { state = .paused }
         case .openConnections(0), .lostConnection:
+            connectedSince = nil
             if state != .waiting { state = .disconnected }
         case .openConnections:
             break
