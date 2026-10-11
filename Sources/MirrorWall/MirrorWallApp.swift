@@ -16,6 +16,10 @@ struct MirrorWallApp: App {
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Button("Choose uxplay…") { appDelegate.store.chooseUxPlay() }
             }
+            CommandGroup(before: .windowList) {
+                ShowMainWindowButton()
+                Divider()
+            }
         }
     }
 }
@@ -56,7 +60,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.stopAll()
     }
 
+    /// Clicking the Dock icon brings back the main window, even when it's minimized and slots'
+    /// own windows are open.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainWindow.show()
+        return false
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+/// Brings back the main window from anywhere: the Window menu, the Dock icon, or a slot's own window.
+@MainActor
+enum MainWindow {
+    /// SwiftUI's action for reopening the main window if it was closed; set by the menu item.
+    static var open: OpenWindowAction?
+
+    static func show() {
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            open?(id: "main")
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+struct ShowMainWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Show Mirror Wall Window") {
+            MainWindow.open = openWindow
+            MainWindow.show()
+        }
+        .keyboardShortcut("0")
+        .onAppear { MainWindow.open = openWindow }
     }
 }

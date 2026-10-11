@@ -179,6 +179,10 @@ final class Slot: ObservableObject, Identifiable {
     private func apply(_ event: UxPlayEvent) {
         switch event {
         case .clientConnecting(let name, _):
+            // A new connection starts a new stream: drop the old picture and decoder so nothing
+            // stale is left showing.
+            renderer.reset()
+            lastFrameAt = nil
             phoneName = name
             connectedSince = Date()
             if config.lastPhoneName != name {
