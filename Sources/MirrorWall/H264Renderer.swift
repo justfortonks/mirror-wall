@@ -31,7 +31,7 @@ final class H264Renderer {
 
     /// Called with each frame handed to the decoder, still compressed (AVCC), for recording.
     /// Runs on the UDP thread.
-    var onCompressedFrame: ((_ avcc: [UInt8], _ format: CMVideoFormatDescription, _ isKeyframe: Bool) -> Void)?
+    var onCompressedFrame: ((_ avcc: [UInt8], _ format: CMVideoFormatDescription, _ isKeyframe: Bool, _ rtpTimestamp: UInt32) -> Void)?
 
     /// The stream's codec, profile and level, e.g. "H.264 High 4.2". Read on the UDP thread.
     var codecDescription: String? {
@@ -100,7 +100,7 @@ final class H264Renderer {
             waitingForKeyframe = false
         }
         let avcc = avccData(for: videoNALs)
-        onCompressedFrame?(avcc, formatDescription, frame.isKeyframe)
+        onCompressedFrame?(avcc, formatDescription, frame.isKeyframe, frame.timestamp)
         guard let session = session ?? makeSession(format: formatDescription),
               let sample = Self.makeSampleBuffer(avcc: avcc, format: formatDescription) else {
             return false
