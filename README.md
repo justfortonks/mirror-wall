@@ -27,21 +27,46 @@ showed the picture freezes for good after a phone sleeps and wakes; without it, 
 
 The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 
-## Requirements
+## Install on another Mac
+
+`scripts/make-dmg.sh` builds `MirrorWall.dmg`, a disk image holding the complete app: it carries
+its own uxplay and the parts of GStreamer uxplay needs, so the other Mac needs nothing installed
+(no Homebrew, no Xcode).
+
+1. Copy `MirrorWall.dmg` to the other Mac, open it and drag **Mirror Wall** to Applications.
+2. Open it. The app is signed ad hoc, not by a registered developer, so macOS blocks the first
+   launch: go to System Settings › Privacy & Security, find the message about Mirror Wall and
+   click **Open Anyway**. This is needed once per Mac.
+3. When macOS asks whether Mirror Wall may find devices on the local network, allow it.
+
+The packaged app runs on the same kind of Mac and macOS version (or later) as the one that built
+it: the libraries inside come from that Mac's Homebrew. Built on an Apple Silicon Mac with
+macOS 27, it needs Apple Silicon and macOS 27.
+
+## Requirements for building
 
 - macOS 14 or later, Xcode (or the Swift toolchain).
 - A `uxplay` build that supports `-vrtp` (UxPlay 1.72 or later). Homebrew has no UxPlay
-  formula, so build it from source following UxPlay's README. The app looks for it in
-  `/opt/homebrew/bin`, `/usr/local/bin` and `~/Documents/Claude Code/casting app/UxPlay`,
-  or you can pick it with **File › Choose uxplay…**.
+  formula, so build it from source following UxPlay's README (it needs Homebrew's `gstreamer`).
+  Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
+  `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
+  `scripts/build-app.sh` looks in the same places, or takes `UXPLAY=/path/to/uxplay`.
 
 ## Build and run
 
 ```sh
 swift test                 # unit tests for RTP parsing and H.264 reassembly
-swift run MirrorWall       # run straight from the checkout
-scripts/build-app.sh       # or build MirrorWall.app (ad-hoc signed) to keep in /Applications
+swift run MirrorWall       # run straight from the checkout, using the uxplay on this Mac
+scripts/build-app.sh       # build MirrorWall.app (ad-hoc signed) with uxplay and GStreamer inside
+scripts/make-dmg.sh        # the same, packed into MirrorWall.dmg for another Mac
 ```
+
+`scripts/bundle-receiver.py` does the packaging: it copies uxplay, eight GStreamer plugins and
+the libraries they load into `MirrorWall.app/Contents/Resources/receiver`, and rewrites their
+load paths so they find each other there instead of in Homebrew. Three of the plugins (libav,
+playback, autodetect) are there only because uxplay won't start without them. The app runs that
+uxplay with GStreamer pointed at those plugins alone. UxPlay is GPLv3 and GStreamer LGPL, which
+matters if the app is ever given to anyone else.
 
 Then on each iPhone: Control Center › Screen Mirroring › pick a slot's name. The iPhones must
 be on the same Wi-Fi as the Mac. If macOS asks to allow incoming connections or local network
