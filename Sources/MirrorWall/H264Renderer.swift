@@ -23,7 +23,6 @@ final class H264Renderer {
     private var layers: [AVSampleBufferDisplayLayer] = []
     private var lastPicture: CMSampleBuffer?
     private var pictureFormat: CMVideoFormatDescription?
-    private var resetRequested = false
 
     /// Current picture size in pixels, once known.
     var dimensions: CMVideoDimensions? {
@@ -63,12 +62,6 @@ final class H264Renderer {
     /// Decodes a frame. Returns true if it was handed to the decoder.
     @discardableResult
     func render(_ frame: H264Frame) -> Bool {
-        lock.lock()
-        let shouldReset = resetRequested
-        resetRequested = false
-        lock.unlock()
-        if shouldReset { reset() }
-
         var videoNALs: [[UInt8]] = []
         var parametersChanged = false
         for nal in frame.nalUnits {
@@ -115,16 +108,7 @@ final class H264Renderer {
         return status == noErr
     }
 
-    /// Asks for a `reset` before the next frame, from any thread: the decoder state belongs to the
-    /// thread that renders.
-    func requestReset() {
-        lock.lock()
-        resetRequested = true
-        lock.unlock()
-    }
-
-    /// Clears the picture, e.g. when the slot stops. Only call it from the rendering thread, or
-    /// once rendering has stopped.
+    /// Clears the picture, e.g. when the slot stops. Only call it once rendering has stopped.
     func reset() {
         invalidateSession()
         sps = nil
@@ -132,7 +116,6 @@ final class H264Renderer {
         formatDescription = nil
         lock.lock()
         let current = layers
-        resetRequested = false
         lastPicture = nil
         pictureFormat = nil
         lock.unlock()

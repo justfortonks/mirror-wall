@@ -12,6 +12,8 @@ public enum UxPlayEvent: Equatable {
     case streamPaused
     /// The phone started or resumed the video stream.
     case streamStarted
+    /// The phone's regular check-in ("POST /feedback", every 2 seconds while it's connected).
+    case heartbeat
 
     public init?(line: String) {
         if let range = line.range(of: "connection request from "),
@@ -29,6 +31,8 @@ public enum UxPlayEvent: Equatable {
             let digits = line[range.upperBound...].prefix { $0.isNumber }
             guard let count = Int(digits) else { return nil }
             self = .openConnections(count)
+        } else if line.contains("POST /feedback") {
+            self = .heartbeat
         } else if line.contains("lost connection with client") {
             self = .lostConnection
         } else if line.contains("video stream is stopping") {
