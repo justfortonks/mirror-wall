@@ -11,7 +11,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MirrorWall"
 
-# App icon: every size macOS asks for, from the 1024-pixel PNG (drawn in design/AppIcon.svg).
+# App icon: every size macOS asks for, from the 1024-pixel PNG.
 ICONSET="$(mktemp -d)/AppIcon.iconset"
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
