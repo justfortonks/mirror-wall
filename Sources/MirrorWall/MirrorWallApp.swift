@@ -20,6 +20,7 @@ struct MirrorWallApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = SlotStore()
 
