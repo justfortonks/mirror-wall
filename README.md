@@ -58,8 +58,7 @@ access, allow it.
   each phone its own name in Settings › General › About avoids that. The window's buttons appear
   when the pointer is over it. Open windows, and where they were, come back the next time the app
   starts. OBS captures the window even behind other windows. It can't capture a minimized
-  window, so these windows have no minimize button; leave them behind other windows instead. They also show on every desktop,
-  so a full-screen OBS projector on the same display doesn't take them off screen.
+  window, so these windows have no minimize button; leave them behind other windows instead.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
   Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.
