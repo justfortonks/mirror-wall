@@ -10,9 +10,6 @@ struct ContentView: View {
         Group {
             if store.uxplayURL == nil {
                 SetupView()
-            } else if let id = focusedSlotID, let slot = store.slots.first(where: { $0.id == id }) {
-                SlotTile(slot: slot, isFocused: true) { focusedSlotID = nil }
-                    .padding()
             } else {
                 grid
             }
@@ -32,14 +29,35 @@ struct ContentView: View {
         }
     }
 
+    /// The focused slot, if it still exists.
+    private var focusedSlot: Slot? {
+        focusedSlotID.flatMap { id in store.slots.first { $0.id == id } }
+    }
+
+    /// One grid for both modes: focusing filters it down to one slot, so that slot's tile (and the
+    /// video layer inside it) stays the same view instead of being rebuilt, which blanked the picture.
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                ForEach(store.slots) { slot in
-                    SlotTile(slot: slot, isFocused: false) { focusedSlotID = slot.id }
+        GeometryReader { geometry in
+            let focused = focusedSlot
+            ScrollView {
+                LazyVGrid(
+                    columns: focused == nil
+                        ? [GridItem(.adaptive(minimum: 220), spacing: 16)]
+                        : [GridItem(.flexible())],
+                    spacing: 16
+                ) {
+                    ForEach(focused.map { [$0] } ?? store.slots) { slot in
+                        SlotTile(
+                            slot: slot,
+                            isFocused: focused != nil,
+                            maxVideoHeight: focused != nil ? max(200, geometry.size.height - 90) : nil
+                        ) {
+                            focusedSlotID = focused == nil ? slot.id : nil
+                        }
+                    }
                 }
+                .padding()
             }
-            .padding()
         }
     }
 }
@@ -71,6 +89,8 @@ struct SlotTile: View {
     @EnvironmentObject private var store: SlotStore
     @ObservedObject var slot: Slot
     let isFocused: Bool
+    /// In single-slot view, keeps the picture within the window.
+    var maxVideoHeight: CGFloat? = nil
     let toggleFocus: () -> Void
 
     @State private var showingLog = false
@@ -93,6 +113,7 @@ struct SlotTile: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
             .onTapGesture(count: 2, perform: toggleFocus)
+            .frame(maxHeight: maxVideoHeight ?? .infinity)
 
             footer
         }
