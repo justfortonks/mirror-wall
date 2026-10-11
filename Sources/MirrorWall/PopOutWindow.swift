@@ -30,7 +30,10 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
         window.backgroundColor = .black
-        window.collectionBehavior.insert(.fullScreenPrimary)
+        // On every desktop, including the one a full-screen app (an OBS projector) makes for
+        // itself. Otherwise going full screen moves the window off screen, and capture stalls
+        // for seconds each time. Behind the projector it's only covered, which captures fine.
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.contentView = NSHostingView(rootView: PopOutView(
             slot: slot,
             onClose: { [weak self] in self?.close() },
