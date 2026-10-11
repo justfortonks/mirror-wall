@@ -52,8 +52,12 @@ access, allow it.
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
   Show Log and Remove Slot.
-- "No change for …" under a tile means no new picture has arrived. iPhones send nothing while
-  the screen is unchanged or locked, so this is a hint, not an error.
+- The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Locked or
+  Disconnected. "No change for …" while live just means the screen hasn't changed.
+- **Locked phones:** when an iPhone's screen locks, its tile keeps the last picture and says
+  Locked. iOS itself ends Screen Mirroring after about a minute locked; the tile then says
+  Disconnected, and the phone has to pick the slot again in Screen Mirroring (only the phone can
+  start AirPlay). To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet

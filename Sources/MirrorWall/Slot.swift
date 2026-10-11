@@ -8,8 +8,15 @@ import MirrorCore
 final class Slot: ObservableObject, Identifiable {
     enum State: Equatable {
         case stopped
+        /// Receiver running, no phone attached.
         case waiting
+        /// A phone is connecting; no picture yet.
+        case connecting
         case live
+        /// The phone paused its stream, usually because its screen locked.
+        case paused
+        /// The phone stopped mirroring; it has to reconnect from Screen Mirroring.
+        case disconnected
         case failed(String)
     }
 
@@ -22,6 +29,8 @@ final class Slot: ObservableObject, Identifiable {
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
     @Published private(set) var log: [String] = []
+    /// The connected phone's name, as it introduced itself to uxplay.
+    @Published private(set) var phoneName: String?
 
     let renderer = H264Renderer()
 
@@ -93,6 +102,7 @@ final class Slot: ObservableObject, Identifiable {
         renderer.reset()
         lastFrameAt = nil
         videoSize = nil
+        phoneName = nil
         state = .stopped
     }
 
@@ -134,7 +144,7 @@ final class Slot: ObservableObject, Identifiable {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
             }
-            if self.state != .live { self.state = .live }
+            if self.state != .live && self.state != .disconnected { self.state = .live }
         }
     }
 
@@ -143,6 +153,25 @@ final class Slot: ObservableObject, Identifiable {
     private func append(_ line: String) {
         log.append(line)
         if log.count > 300 { log.removeFirst(log.count - 300) }
+        if let event = UxPlayEvent(line: line) {
+            apply(event)
+        }
+    }
+
+    private func apply(_ event: UxPlayEvent) {
+        switch event {
+        case .clientConnecting(let name, _):
+            phoneName = name
+            state = .connecting
+        case .streamStarted:
+            if state == .connecting || state == .paused || state == .disconnected { state = .live }
+        case .streamPaused:
+            if state == .live { state = .paused }
+        case .openConnections(0), .lostConnection:
+            if state != .waiting { state = .disconnected }
+        case .openConnections:
+            break
+        }
     }
 
     private func processExited(_ status: Int32) {

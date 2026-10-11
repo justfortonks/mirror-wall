@@ -81,9 +81,11 @@ struct SlotTile: View {
         VStack(spacing: 8) {
             ZStack {
                 VideoLayerView(videoLayer: slot.renderer.layer)
-                    .opacity(slot.lastFrameAt == nil ? 0 : 1)
-                if slot.lastFrameAt == nil {
+                    .opacity(showsPicture ? 1 : 0)
+                if !showsPicture {
                     placeholder
+                } else if slot.state == .paused {
+                    pausedBanner
                 }
             }
             .aspectRatio(aspectRatio, contentMode: .fit)
@@ -110,6 +112,23 @@ struct SlotTile: View {
         return 9.0 / 19.5 // a portrait iPhone until the first picture arrives
     }
 
+    /// The last picture stays up while live or paused; a disconnected phone's stale frame is hidden.
+    private var showsPicture: Bool {
+        slot.lastFrameAt != nil && (slot.state == .live || slot.state == .paused)
+    }
+
+    private var pausedBanner: some View {
+        VStack {
+            Spacer()
+            Label("Screen locked. Unlock within about a minute or the iPhone stops mirroring.", systemImage: "lock.fill")
+                .font(.caption)
+                .padding(8)
+                .frame(maxWidth: .infinity)
+                .background(.black.opacity(0.7))
+                .foregroundStyle(.white)
+        }
+    }
+
     private var placeholder: some View {
         VStack(spacing: 10) {
             Image(systemName: placeholderIcon)
@@ -126,13 +145,17 @@ struct SlotTile: View {
         switch slot.state {
         case .failed: return "exclamationmark.triangle"
         case .stopped: return "pause.circle"
+        case .disconnected: return "iphone.slash"
         default: return "iphone"
         }
     }
 
     private var placeholderText: String {
         switch slot.state {
-        case .waiting, .live: return "On your iPhone, open Control Center › Screen Mirroring and pick “\(slot.name)”."
+        case .waiting, .live, .paused: return "On your iPhone, open Control Center › Screen Mirroring and pick “\(slot.name)”."
+        case .connecting: return "Connecting to \(slot.phoneName ?? "iPhone")…"
+        case .disconnected:
+            return "\(slot.phoneName ?? "The iPhone") stopped mirroring. To reconnect, pick “\(slot.name)” in Screen Mirroring on the phone."
         case .stopped: return "Stopped"
         case .failed(let message): return message
         }
@@ -146,6 +169,12 @@ struct SlotTile: View {
             Text(slot.name)
                 .font(.headline)
                 .lineLimit(1)
+            if let phone = slot.phoneName, slot.state != .disconnected {
+                Text(phone)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Spacer(minLength: 4)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(statusText(now: context.date))
@@ -181,7 +210,8 @@ struct SlotTile: View {
     private var statusColor: Color {
         switch slot.state {
         case .live: return .green
-        case .waiting: return .yellow
+        case .waiting, .connecting, .paused: return .yellow
+        case .disconnected: return .orange
         case .stopped: return .gray
         case .failed: return .red
         }
@@ -192,6 +222,9 @@ struct SlotTile: View {
         case .stopped: return "Stopped"
         case .failed: return "Error"
         case .waiting: return "Waiting"
+        case .connecting: return "Connecting"
+        case .paused: return "Locked"
+        case .disconnected: return "Disconnected"
         case .live:
             guard let last = slot.lastFrameAt else { return "Live" }
             let idle = Int(now.timeIntervalSince(last))
