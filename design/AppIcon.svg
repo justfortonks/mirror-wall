@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B3A67"/>
+      <stop offset="1" stop-color="#0F1730"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3FA7C9" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#3FA7C9" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5EE7DF"/>
+      <stop offset="0.55" stop-color="#4C8DF6"/>
+      <stop offset="1" stop-color="#8E5CF7"/>
+    </linearGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.45"/>
+      <stop offset="0.6" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="reflMask"><rect x="0" y="700" width="1024" height="324" fill="url(#fade)"/></mask>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="screenClip"><rect x="392" y="196" width="240" height="476" rx="40"/></clipPath>
+    <g id="phone">
+      <rect x="376" y="180" width="272" height="508" rx="56" fill="#E9EEF7"/>
+      <rect x="392" y="196" width="240" height="476" rx="40" fill="url(#screen)"/>
+      <g clip-path="url(#screenClip)">
+        <rect x="300" y="160" width="90" height="620" fill="url(#sheen)" transform="rotate(28 512 434)"/>
+        <rect x="420" y="250" width="56" height="56" rx="14" fill="#fff" fill-opacity="0.85"/>
+        <rect x="490" y="250" width="56" height="56" rx="14" fill="#fff" fill-opacity="0.6"/>
+        <rect x="560" y="250" width="56" height="56" rx="14" fill="#fff" fill-opacity="0.75"/>
+        <rect x="420" y="322" width="56" height="56" rx="14" fill="#fff" fill-opacity="0.6"/>
+        <rect x="490" y="322" width="56" height="56" rx="14" fill="#fff" fill-opacity="0.75"/>
+      </g>
+      <rect x="472" y="210" width="80" height="22" rx="11" fill="#0F1730"/>
+    </g>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="700" width="824" height="224" fill="url(#floor)" clip-path="inset(0 round 0 0 185px 185px)"/>
+  <line x1="180" y1="700" x2="844" y2="700" stroke="#7FD4EE" stroke-opacity="0.55" stroke-width="4"/>
+  <use href="#phone" transform="translate(0 -4)"/>
+  <g mask="url(#reflMask)"><use href="#phone" transform="translate(0 1396) scale(1 -1)"/></g>
+</svg>

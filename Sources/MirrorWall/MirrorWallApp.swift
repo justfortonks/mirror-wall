@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Needed when launched with `swift run` rather than from an app bundle.
         NSApp.setActivationPolicy(.regular)
+        showAppIcon()
         NSApp.activate(ignoringOtherApps: true)
         noNap = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
@@ -45,6 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SlotStore.stopLeftoverReceivers()
         store.startAll()
         store.restoreOwnWindows()
+    }
+
+    /// MirrorWall.app gets its icon from the bundle; run with `swift run`, the app sets it itself
+    /// so the Dock and app switcher still show it.
+    private func showAppIcon() {
+        guard Bundle.main.bundleURL.pathExtension != "app",
+              let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+              let icon = NSImage(contentsOf: url) else { return }
+        NSApp.applicationIconImage = icon
     }
 
     /// Ctrl-C or kill would otherwise end the app without stopping its uxplay processes,
