@@ -10,9 +10,6 @@ struct ContentView: View {
         Group {
             if store.uxplayURL == nil {
                 SetupView()
-            } else if let id = focusedSlotID, let slot = store.slots.first(where: { $0.id == id }) {
-                SlotTile(slot: slot, isFocused: true) { focusedSlotID = nil }
-                    .padding()
             } else {
                 grid
             }
@@ -32,14 +29,35 @@ struct ContentView: View {
         }
     }
 
+    /// The focused slot, if it still exists.
+    private var focusedSlot: Slot? {
+        focusedSlotID.flatMap { id in store.slots.first { $0.id == id } }
+    }
+
+    /// One grid for both modes: focusing filters it down to one slot, so that slot's tile (and the
+    /// video layer inside it) stays the same view instead of being rebuilt, which blanked the picture.
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                ForEach(store.slots) { slot in
-                    SlotTile(slot: slot, isFocused: false) { focusedSlotID = slot.id }
+        GeometryReader { geometry in
+            let focused = focusedSlot
+            ScrollView {
+                LazyVGrid(
+                    columns: focused == nil
+                        ? [GridItem(.adaptive(minimum: 220), spacing: 16)]
+                        : [GridItem(.flexible())],
+                    spacing: 16
+                ) {
+                    ForEach(focused.map { [$0] } ?? store.slots) { slot in
+                        SlotTile(
+                            slot: slot,
+                            isFocused: focused != nil,
+                            maxVideoHeight: focused != nil ? max(200, geometry.size.height - 90) : nil
+                        ) {
+                            focusedSlotID = focused == nil ? slot.id : nil
+                        }
+                    }
                 }
+                .padding()
             }
-            .padding()
         }
     }
 }
@@ -71,6 +89,8 @@ struct SlotTile: View {
     @EnvironmentObject private var store: SlotStore
     @ObservedObject var slot: Slot
     let isFocused: Bool
+    /// In single-slot view, keeps the picture within the window.
+    var maxVideoHeight: CGFloat? = nil
     let toggleFocus: () -> Void
 
     @State private var showingLog = false
@@ -81,9 +101,11 @@ struct SlotTile: View {
         VStack(spacing: 8) {
             ZStack {
                 VideoLayerView(videoLayer: slot.renderer.layer)
-                    .opacity(slot.lastFrameAt == nil ? 0 : 1)
-                if slot.lastFrameAt == nil {
+                    .opacity(showsPicture ? 1 : 0)
+                if !showsPicture {
                     placeholder
+                } else if slot.state == .paused {
+                    pausedBanner
                 }
             }
             .aspectRatio(aspectRatio, contentMode: .fit)
@@ -91,6 +113,7 @@ struct SlotTile: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
             .onTapGesture(count: 2, perform: toggleFocus)
+            .frame(maxHeight: maxVideoHeight ?? .infinity)
 
             footer
         }
@@ -110,6 +133,23 @@ struct SlotTile: View {
         return 9.0 / 19.5 // a portrait iPhone until the first picture arrives
     }
 
+    /// The last picture stays up while live or paused; a disconnected phone's stale frame is hidden.
+    private var showsPicture: Bool {
+        slot.lastFrameAt != nil && (slot.state == .live || slot.state == .paused)
+    }
+
+    private var pausedBanner: some View {
+        VStack {
+            Spacer()
+            Label("Screen off. Turn it on within about a minute or the iPhone stops mirroring.", systemImage: "moon.fill")
+                .font(.caption)
+                .padding(8)
+                .frame(maxWidth: .infinity)
+                .background(.black.opacity(0.7))
+                .foregroundStyle(.white)
+        }
+    }
+
     private var placeholder: some View {
         VStack(spacing: 10) {
             Image(systemName: placeholderIcon)
@@ -126,42 +166,57 @@ struct SlotTile: View {
         switch slot.state {
         case .failed: return "exclamationmark.triangle"
         case .stopped: return "pause.circle"
+        case .disconnected: return "iphone.slash"
         default: return "iphone"
         }
     }
 
     private var placeholderText: String {
         switch slot.state {
-        case .waiting, .live: return "On your iPhone, open Control Center › Screen Mirroring and pick “\(slot.name)”."
+        case .waiting, .live, .paused: return "On your iPhone, open Control Center › Screen Mirroring and pick “\(slot.name)”."
+        case .connecting: return "Connecting to \(slot.phoneName ?? "iPhone")…"
+        case .disconnected:
+            return "\(slot.phoneName ?? "The iPhone") stopped mirroring. To reconnect, pick “\(slot.name)” in Screen Mirroring on the phone."
         case .stopped: return "Stopped"
         case .failed(let message): return message
         }
     }
 
     private var footer: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-            Text(slot.name)
-                .font(.headline)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(statusText(now: context.date))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                Text(slot.name)
+                    .font(.headline)
                     .lineLimit(1)
+                Spacer(minLength: 4)
+                Menu {
+                    menuItems
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .menuIndicator(.hidden)
+                .fixedSize()
             }
-            Menu {
-                menuItems
-            } label: {
-                Image(systemName: "ellipsis.circle")
+            HStack(spacing: 6) {
+                // The phone's name gives way when space is short; the status never does.
+                Text(slot.state == .disconnected ? "" : slot.phoneName ?? "")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(statusText(now: context.date))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
-            .menuStyle(.button)
-            .buttonStyle(.borderless)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.leading, 14)
         }
     }
 
@@ -181,7 +236,8 @@ struct SlotTile: View {
     private var statusColor: Color {
         switch slot.state {
         case .live: return .green
-        case .waiting: return .yellow
+        case .waiting, .connecting, .paused: return .yellow
+        case .disconnected: return .orange
         case .stopped: return .gray
         case .failed: return .red
         }
@@ -192,16 +248,21 @@ struct SlotTile: View {
         case .stopped: return "Stopped"
         case .failed: return "Error"
         case .waiting: return "Waiting"
+        case .connecting: return "Connecting"
+        case .disconnected: return "Disconnected"
+        case .paused: return "Screen off \(Self.format(now.timeIntervalSince(slot.stateSince)))"
         case .live:
-            guard let last = slot.lastFrameAt else { return "Live" }
-            let idle = Int(now.timeIntervalSince(last))
-            // iPhones send nothing while the screen is unchanged or locked, so this is only a hint.
-            return idle < 5 ? "Live" : "No change for \(Self.format(seconds: idle))"
+            guard let since = slot.connectedSince else { return "Live" }
+            return "Live \(Self.format(now.timeIntervalSince(since)))"
         }
     }
 
-    private static func format(seconds: Int) -> String {
-        seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
+    /// "0:42", "12:05" or "1:03:20".
+    private static func format(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60)
+        let mmss = String(format: "%d:%02d", minutes, seconds)
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, seconds) : mmss
     }
 }
 
@@ -234,7 +295,8 @@ struct LogView: View {
     }
 }
 
-/// Hosts the slot's AVSampleBufferDisplayLayer. Only one view shows a given layer at a time.
+/// Hosts the slot's AVSampleBufferDisplayLayer. A layer can only be in one place, so the view
+/// that is on screen claims it; a view on its way out never takes it back.
 struct VideoLayerView: NSViewRepresentable {
     let videoLayer: CALayer
 
@@ -242,9 +304,7 @@ struct VideoLayerView: NSViewRepresentable {
         LayerHostView(hostedLayer: videoLayer)
     }
 
-    func updateNSView(_ view: LayerHostView, context: Context) {
-        view.attach()
-    }
+    func updateNSView(_ view: LayerHostView, context: Context) {}
 
     final class LayerHostView: NSView {
         private let hostedLayer: CALayer
@@ -253,7 +313,6 @@ struct VideoLayerView: NSViewRepresentable {
             self.hostedLayer = hostedLayer
             super.init(frame: .zero)
             wantsLayer = true
-            attach()
         }
 
         @available(*, unavailable)
@@ -262,15 +321,23 @@ struct VideoLayerView: NSViewRepresentable {
         // Let SwiftUI handle clicks (double-click to focus, context menu).
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        func attach() {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, let layer else { return }
             if hostedLayer.superlayer !== layer {
-                layer?.addSublayer(hostedLayer)
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostedLayer.removeFromSuperlayer()
+                layer.addSublayer(hostedLayer)
+                hostedLayer.frame = bounds
+                CATransaction.commit()
             }
             needsLayout = true
         }
 
         override func layout() {
             super.layout()
+            guard hostedLayer.superlayer === layer else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             hostedLayer.frame = bounds
