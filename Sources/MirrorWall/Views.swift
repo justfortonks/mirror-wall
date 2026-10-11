@@ -274,7 +274,8 @@ struct LogView: View {
     }
 }
 
-/// Hosts the slot's AVSampleBufferDisplayLayer. Only one view shows a given layer at a time.
+/// Hosts the slot's AVSampleBufferDisplayLayer. A layer can only be in one place, so the view
+/// that is on screen claims it; a view on its way out never takes it back.
 struct VideoLayerView: NSViewRepresentable {
     let videoLayer: CALayer
 
@@ -282,9 +283,7 @@ struct VideoLayerView: NSViewRepresentable {
         LayerHostView(hostedLayer: videoLayer)
     }
 
-    func updateNSView(_ view: LayerHostView, context: Context) {
-        view.attach()
-    }
+    func updateNSView(_ view: LayerHostView, context: Context) {}
 
     final class LayerHostView: NSView {
         private let hostedLayer: CALayer
@@ -293,7 +292,6 @@ struct VideoLayerView: NSViewRepresentable {
             self.hostedLayer = hostedLayer
             super.init(frame: .zero)
             wantsLayer = true
-            attach()
         }
 
         @available(*, unavailable)
@@ -302,15 +300,23 @@ struct VideoLayerView: NSViewRepresentable {
         // Let SwiftUI handle clicks (double-click to focus, context menu).
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-        func attach() {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, let layer else { return }
             if hostedLayer.superlayer !== layer {
-                layer?.addSublayer(hostedLayer)
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostedLayer.removeFromSuperlayer()
+                layer.addSublayer(hostedLayer)
+                hostedLayer.frame = bounds
+                CATransaction.commit()
             }
             needsLayout = true
         }
 
         override func layout() {
             super.layout()
+            guard hostedLayer.superlayer === layer else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             hostedLayer.frame = bounds
