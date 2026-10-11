@@ -62,6 +62,14 @@ final class H264DepacketizerTests: XCTestCase {
         let frames = d.push(packet(3, ts: 7, marker: true, [0x7C, 0x45, 4]))
         XCTAssertEqual(frames, [])
         XCTAssertEqual(d.sequenceGaps, 1)
+        XCTAssertEqual(d.lostPackets, 1)
+    }
+
+    func testLatePacketIsNotCountedAsLost() {
+        let d = H264Depacketizer()
+        _ = d.push(packet(10, ts: 1, marker: true, [0x41]))
+        _ = d.push(packet(9, ts: 1, marker: true, [0x41]))
+        XCTAssertEqual(d.lostPackets, 0)
     }
 
     func testNewTimestampClosesFrameWhoseMarkerWasLost() {
@@ -77,6 +85,7 @@ final class H264DepacketizerTests: XCTestCase {
         _ = d.push(packet(0xFFFF, ts: 1, marker: true, [0x41]))
         _ = d.push(packet(0, ts: 2, marker: true, [0x41]))
         XCTAssertEqual(d.sequenceGaps, 0)
+        XCTAssertEqual(d.lostPackets, 0)
     }
 
     func testAVCC() {
@@ -99,6 +108,9 @@ final class SlotConfigTests: XCTestCase {
         let args = SlotConfig(id: 2, name: "Kitchen iPhone").uxplayArguments
         XCTAssertEqual(args[args.firstIndex(of: "-n")! + 1], "Kitchen iPhone")
         XCTAssertEqual(args[args.firstIndex(of: "-vsync")! + 1], "no")
+        XCTAssertEqual(args[args.firstIndex(of: "-fps")! + 1], "30")
+        let fast = SlotConfig(id: 2, name: "Kitchen iPhone").uxplayArguments(maxFrameRate: 60)
+        XCTAssertEqual(fast[fast.firstIndex(of: "-fps")! + 1], "60")
         XCTAssertEqual(args[args.firstIndex(of: "-p")! + 1], "7400")
         XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink host=127.0.0.1 port=5602"))
         XCTAssertEqual(args[args.firstIndex(of: "-d")! + 1], "1")
@@ -142,6 +154,17 @@ final class UxPlayEventTests: XCTestCase {
 
     func testHeartbeat() {
         XCTAssertEqual(UxPlayEvent(line: "httpd: request POST /feedback RTSP/1.0"), .heartbeat)
+    }
+
+    func testNetworkRoundTrip() {
+        XCTAssertEqual(UxPlayEvent(line: "best NTP data: offset   0.152731, delay   0.004812"), .networkRoundTrip(0.004812))
+    }
+
+    func testVideoLatency() {
+        XCTAssertEqual(
+            UxPlayEvent(line: "raop_rtp video: now = 8123.456789, ntp = 8123.410000, latency =  0.046789, ts = 1791738808.749092, 00 00 00 00 h264, size: 4123"),
+            .videoLatency(0.046789)
+        )
     }
 
     func testBeginVideoStreamIsNotAResume() {
@@ -207,5 +230,56 @@ final class PackagedReceiverTests: XCTestCase {
                 forExecutableAt: path, inheriting: [:], registryPath: "/tmp/registry.bin", fileExists: { _ in false }
             ))
         }
+    }
+}
+
+final class StreamMeterTests: XCTestCase {
+    func testSumsUpEachSecond() throws {
+        let meter = StreamMeter()
+        meter.packet(bytes: 1000, lost: 0, at: 0)
+        meter.frame(at: 0, isKeyframe: true, macTime: 0.002)
+        XCTAssertNil(meter.snapshotIfDue(at: 0.5))
+        meter.packet(bytes: 1000, lost: 2, at: 0.5)
+        meter.frame(at: 0.5, isKeyframe: false, macTime: 0.004)
+        meter.frame(at: 0.6, isKeyframe: false, macTime: nil)
+        let snapshot = try XCTUnwrap(meter.snapshotIfDue(at: 1))
+        XCTAssertEqual(snapshot.framesPerSecond, 2)
+        XCTAssertEqual(snapshot.bitsPerSecond, 16000)
+        XCTAssertEqual(try XCTUnwrap(snapshot.macTime), 0.003, accuracy: 1e-9)
+        XCTAssertEqual(snapshot.packetsLost, 2)
+        XCTAssertEqual(snapshot.totalFramesSkipped, 1)
+        XCTAssertEqual(snapshot.totalKeyframes, 1)
+
+        // The next second starts empty, but totals carry on.
+        meter.packet(bytes: 10, lost: 1, at: 1.2)
+        let next = try XCTUnwrap(meter.snapshotIfDue(at: 2))
+        XCTAssertEqual(next.framesPerSecond, 0)
+        XCTAssertEqual(next.packetsLost, 1)
+        XCTAssertEqual(next.totalPacketsLost, 3)
+    }
+
+    func testJitterIgnoresPauses() throws {
+        let meter = StreamMeter()
+        for time in [0.0, 0.1, 0.2, 2.0, 2.1] {
+            meter.frame(at: time, isKeyframe: false, macTime: 0.001)
+        }
+        let snapshot = try XCTUnwrap(meter.snapshotIfDue(at: 2.2))
+        XCTAssertEqual(snapshot.frameJitter, 0, accuracy: 1e-9)
+    }
+
+    func testKeyframeInterval() throws {
+        let meter = StreamMeter()
+        meter.frame(at: 0, isKeyframe: true, macTime: 0.001)
+        meter.frame(at: 0.4, isKeyframe: false, macTime: 0.001)
+        meter.frame(at: 0.9, isKeyframe: true, macTime: 0.001)
+        let snapshot = try XCTUnwrap(meter.snapshotIfDue(at: 1))
+        XCTAssertEqual(try XCTUnwrap(snapshot.keyframeInterval), 0.9, accuracy: 1e-9)
+        XCTAssertEqual(snapshot.totalKeyframes, 2)
+    }
+
+    func testCodecDescription() {
+        XCTAssertEqual(h264Description(sps: [0x67, 100, 0, 42]), "H.264 High 4.2")
+        XCTAssertEqual(h264Description(sps: [0x67, 77, 0, 31]), "H.264 Main 3.1")
+        XCTAssertEqual(h264Description(sps: [0x67]), "H.264")
     }
 }

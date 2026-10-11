@@ -9,11 +9,14 @@ final class SlotStore: ObservableObject {
     @Published private(set) var uxplayURL: URL?
     /// Slots currently shown in a window of their own.
     @Published private(set) var poppedOutIDs: Set<Int> = []
+    /// The most frames a second phones are asked to send (30 or 60).
+    @Published private(set) var maxFrameRate: Int
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
     private let uxplayPathKey = "uxplayPath"
     private let poppedOutKey = "poppedOutSlots"
+    private let maxFrameRateKey = "maxFrameRate"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
     /// Set while quitting, so windows closing then are still reopened next launch.
@@ -24,6 +27,8 @@ final class SlotStore: ObservableObject {
     init() {
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
         let configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0)) }
+        let savedRate = defaults.integer(forKey: maxFrameRateKey)
+        maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
@@ -31,6 +36,7 @@ final class SlotStore: ObservableObject {
 
     /// Saves a slot's config when it learns a new phone's name, and retitles windows to match.
     private func watch(_ slot: Slot) {
+        slot.maxFrameRate = maxFrameRate
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
                 self?.save()
@@ -124,6 +130,18 @@ final class SlotStore: ObservableObject {
         slots.removeAll { $0 === slot }
         save()
         updateWindowTitles()
+    }
+
+    /// Changes the frame rate phones are asked for. Each receiver restarts to apply it, so phones
+    /// mirroring now have to reconnect.
+    func setMaxFrameRate(_ rate: Int) {
+        guard rate != maxFrameRate, SlotConfig.frameRates.contains(rate) else { return }
+        maxFrameRate = rate
+        defaults.set(rate, forKey: maxFrameRateKey)
+        for slot in slots {
+            slot.maxFrameRate = rate
+            restart(slot)
+        }
     }
 
     func restart(_ slot: Slot) {

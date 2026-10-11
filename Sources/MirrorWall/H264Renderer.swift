@@ -29,6 +29,11 @@ final class H264Renderer {
         formatDescription.map(CMVideoFormatDescriptionGetDimensions)
     }
 
+    /// The stream's codec, profile and level, e.g. "H.264 High 4.2". Read on the UDP thread.
+    var codecDescription: String? {
+        sps.map(h264Description(sps:))
+    }
+
     /// A new layer showing this slot's picture, starting with the latest one.
     func makeLayer() -> AVSampleBufferDisplayLayer {
         let layer = AVSampleBufferDisplayLayer()

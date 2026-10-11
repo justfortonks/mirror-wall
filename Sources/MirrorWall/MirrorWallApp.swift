@@ -1,4 +1,5 @@
 import AppKit
+import MirrorCore
 import SwiftUI
 
 @main
@@ -19,6 +20,24 @@ struct MirrorWallApp: App {
             CommandGroup(before: .windowList) {
                 ShowMainWindowButton()
                 Divider()
+            }
+            StatsCommands()
+            FrameRateCommands(store: appDelegate.store)
+        }
+    }
+}
+
+/// View › Frame Rate Limit: the most frames a second phones are asked to send.
+struct FrameRateCommands: Commands {
+    @ObservedObject var store: SlotStore
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Picker("Frame Rate Limit", selection: Binding(
+                get: { store.maxFrameRate },
+                set: { store.setMaxFrameRate($0) }
+            )) {
+                ForEach(SlotConfig.frameRates, id: \.self) { Text("\($0) frames a second").tag($0) }
             }
         }
     }
