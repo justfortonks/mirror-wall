@@ -15,7 +15,9 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
     init(slot: Slot, title: String) {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 780),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            // Not minimizable: macOS only gives capture apps a frozen thumbnail of a minimized
+            // window, so OBS would show a tiny still picture. Covered windows capture fine.
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )

@@ -57,7 +57,8 @@ access, allow it.
   again. If two phones have the same name, the slot number is added (`MacMirror-iPhone-2`); giving
   each phone its own name in Settings › General › About avoids that. The window's buttons appear
   when the pointer is over it. Open windows, and where they were, come back the next time the app
-  starts. OBS can capture the window behind other windows, but not when it's minimized.
+  starts. OBS captures the window even behind other windows. It can't capture a minimized
+  window, so these windows have no minimize button; leave them behind other windows instead.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
   Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.
