@@ -7,9 +7,6 @@ import MirrorCore
 ///
 /// A file starts at the next keyframe. A new file starts whenever the stream's format changes
 /// (the phone rotates) or a new connection begins, because one movie track can't change size.
-/// A piece cut short by a format change within `minimumPiece` seconds (the phone briefly thinking
-/// it's sideways as mirroring starts) is thrown away rather than kept as a stub.
-///
 /// Frames are timed from the stream's own timestamps (`RecordingClock`), not their bursty arrival.
 ///
 /// Not thread-safe: the slot calls it under its own lock.
@@ -24,7 +21,6 @@ final class SlotRecorder {
     private var startedAt = Date()
     private var clock = RecordingClock()
 
-    static let minimumPiece = 3.0
     /// Fine enough that frames a few milliseconds apart never share a time.
     static let timescale: CMTimeScale = 90_000
 
@@ -42,7 +38,7 @@ final class SlotRecorder {
     /// `DispatchTime` uptime).
     func append(avcc: [UInt8], format: CMVideoFormatDescription, isKeyframe: Bool, rtpTimestamp: UInt32, arrival: Double) {
         if let current = self.format, !CMFormatDescriptionEqual(current, otherFormatDescription: format) {
-            endFile(at: arrival, discardIfShort: true)
+            endFile(at: arrival)
         }
         if writer == nil {
             guard isKeyframe else { return }
@@ -62,23 +58,16 @@ final class SlotRecorder {
 
     /// Finishes the current file but keeps recording: the next connection starts a new one.
     func endFile(wait: Bool = false) {
-        endFile(at: Double(DispatchTime.now().uptimeNanoseconds) / 1e9, discardIfShort: false, wait: wait)
+        endFile(at: Double(DispatchTime.now().uptimeNanoseconds) / 1e9, wait: wait)
     }
 
-    private func endFile(at arrival: Double, discardIfShort: Bool, wait: Bool = false) {
+    private func endFile(at arrival: Double, wait: Bool = false) {
         guard let writer, let input else { return }
-        let url = currentURL
         self.writer = nil
         self.input = nil
         format = nil
         currentURL = nil
         guard writer.status == .writing else { return }
-        if discardIfShort, clock.duration < Self.minimumPiece {
-            writer.cancelWriting()
-            if let url { try? FileManager.default.removeItem(at: url) }
-            part -= 1 // the next piece takes this one's name
-            return
-        }
         input.markAsFinished()
         // Keep the last picture on screen until now, e.g. through a still screen that sent no frames.
         writer.endSession(atSourceTime: CMTime(seconds: clock.time(atArrival: arrival), preferredTimescale: Self.timescale))
