@@ -51,6 +51,10 @@ macOS 27, it needs Apple Silicon and macOS 27.
   Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
   `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
   `scripts/build-app.sh` looks in the same places, or takes `UXPLAY=/path/to/uxplay`.
+- For the latency figure in Stats for Nerds, build uxplay with
+  `patches/uxplay-latency-report.patch` (`git apply` it in the UxPlay checkout, then rebuild).
+  It makes uxplay report one frame's latency a second at `-d 1`; unpatched, uxplay only reports
+  it in its full debug mode, which also dumps every packet. Everything else works without it.
 
 ## Build and run
 
@@ -98,6 +102,14 @@ access, allow it.
   the tile says Disconnected once it has gone 10 seconds without checking in.
   After any disconnect the slot restarts its receiver (uxplay sometimes fails to restart its
   video output on its own), so the slot's name disappears from Screen Mirroring for a second or two. To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
+- **Stats for Nerds** (View menu, ⌥⌘I, or a tile's ⋯ menu) puts each stream's numbers over its
+  tile in the main window; the slots' own windows stay clean for OBS. It shows the phone model and
+  codec, picture size, frames and bitrate per second, latency, network round trip, frame jitter,
+  keyframes, losses, and the phone's check-ins. Latency is the phone's capture time to the
+  frame reaching the Mac (from the phone's own timestamps and uxplay's clock sync), plus the
+  Mac's decode; the display's own delay isn't included. iOS only sends frames when the screen
+  changes, so a still screen shows few frames per second. Losses are packets dropped between
+  uxplay and the app; the phone's own connection to the Mac is TCP and doesn't lose any.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet
