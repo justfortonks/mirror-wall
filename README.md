@@ -54,7 +54,8 @@ access, allow it.
   Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.
 - The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Screen off or
-  Disconnected. "No change for …" while live just means the screen hasn't changed.
+  Disconnected. Next to Live is how long the phone has been connected; next to Screen off is
+  how long the screen has been off.
 - **Screen off:** when an iPhone's screen turns off, its tile keeps the last picture and says
   Screen off. A locked phone whose screen lights up (button, notification) shows its lock
   screen live. iOS itself ends Screen Mirroring after about a minute with the screen off; the tile then says

@@ -228,18 +228,20 @@ struct SlotTile: View {
         case .failed: return "Error"
         case .waiting: return "Waiting"
         case .connecting: return "Connecting"
-        case .paused: return "Screen off"
         case .disconnected: return "Disconnected"
+        case .paused: return "Screen off \(Self.format(now.timeIntervalSince(slot.stateSince)))"
         case .live:
-            guard let last = slot.lastFrameAt else { return "Live" }
-            let idle = Int(now.timeIntervalSince(last))
-            // iPhones send nothing while the screen is unchanged or locked, so this is only a hint.
-            return idle < 5 ? "Live" : "No change for \(Self.format(seconds: idle))"
+            guard let since = slot.connectedSince else { return "Live" }
+            return "Live \(Self.format(now.timeIntervalSince(since)))"
         }
     }
 
-    private static func format(seconds: Int) -> String {
-        seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
+    /// "0:42", "12:05" or "1:03:20".
+    private static func format(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60)
+        let mmss = String(format: "%d:%02d", minutes, seconds)
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, seconds) : mmss
     }
 }
 
