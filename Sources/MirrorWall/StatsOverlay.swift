@@ -47,6 +47,8 @@ struct StatsOverlay: View {
                     GridRow {
                         Text(row.label).foregroundStyle(.white.opacity(0.6))
                         Text(row.value)
+                            // Shrinks to fit a narrow tile rather than cutting off.
+                            .minimumScaleFactor(0.6)
                     }
                 }
             }
@@ -69,7 +71,10 @@ struct StatsOverlay: View {
     private func rows(now: Date) -> [Row] {
         let stream = stats.stream
         var rows: [Row] = []
-        rows.append(Row(label: "Phone", value: [stats.phoneModel, stats.codec].compactMap { $0 }.joined(separator: " · ").nonEmpty ?? "–"))
+        rows.append(Row(label: "Phone", value: stats.phoneModel ?? "–"))
+        if let codec = stats.codec {
+            rows.append(Row(label: "Codec", value: codec))
+        }
         if let size = slot.videoSize {
             rows.append(Row(label: "Picture", value: "\(Int(size.width))×\(Int(size.height))"))
         }
@@ -77,37 +82,28 @@ struct StatsOverlay: View {
             rows.append(Row(label: "Frames", value: String(format: "%.0f/s", stream.framesPerSecond)))
             rows.append(Row(label: "Bitrate", value: Self.bitrate(stream.bitsPerSecond)))
         }
-        rows.append(Row(label: "Latency", value: latencyText(macTime: stream?.macTime)))
+        // Latency is the phone's capture to the frame reaching the Mac, plus the Mac's decode.
+        let toMac = stats.latency
+        let decode = stream?.macTime
+        rows.append(Row(label: "Latency", value: toMac.map { Self.milliseconds($0 + (decode ?? 0)) } ?? "–"))
+        rows.append(Row(label: " to Mac", value: toMac.map(Self.milliseconds) ?? "not reported"))
+        rows.append(Row(label: " decode", value: decode.map(Self.milliseconds) ?? "–"))
         rows.append(Row(label: "Round trip", value: stats.roundTrip.map(Self.milliseconds) ?? "–"))
         if let stream {
             rows.append(Row(label: "Jitter", value: Self.milliseconds(stream.frameJitter)))
             let keyframeEvery = stream.keyframeInterval.map { String(format: ", every %.1f s", $0) } ?? ""
             rows.append(Row(label: "Keyframes", value: "\(stream.totalKeyframes)\(keyframeEvery)"))
-            rows.append(Row(label: "Lost", value: "\(stream.totalPacketsLost) packets, \(stream.totalFramesSkipped) frames skipped"))
+            rows.append(Row(label: "Lost", value: "\(stream.totalPacketsLost) packets, \(stream.totalFramesSkipped) frames"))
         }
         if let lastFrameAt = slot.lastFrameAt {
             rows.append(Row(label: "Last frame", value: Self.ago(now.timeIntervalSince(lastFrameAt))))
         }
         if let last = stats.lastHeartbeatAt {
             let every = stats.heartbeatInterval.map { String(format: "every %.1f s, ", $0) } ?? ""
-            rows.append(Row(label: "Check-ins", value: every + "last " + Self.ago(now.timeIntervalSince(last))))
+            rows.append(Row(label: "Check-ins", value: every + Self.ago(now.timeIntervalSince(last))))
         }
         rows.append(Row(label: "Connections", value: "\(stats.connections)"))
         return rows
-    }
-
-    /// Phone to Mac (from the phone's capture time) plus the Mac's decode, e.g. "48 ms (45 + 3)".
-    private func latencyText(macTime: Double?) -> String {
-        switch (stats.latency, macTime) {
-        case let (network?, mac?):
-            return "\(Self.milliseconds(network + mac)) (\(Self.number(network)) + \(Self.number(mac)))"
-        case let (network?, nil):
-            return Self.milliseconds(network) + " to the Mac"
-        case let (nil, mac?):
-            return Self.milliseconds(mac) + " on the Mac only"
-        case (nil, nil):
-            return "–"
-        }
     }
 
     private static func number(_ seconds: Double) -> String {
@@ -127,10 +123,6 @@ struct StatsOverlay: View {
     private static func ago(_ seconds: TimeInterval) -> String {
         seconds < 1 ? "just now" : "\(Int(seconds)) s ago"
     }
-}
-
-private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 /// View › Stats for Nerds, shared by every tile.

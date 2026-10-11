@@ -53,8 +53,10 @@ macOS 27, it needs Apple Silicon and macOS 27.
   `scripts/build-app.sh` looks in the same places, or takes `UXPLAY=/path/to/uxplay`.
 - For the latency figure in Stats for Nerds, build uxplay with
   `patches/uxplay-latency-report.patch` (`git apply` it in the UxPlay checkout, then rebuild).
-  It makes uxplay report one frame's latency a second at `-d 1`; unpatched, uxplay only reports
-  it in its full debug mode, which also dumps every packet. Everything else works without it.
+  It makes uxplay report one frame's latency a second at `-d 1`, converting the phone's capture
+  time with uxplay's clock-sync offset. Unpatched, uxplay only reports latency in its full debug
+  mode (which also dumps every packet), and in UxPlay 1.74 that report always reads 0. Everything
+  else works without the patch.
 
 ## Build and run
 
