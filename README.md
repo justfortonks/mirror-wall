@@ -69,7 +69,9 @@ access, allow it.
   screen live. iOS itself ends Screen Mirroring after about a minute with the screen off; the tile then says
   Disconnected, and the phone has to pick the slot again in Screen Mirroring (only the phone can
   start AirPlay). A phone on a charger may just go quiet instead of ending the session;
-  the tile says Disconnected once it has gone 10 seconds without checking in. To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
+  the tile says Disconnected once it has gone 10 seconds without checking in.
+  After any disconnect the slot restarts its receiver (uxplay sometimes fails to restart its
+  video output on its own), so the slot's name disappears from Screen Mirroring for a second or two. To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet
