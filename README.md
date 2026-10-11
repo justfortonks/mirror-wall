@@ -115,6 +115,12 @@ access, allow it.
   screen. iOS only sends frames when the screen
   changes, so a still screen shows few frames per second. Losses are packets dropped between
   uxplay and the app; the phone's own connection to the Mac is TCP and doesn't lose any.
+- **Recording:** a tile's ⋯ menu has Start Recording (File › Record All Slots, ⇧⌘R, does every
+  slot). The phone's video is written to `~/Movies/Mirror Wall` as it arrives, without
+  re-encoding, so it's full quality and costs almost nothing. The tile shows ● REC and the time.
+  A recording carries on across disconnects and reconnects, starting a new file ("… part 2")
+  each time, and also when the phone rotates. Video only: the receivers run without audio.
+  Quitting the app finishes any recording properly.
 - **Frame rate:** View › Frame Rate Limit asks phones for at most 30 (uxplay's default) or 60
   frames a second. A phone may still send fewer. Changing it restarts the receivers, so phones
   have to reconnect. 60 roughly doubles the data while the screen is busy.

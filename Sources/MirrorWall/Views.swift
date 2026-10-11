@@ -213,9 +213,16 @@ struct SlotTile: View {
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(statusText(now: context.date))
-                        .lineLimit(1)
-                        .fixedSize()
+                    HStack(spacing: 6) {
+                        if let since = slot.recordingSince {
+                            Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
+                                .foregroundStyle(.red)
+                                .help(slot.recordingError ?? "Recording to Movies › Mirror Wall")
+                        }
+                        Text(statusText(now: context.date))
+                    }
+                    .lineLimit(1)
+                    .fixedSize()
                 }
             }
             .font(.caption)
@@ -239,6 +246,13 @@ struct SlotTile: View {
         Button("Restart") { store.restart(slot) }
         Button("Show Log") { showingLog = true }
         Toggle("Stats for Nerds", isOn: $showStats)
+        Divider()
+        if slot.recordingSince == nil {
+            Button("Start Recording") { slot.startRecording() }
+        } else {
+            Button("Stop Recording") { slot.stopRecording() }
+        }
+        Button("Show Recordings in Finder") { store.showRecordings() }
         Divider()
         Button("Remove Slot", role: .destructive) { store.remove(slot) }
     }

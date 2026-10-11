@@ -29,6 +29,10 @@ final class H264Renderer {
         formatDescription.map(CMVideoFormatDescriptionGetDimensions)
     }
 
+    /// Called with each frame handed to the decoder, still compressed (AVCC), for recording.
+    /// Runs on the UDP thread.
+    var onCompressedFrame: ((_ avcc: [UInt8], _ format: CMVideoFormatDescription, _ isKeyframe: Bool) -> Void)?
+
     /// The stream's codec, profile and level, e.g. "H.264 High 4.2". Read on the UDP thread.
     var codecDescription: String? {
         sps.map(h264Description(sps:))
@@ -95,8 +99,10 @@ final class H264Renderer {
             guard frame.isKeyframe else { return false }
             waitingForKeyframe = false
         }
+        let avcc = avccData(for: videoNALs)
+        onCompressedFrame?(avcc, formatDescription, frame.isKeyframe)
         guard let session = session ?? makeSession(format: formatDescription),
-              let sample = Self.makeSampleBuffer(avcc: avccData(for: videoNALs), format: formatDescription) else {
+              let sample = Self.makeSampleBuffer(avcc: avcc, format: formatDescription) else {
             return false
         }
 
@@ -200,7 +206,8 @@ final class H264Renderer {
         return status == noErr ? description : nil
     }
 
-    private static func makeSampleBuffer(avcc: [UInt8], format: CMVideoFormatDescription) -> CMSampleBuffer? {
+    /// A compressed frame as a sample buffer, with a presentation time if one is given.
+    static func makeSampleBuffer(avcc: [UInt8], format: CMVideoFormatDescription, presentationTime: CMTime? = nil) -> CMSampleBuffer? {
         var blockBuffer: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
@@ -221,13 +228,14 @@ final class H264Renderer {
 
         var sampleBuffer: CMSampleBuffer?
         var sampleSize = avcc.count
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: presentationTime ?? .invalid, decodeTimeStamp: .invalid)
         status = CMSampleBufferCreateReady(
             allocator: kCFAllocatorDefault,
             dataBuffer: blockBuffer,
             formatDescription: format,
             sampleCount: 1,
-            sampleTimingEntryCount: 0,
-            sampleTimingArray: nil,
+            sampleTimingEntryCount: 1,
+            sampleTimingArray: &timing,
             sampleSizeEntryCount: 1,
             sampleSizeArray: &sampleSize,
             sampleBufferOut: &sampleBuffer
