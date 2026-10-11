@@ -41,12 +41,14 @@ final class SlotStore: ObservableObject {
 
     // MARK: - uxplay
 
-    /// Places uxplay is commonly found, after any path the user picked.
+    /// Where to look for uxplay: the one packaged inside MirrorWall.app first (it brings its own
+    /// GStreamer, so it works on any Mac), then any path the user picked, then the usual places.
     static func candidatePaths(savedPath: String?) -> [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         // Where the milestone 1 test built UxPlay.
         let testFolders = ["casting app", "Apple Casting App"].map { home + "/Documents/Claude Code/\($0)/UxPlay" }
-        return [savedPath].compactMap { $0 } + [
+        let packaged = Bundle.main.resourceURL?.appendingPathComponent(PackagedReceiver.executablePathInResources).path
+        return [packaged, savedPath].compactMap { $0 } + [
             "/opt/homebrew/bin/uxplay",
             "/usr/local/bin/uxplay",
         ] + testFolders.flatMap { [$0 + "/build/uxplay", $0 + "/uxplay"] }
