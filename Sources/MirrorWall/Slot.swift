@@ -51,7 +51,8 @@ final class Slot: ObservableObject, Identifiable {
     /// When the phone last checked in or sent video. A phone on a charger, its screen off, can go
     /// quiet without ending the session, and uxplay never notices; the watchdog does.
     private var lastSignOfLifeAt: Date?
-    private var wentSilent = false
+    /// The uxplay this slot runs, kept for giving each new connection a fresh receiver.
+    private var uxplayURL: URL?
     private var watchdog: Timer?
     static let silenceLimit: TimeInterval = 10
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
@@ -68,12 +69,16 @@ final class Slot: ObservableObject, Identifiable {
 
     var name: String { config.name }
 
-    func start(uxplay: URL) {
+    /// - Parameter freshLog: false when restarting after a disconnect, to keep what led up to it.
+    func start(uxplay: URL, freshLog: Bool = true) {
         guard process == nil else { return }
         generation += 1
         let currentGeneration = generation
-        log = []
-        openLogFile()
+        uxplayURL = uxplay
+        if freshLog {
+            log = []
+            openLogFile()
+        }
         depacketizer.reset()
 
         let receiver = UDPReceiver(port: config.rtpPort) { [weak self] datagram in
@@ -118,7 +123,6 @@ final class Slot: ObservableObject, Identifiable {
         watchdog?.invalidate()
         watchdog = nil
         lastSignOfLifeAt = nil
-        wentSilent = false
         process?.stop()
         process = nil
         receiver?.stop()
@@ -170,10 +174,6 @@ final class Slot: ObservableObject, Identifiable {
                 if self.videoSize != size { self.videoSize = size }
             }
             self.lastSignOfLifeAt = Date()
-            if self.state == .disconnected && self.wentSilent {
-                self.wentSilent = false
-                self.state = .live
-            }
             let pauseSettled = self.pausedAt.map { Date().timeIntervalSince($0) > 3 } ?? true
             if self.state != .live && self.state != .disconnected && (self.state != .paused || pauseSettled) {
                 self.state = .live
@@ -212,16 +212,13 @@ final class Slot: ObservableObject, Identifiable {
             pausedAt = Date()
             if state == .live || state == .connecting { state = .paused }
         case .openConnections(0), .lostConnection:
-            wentSilent = false
             connectedSince = nil
-            if state != .waiting { state = .disconnected }
+            if state != .waiting && state != .disconnected {
+                state = .disconnected
+                restartReceiverSoon()
+            }
         case .heartbeat:
             lastSignOfLifeAt = Date()
-            if state == .disconnected && wentSilent {
-                // It was only quiet; it's still mirroring.
-                wentSilent = false
-                state = .paused
-            }
         case .openConnections:
             break
         }
@@ -238,9 +235,30 @@ final class Slot: ObservableObject, Identifiable {
         guard let lastSignOfLifeAt, state == .live || state == .paused || state == .connecting,
               Date().timeIntervalSince(lastSignOfLifeAt) > Self.silenceLimit else { return }
         append("No check-in or video from the phone for \(Int(Self.silenceLimit)) seconds; treating it as disconnected")
-        wentSilent = true
         connectedSince = nil
         state = .disconnected
+        restartReceiverSoon()
+    }
+
+    /// After a phone disconnects, uxplay sometimes fails to rebuild its video output, and the next
+    /// connection then gets no video at all. So each disconnect gets a fresh uxplay. The tile
+    /// keeps saying Disconnected, and the slot's name comes back on the phone within a second or
+    /// two. This also clears the last picture, so a new connection never shows a stale frame.
+    private func restartReceiverSoon() {
+        let currentGeneration = generation
+        // A moment for uxplay to finish logging the disconnect.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.generation == currentGeneration, self.state == .disconnected,
+                  let uxplay = self.uxplayURL else { return }
+            let phone = self.phoneName
+            self.append("Restarting the receiver so the next connection starts fresh")
+            self.stop()
+            self.start(uxplay: uxplay, freshLog: false)
+            if self.state == .waiting {
+                self.phoneName = phone
+                self.state = .disconnected
+            }
+        }
     }
 
     /// Mirrors the log to ~/Library/Logs/MirrorWall/slot-N.log (replaced on each start) for troubleshooting.
