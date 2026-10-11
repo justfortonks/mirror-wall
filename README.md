@@ -64,4 +64,3 @@ access, allow it.
 
 - USB-connected iPhones (planned next, via CoreMediaIO, the way QuickTime does it).
 - Audio (deliberately off: `-as 0`).
-- uxplay processes left behind if the app crashes are not cleaned up on the next launch.

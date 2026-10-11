@@ -1,3 +1,5 @@
+import Foundation
+
 /// Connection events recognised in uxplay's output (it must run with `-d 1` for `openConnections`).
 public enum UxPlayEvent: Equatable {
     /// An iPhone asked to connect: "connection request from NAME (MODEL) with deviceID = ..."
