@@ -43,6 +43,7 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
             "-m", deviceID,
             "-vsync", "no",             // show frames as they arrive; with sync on the picture froze after the phone slept
             "-as", "0",                 // view only: no audio
+            "-d", "1",                  // debug log without packet dumps: reports connects and disconnects
             "-vrtp", "config-interval=1 ! udpsink host=127.0.0.1 port=\(rtpPort)",
         ]
     }

@@ -101,5 +101,40 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertEqual(args[args.firstIndex(of: "-vsync")! + 1], "no")
         XCTAssertEqual(args[args.firstIndex(of: "-p")! + 1], "7400")
         XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink host=127.0.0.1 port=5602"))
+        XCTAssertEqual(args[args.firstIndex(of: "-d")! + 1], "1")
+    }
+}
+
+final class UxPlayEventTests: XCTestCase {
+    func testConnectionRequest() {
+        XCTAssertEqual(
+            UxPlayEvent(line: "connection request from t-bone's iPhone (iPhone18,2) with deviceID = 12:34:56:78:9A:BC"),
+            .clientConnecting(name: "t-bone's iPhone", model: "iPhone18,2")
+        )
+        XCTAssertEqual(
+            UxPlayEvent(line: "connection request from Kid (2) (iPhone14,6) with deviceID = AA"),
+            .clientConnecting(name: "Kid (2)", model: "iPhone14,6")
+        )
+    }
+
+    func testOpenConnections() {
+        XCTAssertEqual(UxPlayEvent(line: "Open connections: 0"), .openConnections(0))
+        XCTAssertEqual(UxPlayEvent(line: "Open connections: 2"), .openConnections(2))
+    }
+
+    func testLostConnection() {
+        XCTAssertEqual(UxPlayEvent(line: "*** ERROR lost connection with client (network problem?)"), .lostConnection)
+    }
+
+    func testStreamPauseAndResume() {
+        XCTAssertEqual(UxPlayEvent(line: "This packet indicates video stream is stopping"), .streamPaused)
+        XCTAssertEqual(UxPlayEvent(line: "begin video stream wxh = 498x1080; source 498x1080"), .streamStarted)
+        XCTAssertEqual(UxPlayEvent(line: "raop_rtp_mirror starting mirroring"), .streamStarted)
+    }
+
+    func testOtherLinesAreIgnored() {
+        XCTAssertNil(UxPlayEvent(line: "Initialized server socket(s)"))
+        XCTAssertNil(UxPlayEvent(line: "Open connections: many"))
+        XCTAssertNil(UxPlayEvent(line: "video renderer pause: NO PREROLL"))
     }
 }
