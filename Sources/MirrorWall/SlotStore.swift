@@ -59,6 +59,19 @@ final class SlotStore: ObservableObject {
         startAll()
     }
 
+    /// Stops uxplay processes left behind by an earlier run that crashed or was killed.
+    /// They are recognised by the device IDs only Mirror Wall slots use.
+    nonisolated static func stopLeftoverReceivers() {
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-f", "uxplay .*-m 02:00:00:00:00:[0-9A-F]{2}"]
+        guard (try? pkill.run()) != nil else { return }
+        pkill.waitUntilExit()
+        if pkill.terminationStatus == 0 {
+            Thread.sleep(forTimeInterval: 0.5) // let them release their ports
+        }
+    }
+
     // MARK: - Slots
 
     func startAll() {

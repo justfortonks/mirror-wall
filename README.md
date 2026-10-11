@@ -51,13 +51,19 @@ access, allow it.
 
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
-  Show Log and Remove Slot.
-- "No change for …" under a tile means no new picture has arrived. iPhones send nothing while
-  the screen is unchanged or locked, so this is a hint, not an error.
+  Show Log and Remove Slot. Each slot's log is also written to
+  `~/Library/Logs/MirrorWall/slot-N.log`.
+- The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Screen off or
+  Disconnected. Next to Live is how long the phone has been connected; next to Screen off is
+  how long the screen has been off.
+- **Screen off:** when an iPhone's screen turns off, its tile keeps the last picture and says
+  Screen off. A locked phone whose screen lights up (button, notification) shows its lock
+  screen live. iOS itself ends Screen Mirroring after about a minute with the screen off; the tile then says
+  Disconnected, and the phone has to pick the slot again in Screen Mirroring (only the phone can
+  start AirPlay). To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet
 
 - USB-connected iPhones (planned next, via CoreMediaIO, the way QuickTime does it).
 - Audio (deliberately off: `-as 0`).
-- uxplay processes left behind if the app crashes are not cleaned up on the next launch.
