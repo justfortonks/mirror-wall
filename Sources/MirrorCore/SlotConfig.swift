@@ -38,8 +38,17 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         return "02:00:00:00:00:" + (hex.count == 1 ? "0" + hex : hex)
     }
 
+    /// The highest frame rates the app offers to ask phones for. uxplay's own default is 30.
+    public static let frameRates = [30, 60]
+
     /// Command-line arguments for this slot's uxplay process.
     public var uxplayArguments: [String] {
+        uxplayArguments(maxFrameRate: 30)
+    }
+
+    /// Command-line arguments for this slot's uxplay process. `maxFrameRate` is the most frames a
+    /// second the phone is asked to send; it may send fewer.
+    public func uxplayArguments(maxFrameRate: Int) -> [String] {
         [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
@@ -48,6 +57,7 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
             "-vsync", "no",             // show frames as they arrive; with sync on the picture froze after the phone slept
             "-as", "0",                 // view only: no audio
             "-d", "1",                  // debug log without packet dumps: reports connects and disconnects
+            "-fps", String(maxFrameRate),
             "-vrtp", "config-interval=1 ! udpsink host=127.0.0.1 port=\(rtpPort)",
         ]
     }

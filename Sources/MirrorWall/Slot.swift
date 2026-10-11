@@ -39,6 +39,8 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var phoneName: String?
 
     let renderer = H264Renderer()
+    /// The most frames a second phones are asked to send; takes effect when the receiver starts.
+    var maxFrameRate = 30
     /// Numbers for the Stats for Nerds overlay, kept apart so they don't redraw everything else.
     let stats = SlotStats()
     /// Called when the config changes on its own (a new phone's name), so it can be saved.
@@ -99,7 +101,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments,
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -119,7 +121,7 @@ final class Slot: ObservableObject, Identifiable {
         }
         self.process = process
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments.joined(separator: " "))")
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate).joined(separator: " "))")
         state = .waiting
     }
 
