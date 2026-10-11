@@ -13,8 +13,8 @@ The AirPlay protocol work is done by [UxPlay](https://github.com/FDH2/UxPlay) (G
 a separate `uxplay` process per slot, each with its own name, ports and device ID (one uxplay
 instance only accepts one phone at a time). Instead of letting uxplay draw its own window, each
 process forwards the decrypted H.264 video over RTP to a localhost UDP port (`-vrtp`). The app
-reassembles the frames and decodes them with VideoToolbox through an
-`AVSampleBufferDisplayLayer` in that slot's tile.
+reassembles the frames, decodes them once with VideoToolbox, and shows each picture through an
+`AVSampleBufferDisplayLayer` in the slot's tile and in its own window, if open.
 
 Frames are shown as they arrive (`-vsync no`). With UxPlay's default timestamp sync, testing
 showed the picture freezes for good after a phone sleeps and wakes; without it, it recovers.
@@ -50,6 +50,14 @@ access, allow it.
 ## Using it
 
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
+- **Own window (for OBS):** the ⋯ menu's **Open in Own Window** puts that phone in a window of
+  its own that shows only the picture, sized to the phone's shape. The tile keeps showing it too.
+  The window is titled `MacMirror-<phone name>` (the slot's name until a phone has connected),
+  and keeps that title after the phone disconnects, so an OBS Window Capture source finds it
+  again. If two phones have the same name, the slot number is added (`MacMirror-iPhone-2`); giving
+  each phone its own name in Settings › General › About avoids that. The window's buttons appear
+  when the pointer is over it. Open windows, and where they were, come back the next time the app
+  starts. OBS can capture the window behind other windows, but not when it's minimized.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
   Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.

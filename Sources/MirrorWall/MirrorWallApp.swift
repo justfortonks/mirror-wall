@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stopReceiversOnSignals()
         SlotStore.stopLeftoverReceivers()
         store.startAll()
+        store.restoreOwnWindows()
     }
 
     /// Ctrl-C or kill would otherwise end the app without stopping its uxplay processes,
@@ -51,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        store.prepareForTermination()
         store.stopAll()
     }
 
