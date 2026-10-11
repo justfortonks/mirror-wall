@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds MirrorWall.app (release, ad-hoc signed) in the repository folder.
+# Builds MirrorWall.app (release, ad-hoc signed) in the repository folder, with its own uxplay
+# and GStreamer inside so it can be copied to another Mac.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,5 +46,25 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# The receiver: a uxplay that brings its own GStreamer, so the app runs on a Mac with nothing
+# else installed. Set UXPLAY to the uxplay to package; otherwise the usual places are tried.
+UXPLAY="${UXPLAY:-}"
+if [ -z "$UXPLAY" ]; then
+    for candidate in /opt/homebrew/bin/uxplay /usr/local/bin/uxplay ../UxPlay/build/uxplay "$HOME/Documents/Claude Code/casting app/UxPlay/build/uxplay"; do
+        if [ -x "$candidate" ]; then
+            UXPLAY="$candidate"
+            break
+        fi
+    done
+fi
+if [ -n "$UXPLAY" ]; then
+    scripts/bundle-receiver.py "$UXPLAY" "$APP/Contents/Resources/receiver"
+else
+    echo "warning: no uxplay found to package (set UXPLAY=/path/to/uxplay)." >&2
+    echo "         The app will look for a uxplay on the Mac it runs on instead." >&2
+fi
+
 codesign --force --sign - "$APP"
+codesign --verify --strict "$APP"
 echo "Built $(pwd)/$APP"
