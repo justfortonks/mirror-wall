@@ -120,7 +120,7 @@ struct SlotTile: View {
     private var pausedBanner: some View {
         VStack {
             Spacer()
-            Label("Screen locked. Unlock within about a minute or the iPhone stops mirroring.", systemImage: "lock.fill")
+            Label("Screen off. Turn it on within about a minute or the iPhone stops mirroring.", systemImage: "moon.fill")
                 .font(.caption)
                 .padding(8)
                 .frame(maxWidth: .infinity)
@@ -228,7 +228,7 @@ struct SlotTile: View {
         case .failed: return "Error"
         case .waiting: return "Waiting"
         case .connecting: return "Connecting"
-        case .paused: return "Locked"
+        case .paused: return "Screen off"
         case .disconnected: return "Disconnected"
         case .live:
             guard let last = slot.lastFrameAt else { return "Live" }

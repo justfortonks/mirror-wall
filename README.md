@@ -53,10 +53,11 @@ access, allow it.
 - The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
   Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.
-- The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Locked or
+- The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Screen off or
   Disconnected. "No change for …" while live just means the screen hasn't changed.
-- **Locked phones:** when an iPhone's screen locks, its tile keeps the last picture and says
-  Locked. iOS itself ends Screen Mirroring after about a minute locked; the tile then says
+- **Screen off:** when an iPhone's screen turns off, its tile keeps the last picture and says
+  Screen off. A locked phone whose screen lights up (button, notification) shows its lock
+  screen live. iOS itself ends Screen Mirroring after about a minute with the screen off; the tile then says
   Disconnected, and the phone has to pick the slot again in Screen Mirroring (only the phone can
   start AirPlay). To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
