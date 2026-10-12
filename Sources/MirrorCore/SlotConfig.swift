@@ -16,6 +16,8 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     public var lastPhoneModel: String?
     /// What the slot shows while no phone is mirroring; nil to use the one set for all slots.
     public var standby: StandbyPicture?
+    /// Whether the slot also sends its picture to OBS through Syphon. Off (nil) by default.
+    public var obsFeed: Bool?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
         precondition(id >= 1 && id <= 99, "slot id out of range")

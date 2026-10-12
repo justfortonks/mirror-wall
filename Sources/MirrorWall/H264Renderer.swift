@@ -55,6 +55,10 @@ final class H264Renderer {
     /// the decoder's thread.
     var onPicture: ((_ image: CVImageBuffer, _ rtpTimestamp: UInt32) -> Void)?
 
+    /// Called with each picture as it goes on screen (after Smoother Motion's wait), e.g. to send
+    /// it to OBS. Called with the renderer's lock held, so it must return quickly.
+    var onShow: ((CVImageBuffer) -> Void)?
+
     /// The picture on screen now, if any, e.g. to start a recording with.
     var currentImage: CVImageBuffer? {
         lock.lock()
@@ -226,6 +230,7 @@ final class H264Renderer {
     private func show(_ imageBuffer: CVImageBuffer, number: Int) {
         guard number > shownNumber else { return }
         shownNumber = number
+        onShow?(imageBuffer)
         if pictureFormat.map({ !CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: imageBuffer) }) ?? true {
             var format: CMVideoFormatDescription?
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: imageBuffer, formatDescriptionOut: &format)

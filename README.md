@@ -84,6 +84,10 @@ playback, autodetect) are there only because uxplay won't start without them. Th
 uxplay with GStreamer pointed at those plugins alone. UxPlay is GPLv3 and GStreamer LGPL, which
 matters if the app is ever given to anyone else.
 
+Each build of MirrorWall.app is numbered by the commits it was built from (0.61, 0.62…), and
+Mirror Wall › About Mirror Wall also shows the commit and when it was built, so two Macs' copies
+can be told apart.
+
 Then on each iPhone: Control Center › Screen Mirroring › pick a slot's name. The iPhones must
 be on the same Wi-Fi as the Mac. If macOS asks to allow incoming connections or local network
 access, allow it.
@@ -109,6 +113,14 @@ access, allow it.
   when the pointer is over it. Open windows, and where they were, come back the next time the app
   starts. OBS captures the window even behind other windows. It can't capture a minimized
   window, so these windows have no minimize button; leave them behind other windows instead.
+- **Send to OBS (Syphon):** a tile's ⋯ menu can also send that slot's picture straight to OBS,
+  remembered per slot. In OBS add a **Syphon Client** source and pick `[Mirror Wall] MacMirror-<phone
+  name>` (the same name as the slot's own window). It gets every frame directly at the stream's
+  full size, with no window needing to be open, even with Mirror Wall minimized. While the phone
+  is away it shows the slot's standby picture, sized like the phone's picture. The tile shows a small broadcast icon while it's on. Window capture works as before; use
+  whichever suits a scene. Needs the app built with Syphon (`scripts/build-syphon.sh`, which needs
+  Xcode's Metal Toolchain: `xcodebuild -downloadComponent MetalToolchain`); without it the menu
+  item doesn't appear.
 - **Slot names:** new slots are named "Mirror Wall 1 · MacBook Air": the Mac's name without its
   owner, shortened to 14 characters at a word, so two Macs' slots can be told apart on the phone
   while staying distinct from the Mac's own AirPlay receiver (which uses the Mac's full name).
