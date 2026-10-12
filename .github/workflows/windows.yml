@@ -1,0 +1,49 @@
+# Builds Mirror Wall for Windows: the receiver (uxplay and GStreamer, in MSYS2), then the app and
+# its installer. The installer is attached to each run as "MirrorWall-Setup".
+name: Windows
+
+on:
+  push:
+    paths: ['windows/**', 'patches/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['windows/**', 'patches/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+jobs:
+  receiver:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The receiver only changes with its build script or the patches, so most runs reuse it.
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: windows/receiver/out
+          key: receiver-${{ hashFiles('windows/receiver/**', 'patches/**') }}
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: git
+          pacboy: >-
+            cmake:p gcc:p ninja:p libplist:p openssl:p gstreamer:p gst-plugins-base:p
+            gst-plugins-good:p gst-plugins-bad:p gst-libav:p
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        name: Build uxplay
+        shell: msys2 {0}
+        run: bash windows/receiver/build-uxplay.sh
+
+      # Starts two receivers side by side, as the app does, and checks both come up and announce
+      # themselves on the network.
+      - name: Try the receiver
+        shell: pwsh
+        run: windows/receiver/smoke-test.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: receiver
+          path: windows/receiver/out
