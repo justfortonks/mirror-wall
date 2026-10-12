@@ -14,7 +14,10 @@ public sealed class Picture
 {
     public int Width { get; }
     public int Height { get; }
-    public int Stride => Width * 4;
+    /// <summary>Bytes per row: rounded up to 64, because swscale's fast conversion leaves the last
+    /// few pixels of each row unwritten when rows aren't aligned, which showed as a faint line
+    /// down the right edge of a 994-pixel-wide picture.</summary>
+    public int Stride { get; }
     public byte[] Pixels { get; }
     /// <summary>The frame's RTP timestamp, or null for a still (a standby picture).</summary>
     public uint? RtpTimestamp { get; }
@@ -25,10 +28,11 @@ public sealed class Picture
         Width = width;
         Height = height;
         RtpTimestamp = rtpTimestamp;
-        Pixels = ArrayPool<byte>.Shared.Rent(width * height * 4);
+        Stride = (width * 4 + 63) & ~63;
+        Pixels = ArrayPool<byte>.Shared.Rent(Stride * height);
     }
 
-    public int Length => Width * Height * 4;
+    public int Length => Stride * Height;
 
     /// <summary>Another holder; each must <see cref="Release"/>.</summary>
     public Picture Retain()
