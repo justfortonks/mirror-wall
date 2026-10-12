@@ -115,6 +115,8 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink sync=false host=127.0.0.1 port=5602"))
         XCTAssertEqual(args[args.firstIndex(of: "-d")! + 1], "1")
         XCTAssertFalse(args.contains("-restrict"))
+        XCTAssertFalse(args.contains("-h265"))
+        XCTAssertTrue(SlotConfig(id: 2, name: "x").uxplayArguments(maxFrameRate: 30, sharpPicture: true).contains("-h265"))
     }
 
     func testAllowList() {
@@ -440,5 +442,74 @@ final class PlayoutClockTests: XCTestCase {
             lastWait = clock.due(rtp: rtp, arrival: arrival + 0.2) - (arrival + 0.2)
         }
         XCTAssertEqual(lastWait, 0.1, accuracy: 1e-6)
+    }
+}
+
+final class HEVCDepacketizerTests: XCTestCase {
+    private func packet(_ seq: UInt16, ts: UInt32, marker: Bool, _ payload: [UInt8]) -> RTPPacket {
+        RTPPacket(marker: marker, sequenceNumber: seq, timestamp: ts, payload: payload)
+    }
+
+    private let vps: [UInt8] = [0x40, 0x01, 0xAA]
+    private let sps: [UInt8] = [0x42, 0x01, 0xBB]
+    private let pps: [UInt8] = [0x44, 0x01, 0xCC]
+
+    /// Parameter sets as single packets, then an IDR picture in three fragments.
+    func testReassemblesParameterSetsAndFragments() {
+        let d = H264Depacketizer()
+        XCTAssertEqual(d.push(packet(1, ts: 9, marker: false, vps)), [])
+        XCTAssertEqual(d.codec, .hevc)
+        _ = d.push(packet(2, ts: 9, marker: false, sps))
+        _ = d.push(packet(3, ts: 9, marker: false, pps))
+        // FU header: start bit, type 19 (IDR_W_RADL).
+        _ = d.push(packet(4, ts: 9, marker: false, [0x62, 0x01, 0x80 | 19, 1, 2]))
+        _ = d.push(packet(5, ts: 9, marker: false, [0x62, 0x01, 19, 3]))
+        let frames = d.push(packet(6, ts: 9, marker: true, [0x62, 0x01, 0x40 | 19, 4]))
+        XCTAssertEqual(frames, [H264Frame(nalUnits: [vps, sps, pps, [0x26, 0x01, 1, 2, 3, 4]], timestamp: 9, codec: .hevc)])
+        XCTAssertTrue(frames[0].isKeyframe)
+    }
+
+    func testAggregationPacket() {
+        let d = H264Depacketizer()
+        var ap: [UInt8] = [0x60, 0x01]
+        for nal in [vps, sps, pps] { ap += [0, UInt8(nal.count)] + nal }
+        let frames = d.push(packet(1, ts: 3, marker: true, ap))
+        XCTAssertEqual(frames, [H264Frame(nalUnits: [vps, sps, pps], timestamp: 3, codec: .hevc)])
+    }
+
+    func testTrailingPictureIsNotAKeyframe() {
+        let d = H264Depacketizer()
+        _ = d.push(packet(1, ts: 1, marker: true, vps))
+        let frames = d.push(packet(2, ts: 2, marker: true, [0x02, 0x01, 7])) // TRAIL_R
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertFalse(frames[0].isKeyframe)
+    }
+
+    /// A slot whose receiver is restarted can get the other codec next; a parameter set switches.
+    func testSwitchesCodecOnParameterSets() {
+        let d = H264Depacketizer()
+        _ = d.push(packet(1, ts: 1, marker: true, vps))
+        XCTAssertEqual(d.codec, .hevc)
+        _ = d.push(packet(2, ts: 2, marker: true, [0x67, 0x64, 0, 0x2A]))
+        XCTAssertEqual(d.codec, .h264)
+        var stap: [UInt8] = [0x78, 0, 2, 0x67, 1]
+        stap += [0, 2, 0x68, 2]
+        XCTAssertEqual(H264Depacketizer.codecOfParameterSets(in: stap), .h264)
+        // H.264 slices and fragments, and H.265 slices, show nothing.
+        for payload: [UInt8] in [[0x41, 1], [0x65, 1], [0x7C, 0x85, 1], [0x02, 0x01, 1], [0x26, 0x01, 1], [0x62, 0x01, 0x93]] {
+            XCTAssertNil(H264Depacketizer.codecOfParameterSets(in: payload), "\(payload)")
+        }
+        d.reset()
+        XCTAssertEqual(d.codec, .h264)
+    }
+}
+
+final class HEVCDescriptionTests: XCTestCase {
+    func testReadsProfileAndLevelThroughEmulationPrevention() {
+        // NAL header, IDs, Main profile, compatibility flags, constraint flags with an emulation
+        // prevention byte, level 5.1 (153).
+        let sps: [UInt8] = [0x42, 0x01, 0x01, 0x01, 0x60, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 153, 0xA0]
+        XCTAssertEqual(hevcDescription(sps: sps), "H.265 Main 5.1")
+        XCTAssertEqual(hevcDescription(sps: [0x42, 0x01]), "H.265")
     }
 }

@@ -53,6 +53,8 @@ final class Slot: ObservableObject, Identifiable {
     let renderer = H264Renderer()
     /// The most frames a second phones are asked to send; takes effect when the receiver starts.
     var maxFrameRate = 30
+    /// Offers phones H.265 for a sharper picture; takes effect when the receiver starts.
+    var sharpPicture = false
     /// Numbers for the Stats for Nerds overlay, kept apart so they don't redraw everything else.
     let stats = SlotStats()
     /// Called when the config changes on its own (a new phone's name), so it can be saved.
@@ -83,6 +85,9 @@ final class Slot: ObservableObject, Identifiable {
     static let silenceLimit: TimeInterval = 10
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
     private var generation = 0
+    /// When the receiver last started, to tell a crash after running a while (start a fresh one)
+    /// from one that can't run at all (show the error).
+    private var processStartedAt: Date?
 
     // Touched only on the UDP thread.
     private let depacketizer = H264Depacketizer()
@@ -126,7 +131,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices),
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -145,8 +150,9 @@ final class Slot: ObservableObject, Identifiable {
             return
         }
         self.process = process
+        processStartedAt = Date()
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices).joined(separator: " "))")
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture).joined(separator: " "))")
         state = .waiting
     }
 
@@ -423,7 +429,25 @@ final class Slot: ObservableObject, Identifiable {
         process = nil
         receiver?.stop()
         receiver = nil
-        state = .failed("The receiver stopped (exit status \(status)). Use Restart, or check the log.")
+        // A receiver that ran a while and quit by itself, most often crashing as a phone
+        // disconnects (in H.265 mode especially), gets replaced like after any disconnect. One
+        // that quits within seconds of starting is shown as failed rather than restarted over
+        // and over.
+        let ranAWhile = processStartedAt.map { Date().timeIntervalSince($0) > 5 } ?? false
+        guard ranAWhile, let uxplay = uxplayURL else {
+            state = .failed("The receiver stopped (exit status \(status)). Use Restart, or check the log.")
+            return
+        }
+        let wasMirroring = state == .live || state == .paused || state == .connecting
+        let phone = phoneName
+        append("Starting a fresh receiver")
+        stop()
+        start(uxplay: uxplay, freshLog: false)
+        if wasMirroring || phone != nil, state == .waiting {
+            phoneName = phone
+            state = .disconnected
+        }
+        if wasMirroring { onPhoneDropped?() }
     }
 }
 

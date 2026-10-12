@@ -57,7 +57,7 @@ struct PopOutSizeCommands: Commands {
 }
 
 /// View › Smoother Motion: shows frames at the phone's pace, a moment late, instead of in
-/// Wi-Fi's bursts.
+/// Wi-Fi's bursts. View › Sharper Picture: asks phones for H.265 at twice the size.
 struct SmoothMotionCommands: Commands {
     @ObservedObject var store: SlotStore
 
@@ -66,6 +66,10 @@ struct SmoothMotionCommands: Commands {
             Toggle("Smoother Motion", isOn: Binding(
                 get: { store.smoothMotion },
                 set: { store.setSmoothMotion($0) }
+            ))
+            Toggle("Sharper Picture (H.265)", isOn: Binding(
+                get: { store.sharpPicture },
+                set: { store.setSharpPicture($0) }
             ))
         }
     }
