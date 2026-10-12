@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.Display
@@ -89,6 +90,8 @@ class CastService : Service() {
     /** When the connection dropped, while reconnecting. */
     private var lostAt: Long? = null
     private var stopped = false
+    /** Holds the screen on while sharing, if the app's switch says to. */
+    private var screenLock: PowerManager.WakeLock? = null
     @Volatile private var screenOff = false
     @Volatile private var waitingForKeyframe = false
 
@@ -297,9 +300,26 @@ class CastService : Service() {
                 registerReceiver(screenReceiver, screenEvents)
             }
             main.postDelayed(heartbeat, 2000)
+            keepScreenOn()
         }
         if (screenOff) link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
         update(if (screenOff) "Screen off: $slotName shows it as paused" else "Sharing to $slotName")
+    }
+
+    /**
+     * Keeps the screen from timing out while sharing, as a phone that locks pauses the slot. Only a
+     * screen wake lock can do this from a service; it's deprecated but still honoured, and needs
+     * no prompt. The power button still turns the screen off.
+     */
+    private fun keepScreenOn() {
+        if (!Phone.keepsScreenOn(this) || screenLock != null) return
+        @Suppress("DEPRECATION")
+        screenLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ON_AFTER_RELEASE, "MirrorWallCast:sharing")
+            .apply {
+                setReferenceCounted(false)
+                acquire()
+            }
     }
 
     /** A new encoder for `size`, drawn into by the virtual display (if there is one yet). */
@@ -362,6 +382,8 @@ class CastService : Service() {
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     screenOff = false
+                    // The power button released the hold on the screen; take it again.
+                    screenLock?.let { if (!it.isHeld) it.acquire() }
                     link?.outbox?.offer(CastProtocol.message(CastProtocol.RESUMED))
                     waitingForKeyframe = true
                     encoder?.requestKeyframe()
@@ -422,6 +444,8 @@ class CastService : Service() {
             } catch (_: IllegalArgumentException) {
             }
         }
+        screenLock?.let { if (it.isHeld) it.release() }
+        screenLock = null
         display?.release()
         display = null
         encoder?.stop()

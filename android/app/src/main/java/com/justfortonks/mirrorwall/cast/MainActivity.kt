@@ -19,6 +19,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 
 /**
@@ -255,6 +256,13 @@ class MainActivity : Activity() {
             setSingleLine()
         }
         column.addView(nameField)
+
+        column.addView(Switch(this).apply {
+            text = "Keep the screen on while sharing"
+            isChecked = Phone.keepsScreenOn(this@MainActivity)
+            setPadding(0, pad, 0, 0)
+            setOnCheckedChangeListener { _, on -> Phone.setKeepsScreenOn(this@MainActivity, on) }
+        })
 
         column.addView(TextView(this).apply {
             text = "Version ${packageManager.getPackageInfo(packageName, 0).versionName}"

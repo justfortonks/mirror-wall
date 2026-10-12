@@ -14,6 +14,7 @@ if it hasn't been released yet.
 - Android phones reconnect by themselves when Mirror Wall restarts their slot (for example after
   turning Sharper Picture on), and send H.265 at full screen resolution when Sharper Picture is
   on, if the phone can.
+- Mirror Wall Cast keeps the phone's screen on while sharing (a switch in the app turns this off).
 
 ## October 12, 2026: Mirror Wall for Windows
 
