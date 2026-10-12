@@ -101,7 +101,7 @@ access, allow it.
   (default), blank black, or an image of your choice, scaled to fit with black bars if its shape
   differs (a copy is kept in `~/Library/Application Support/Mirror Wall/Standby`). Settings sets it
   for all slots; a slot's ⋯ › Standby Picture can give that slot its own. It shows in the slot's
-  own window, and faintly behind the tile's status text.
+  own window and in its tile, whose footer still gives the status.
 - **Screenshots:** the camera button in a tile's footer (or ⋯ › Take Screenshot, or File ›
   Screenshot All Slots) saves the picture at the stream's full size as a PNG in
   `~/Pictures/Mirror Wall`.
