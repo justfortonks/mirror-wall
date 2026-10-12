@@ -114,6 +114,45 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertEqual(args[args.firstIndex(of: "-p")! + 1], "7400")
         XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink host=127.0.0.1 port=5602"))
         XCTAssertEqual(args[args.firstIndex(of: "-d")! + 1], "1")
+        XCTAssertFalse(args.contains("-restrict"))
+    }
+
+    func testAllowList() {
+        let args = SlotConfig(id: 1, name: "x").uxplayArguments(maxFrameRate: 30, allowedDevices: ["AA:BB", "CC:DD"])
+        XCTAssertEqual(Array(args.suffix(5)), ["-restrict", "-allow", "AA:BB", "-allow", "CC:DD"])
+    }
+
+    func testDefaultNamesUseTheMacsName() {
+        XCTAssertEqual(SlotConfig.defaultName(for: 1, computerName: "Alex's MacBook Air"), "Mirror Wall 1 · MacBook Air")
+        XCTAssertEqual(SlotConfig.defaultName(for: 2, computerName: "Alex’s Mac Studio in the Office"), "Mirror Wall 2 · Mac Studio in")
+        XCTAssertEqual(SlotConfig.defaultName(for: 2, computerName: "Studio"), "Mirror Wall 2 · Studio")
+        XCTAssertEqual(SlotConfig.defaultName(for: 3, computerName: nil), "Mirror Wall 3")
+        XCTAssertEqual(SlotConfig.defaultName(for: 3, computerName: "  "), "Mirror Wall 3")
+        XCTAssertLessThanOrEqual(SlotConfig.defaultName(for: 8, computerName: "Alex's Extremely Long Mac Name").count, SlotConfig.maxNameLength)
+        XCTAssertTrue(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 2, computerName: nil))
+        XCTAssertFalse(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 1, computerName: nil))
+        XCTAssertTrue(SlotConfig.isOldDefaultName("Alex's MacBook Air 1", id: 1, computerName: "Alex's MacBook Air"))
+        XCTAssertFalse(SlotConfig.isOldDefaultName("Kitchen", id: 1, computerName: "Alex's MacBook Air"))
+    }
+
+    func testTidyNames() {
+        XCTAssertEqual(SlotConfig.tidyName("  Kitchen   iPhone "), "Kitchen iPhone")
+        XCTAssertEqual(SlotConfig.tidyName("The Very Long Name Of My Demo Phone Number Two"), "The Very Long Name Of My Demo")
+        XCTAssertEqual(SlotConfig.tidyName("Supercalifragilisticexpialidocious-phone"), "Supercalifragilisticexpialidoc")
+        XCTAssertEqual(SlotConfig.tidyName("   "), "")
+        XCTAssertLessThanOrEqual(SlotConfig.tidyName(String(repeating: "📱", count: 30)).utf8.count, 60)
+    }
+
+    func testOldSavedSlotsStillLoad() throws {
+        let json = #"[{"id":1,"name":"Mirror Wall 1","lastPhoneName":"Phone"}]"#
+        let configs = try JSONDecoder().decode([SlotConfig].self, from: Data(json.utf8))
+        XCTAssertNil(configs[0].standby)
+        var config = configs[0]
+        config.standby = .image(fileName: "standby-1.png")
+        let again = try JSONDecoder().decode(SlotConfig.self, from: JSONEncoder().encode(config))
+        XCTAssertEqual(again.standby, .image(fileName: "standby-1.png"))
+        config.standby = .message
+        XCTAssertEqual(try JSONDecoder().decode(SlotConfig.self, from: JSONEncoder().encode(config)).standby, .message)
     }
 }
 
@@ -121,11 +160,11 @@ final class UxPlayEventTests: XCTestCase {
     func testConnectionRequest() {
         XCTAssertEqual(
             UxPlayEvent(line: "connection request from t-bone's iPhone (iPhone18,2) with deviceID = 12:34:56:78:9A:BC"),
-            .clientConnecting(name: "t-bone's iPhone", model: "iPhone18,2")
+            .clientConnecting(name: "t-bone's iPhone", model: "iPhone18,2", deviceID: "12:34:56:78:9A:BC")
         )
         XCTAssertEqual(
             UxPlayEvent(line: "connection request from Kid (2) (iPhone14,6) with deviceID = AA"),
-            .clientConnecting(name: "Kid (2)", model: "iPhone14,6")
+            .clientConnecting(name: "Kid (2)", model: "iPhone14,6", deviceID: "AA")
         )
     }
 
@@ -281,6 +320,25 @@ final class StreamMeterTests: XCTestCase {
         XCTAssertEqual(h264Description(sps: [0x67, 100, 0, 42]), "H.264 High 4.2")
         XCTAssertEqual(h264Description(sps: [0x67, 77, 0, 31]), "H.264 Main 3.1")
         XCTAssertEqual(h264Description(sps: [0x67]), "H.264")
+    }
+}
+
+final class PhoneModelTests: XCTestCase {
+    func testFriendlyNames() {
+        XCTAssertEqual(phoneModelName("iPhone18,2"), "iPhone 17 Pro Max")
+        XCTAssertEqual(phoneModelName("iPhone14,6"), "iPhone SE (3rd generation)")
+        XCTAssertEqual(phoneModelName("iPhone99,1"), "iPhone99,1")
+    }
+
+    func testTrueToLifeSizes() {
+        // The 17 Pro Max is the reference; the SE's screen is about two-thirds as tall.
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone18,2", pictureWidth: 498, pictureHeight: 1080), 800, accuracy: 3)
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone14,6", pictureWidth: 608, pictureHeight: 1080), 524, accuracy: 5)
+        // Landscape uses the same long side.
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone14,6", pictureWidth: 1080, pictureHeight: 608), 524, accuracy: 5)
+        // Unknown phones keep the reference size.
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone99,1", pictureWidth: 498, pictureHeight: 1080), 800)
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: nil, pictureWidth: 498, pictureHeight: 1080), 800)
     }
 }
 

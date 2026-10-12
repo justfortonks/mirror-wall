@@ -3,7 +3,7 @@ import Foundation
 /// Connection events recognised in uxplay's output (it must run with `-d 1` for `openConnections`).
 public enum UxPlayEvent: Equatable {
     /// An iPhone asked to connect: "connection request from NAME (MODEL) with deviceID = ..."
-    case clientConnecting(name: String, model: String)
+    case clientConnecting(name: String, model: String, deviceID: String)
     /// uxplay's count of open connections changed; 0 means no phone is attached.
     case openConnections(Int)
     /// uxplay gave up on a phone that stopped sending heartbeats.
@@ -25,13 +25,14 @@ public enum UxPlayEvent: Equatable {
         if let range = line.range(of: "connection request from "),
            let tail = line[range.upperBound...].range(of: " with deviceID") {
             let nameAndModel = line[range.upperBound..<tail.lowerBound]
+            let deviceID = String(line[tail.upperBound...].drop { $0 == " " || $0 == "=" }.prefix { !$0.isWhitespace })
             // The name may itself contain parentheses, so split on the last " (".
             if let open = nameAndModel.range(of: " (", options: .backwards), nameAndModel.hasSuffix(")") {
                 let name = String(nameAndModel[..<open.lowerBound])
                 let model = String(nameAndModel[open.upperBound...].dropLast())
-                self = .clientConnecting(name: name, model: model)
+                self = .clientConnecting(name: name, model: model, deviceID: deviceID)
             } else {
-                self = .clientConnecting(name: String(nameAndModel), model: "")
+                self = .clientConnecting(name: String(nameAndModel), model: "", deviceID: deviceID)
             }
         } else if let range = line.range(of: "Open connections: ") {
             let digits = line[range.upperBound...].prefix { $0.isNumber }
