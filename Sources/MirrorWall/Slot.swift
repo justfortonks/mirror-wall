@@ -39,6 +39,9 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var hasPicture = false
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
+    /// The last picture size seen, kept after the phone leaves, for sizing the OBS feed's standby
+    /// picture like the phone's.
+    private(set) var lastPictureSize: CGSize?
     /// The receiver's output, kept apart so a new line only redraws the log window.
     let log = SlotLog()
     /// The connected phone's name, as it introduced itself to uxplay.
@@ -223,6 +226,11 @@ final class Slot: ObservableObject, Identifiable {
     /// The name OBS lists the slot's feed under, while it's on.
     var obsFeedName: String? { syphonFeed?.name }
 
+    /// Sends a still picture (the standby picture) down the OBS feed, if it's on.
+    func sendToOBS(_ image: CVImageBuffer) {
+        syphonFeed?.publish(image)
+    }
+
     func setStandby(_ standby: StandbyPicture?) {
         objectWillChange.send()
         config.standby = standby
@@ -332,6 +340,7 @@ final class Slot: ObservableObject, Identifiable {
             if let dimensions {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
+                self.lastPictureSize = size
             }
             self.lastSignOfLifeAt = Date()
             let pauseSettled = self.pausedAt.map { Date().timeIntervalSince($0) > 3 } ?? true
