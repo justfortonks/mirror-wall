@@ -21,6 +21,14 @@ object Phone {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("name", name.trim()).apply()
     }
 
+    /** Keep the screen on while sharing, so the phone doesn't lock and pause. On by default. */
+    fun keepsScreenOn(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("keepScreenOn", true)
+
+    fun setKeepsScreenOn(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("keepScreenOn", on).apply()
+    }
+
     /** E.g. "Zebra Technologies HC50". */
     fun model(): String {
         val maker = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
