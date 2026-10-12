@@ -84,6 +84,10 @@ playback, autodetect) are there only because uxplay won't start without them. Th
 uxplay with GStreamer pointed at those plugins alone. UxPlay is GPLv3 and GStreamer LGPL, which
 matters if the app is ever given to anyone else.
 
+Each build of MirrorWall.app is numbered by the commits it was built from (0.61, 0.62…), and
+Mirror Wall › About Mirror Wall also shows the commit and when it was built, so two Macs' copies
+can be told apart.
+
 Then on each iPhone: Control Center › Screen Mirroring › pick a slot's name. The iPhones must
 be on the same Wi-Fi as the Mac. If macOS asks to allow incoming connections or local network
 access, allow it.

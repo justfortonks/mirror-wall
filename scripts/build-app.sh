@@ -20,7 +20,14 @@ for size in 16 32 128 256 512; do
     sips -z $((size * 2)) $((size * 2)) Sources/MirrorWall/Resources/AppIcon.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+
+# Version: the number of commits, so every build from newer code has a higher one (0.61, 0.62…),
+# plus the commit itself and the build date, shown in Mirror Wall › About Mirror Wall.
+BUILD=$(git rev-list --count HEAD)
+COMMIT=$(git rev-parse --short HEAD)
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then COMMIT="$COMMIT with local changes"; fi
+BUILT=$(date "+%Y-%m-%d %H:%M")
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -31,8 +38,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key><string>MirrorWall</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>0.$BUILD</string>
+    <key>CFBundleVersion</key><string>$BUILD</string>
+    <key>MirrorWallCommit</key><string>$COMMIT</string>
+    <key>MirrorWallBuilt</key><string>$BUILT</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
