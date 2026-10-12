@@ -17,7 +17,7 @@ if [ ! -d "$SRC/.git" ]; then
 fi
 git -C "$SRC" fetch --quiet --depth 1 origin "$COMMIT"
 git -C "$SRC" checkout --quiet --force "$COMMIT"
-git -C "$SRC" clean --quiet -fdx
+git -C "$SRC" clean --quiet -fdx --exclude=/build
 for patch in patches/*.patch; do
     git -C "$SRC" apply "$(pwd)/$patch"
 done
@@ -25,7 +25,7 @@ done
 if [ "${1:-}" = "--source-archive" ]; then
     OUT="$(pwd)/build/UxPlay-source-${COMMIT:0:12}.tar.gz"
     cp patches/*.patch "$SRC/"
-    tar -czf "$OUT" -C build --exclude=.git UxPlay
+    tar -czf "$OUT" -C build --exclude=.git --exclude=UxPlay/build UxPlay
     rm "$SRC"/*.patch
     echo "Wrote $OUT"
     exit 0
