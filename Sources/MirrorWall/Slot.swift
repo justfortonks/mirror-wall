@@ -24,7 +24,14 @@ final class Slot: ObservableObject, Identifiable {
     var id: Int { config.id }
 
     @Published private(set) var state: State = .stopped {
-        didSet { if state != oldValue { stateSince = Date() } }
+        didSet {
+            if state != oldValue { stateSince = Date() }
+            syphonFeed?.passesFrames = carriesPhoneFrames
+        }
+    }
+    /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
+    private var carriesPhoneFrames: Bool {
+        state == .connecting || state == .live || state == .paused
     }
     /// When the current state began, e.g. how long the screen has been off.
     @Published private(set) var stateSince = Date()
@@ -205,8 +212,9 @@ final class Slot: ObservableObject, Identifiable {
                 feed.name = name
             } else if let feed = SyphonFeed(name: name) {
                 syphonFeed = feed
-                renderer.onShow = { [weak feed] image in feed?.publish(image) }
-                if let image = renderer.currentImage { feed.publish(image) }
+                feed.passesFrames = carriesPhoneFrames
+                renderer.onShow = { [weak feed] image in feed?.publishFrame(image) }
+                if let image = renderer.currentImage { feed.publishFrame(image) }
             } else {
                 config.obsFeed = nil
                 return false
