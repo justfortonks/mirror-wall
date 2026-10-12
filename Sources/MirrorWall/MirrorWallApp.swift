@@ -12,6 +12,9 @@ struct MirrorWallApp: App {
                 .environmentObject(appDelegate.store)
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Mirror Wall") { AboutPanel.show() }
+            }
             CommandGroup(after: .newItem) {
                 Button("Add Slot") { appDelegate.store.addSlot() }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -154,6 +157,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+/// Mirror Wall › About Mirror Wall: the standard panel, plus which code the build came from,
+/// so two Macs' copies can be told apart.
+@MainActor
+enum AboutPanel {
+    static func show() {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let details: String
+        if let commit = info["MirrorWallCommit"] as? String, let built = info["MirrorWallBuilt"] as? String {
+            details = "Built \(built) from commit \(commit)."
+        } else {
+            details = "Development build, run from the source folder."
+        }
+        let credits = NSAttributedString(string: details, attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
