@@ -114,6 +114,9 @@ final class Slot: ObservableObject, Identifiable {
     private var lostPacketsCounted = 0
     private var lastNotified: CFAbsoluteTime = 0
     private var lastDimensions: CMVideoDimensions?
+    /// The Android phone's codec, read from its keyframes.
+    private var castStreamCodec: VideoCodec = .h264
+    private var lastLatencyReport: Double = 0
 
     init(config: SlotConfig) {
         self.config = config
@@ -335,11 +338,20 @@ final class Slot: ObservableObject, Identifiable {
 
     /// Cast queue: one picture from the Android phone.
     private func handleCastVideo(captureMicros: Int64, accessUnit: [UInt8]) {
-        let frame = H264Frame(nalUnits: annexBNALUnits(accessUnit), timestamp: castRTPTimestamp(captureMicros: captureMicros))
+        let nalUnits = annexBNALUnits(accessUnit)
         streamLock.withLock {
+            if let codec = castCodec(of: nalUnits) { castStreamCodec = codec }
+            let frame = H264Frame(nalUnits: nalUnits, timestamp: castRTPTimestamp(captureMicros: captureMicros), codec: castStreamCodec)
             let arrivedAt = Self.uptime()
             meter.packet(bytes: accessUnit.count, lost: 0, at: arrivedAt)
             deliver([frame], arrivedAt: arrivedAt)
+            // Arrival minus capture time, on clocks with an unknown offset: only its rise above
+            // the best so far means anything, which is what Lag vs best shows.
+            if arrivedAt - lastLatencyReport >= 1 {
+                lastLatencyReport = arrivedAt
+                let latency = arrivedAt - Double(captureMicros) / 1e6
+                DispatchQueue.main.async { [weak self] in self?.stats.recordLatency(latency) }
+            }
         }
     }
 
@@ -428,7 +440,17 @@ final class Slot: ObservableObject, Identifiable {
         switch message {
         case .paused: apply(.streamPaused)
         case .resumed: apply(.streamStarted)
-        case .heartbeat: apply(.heartbeat)
+        case .heartbeat:
+            apply(.heartbeat)
+            // A still screen sends no pictures; don't leave the last second's numbers up.
+            if let lastFrameAt, Date().timeIntervalSince(lastFrameAt) > 1.5, stats.stream?.framesPerSecond != 0 {
+                stats.stream?.framesPerSecond = 0
+                stats.stream?.bitsPerSecond = 0
+            }
+            phone.send(.ping(DispatchTime.now().uptimeNanoseconds))
+        case .pong(let sentAt):
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now > sentAt { stats.roundTrip = Double(now - sentAt) / 1e9 }
         case .bye: append("\(phoneName ?? "The Android phone") stopped sharing")
         default: break
         }
@@ -457,10 +479,13 @@ final class Slot: ObservableObject, Identifiable {
         generation += 1
         process?.stop()
         process = nil
-        streamLock.withLock { depacketizer.reset() }
+        streamLock.withLock {
+            depacketizer.reset()
+            castStreamCodec = .h264
+        }
         apply(.clientConnecting(name: hello.name, model: hello.model, deviceID: hello.deviceID))
         lastSignOfLifeAt = Date()
-        phone.accept(CastWelcome(slot: name, maxFrameRate: maxFrameRate))
+        phone.accept(CastWelcome(slot: name, maxFrameRate: maxFrameRate, sharpPicture: sharpPicture))
     }
 
     /// The Android phone hung up, or the connection broke. Ends like an iPhone disconnecting:

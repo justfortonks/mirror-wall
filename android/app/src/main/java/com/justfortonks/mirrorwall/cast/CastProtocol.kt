@@ -19,10 +19,12 @@ object CastProtocol {
     const val RESUMED = 0x04
     const val HEARTBEAT = 0x05
     const val BYE = 0x06
+    const val PONG = 0x07
 
     // Mirror Wall to phone.
     const val WELCOME = 0x81
     const val BUSY = 0x82
+    const val PING = 0x84
 
     const val SERVICE_TYPE = "_mirrorwall._tcp"
     private const val MAX_PAYLOAD = 16 shl 20
@@ -34,7 +36,7 @@ object CastProtocol {
             .put(payload)
             .array()
 
-    /** One encoded picture: capture time in microseconds, then the H.264 access unit (Annex B). */
+    /** One encoded picture: capture time in microseconds, then the H.264 or H.265 access unit (Annex B). */
     fun video(captureMicros: Long, prefix: ByteArray?, data: ByteBuffer): ByteArray {
         val prefixSize = prefix?.size ?: 0
         val length = 8 + prefixSize + data.remaining()

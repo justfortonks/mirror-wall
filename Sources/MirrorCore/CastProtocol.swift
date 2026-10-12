@@ -12,9 +12,13 @@ public enum CastMessageType: UInt8 {
     case resumed = 0x04
     case heartbeat = 0x05
     case bye = 0x06
+    /// Answers a ping with the same payload, for measuring the round trip.
+    case pong = 0x07
     // Mac to phone.
     case welcome = 0x81
     case busy = 0x82
+    /// Eight bytes the phone sends straight back in a pong.
+    case ping = 0x84
 }
 
 /// The phone's introduction.
@@ -41,10 +45,13 @@ public struct CastWelcome: Codable, Equatable {
     public var slot: String
     /// The most frames a second the phone should send.
     public var maxFrameRate: Int
+    /// Sharper Picture is on: send H.265 at up to 2160 pixels tall if the phone can.
+    public var sharpPicture: Bool?
 
-    public init(slot: String, maxFrameRate: Int) {
+    public init(slot: String, maxFrameRate: Int, sharpPicture: Bool? = nil) {
         self.slot = slot
         self.maxFrameRate = maxFrameRate
+        self.sharpPicture = sharpPicture
     }
 }
 
@@ -67,8 +74,10 @@ public enum CastMessage: Equatable {
     case resumed
     case heartbeat
     case bye
+    case pong(UInt64)
     case welcome(CastWelcome)
     case busy(CastBusy)
+    case ping(UInt64)
 
     /// The message as sent over the connection.
     public func encoded() -> [UInt8] {
@@ -86,6 +95,12 @@ public enum CastMessage: Equatable {
         case .resumed: type = .resumed
         case .heartbeat: type = .heartbeat
         case .bye: type = .bye
+        case .pong(let value):
+            type = .pong
+            payload = withUnsafeBytes(of: value.bigEndian, Array.init)
+        case .ping(let value):
+            type = .ping
+            payload = withUnsafeBytes(of: value.bigEndian, Array.init)
         case .welcome(let welcome):
             type = .welcome
             payload = Array((try? encoder.encode(welcome)) ?? Data())
@@ -154,6 +169,10 @@ public final class CastReader {
             case .resumed: return .resumed
             case .heartbeat: return .heartbeat
             case .bye: return .bye
+            case .pong, .ping:
+                guard payload.count == 8 else { throw Failure.malformed(rawType) }
+                let value = payload.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+                return type == .pong ? .pong(value) : .ping(value)
             }
         } catch let failure as Failure {
             throw failure
@@ -187,6 +206,20 @@ public func annexBNALUnits(_ bytes: [UInt8]) -> [[UInt8]] {
         units.append(Array(bytes[unitStart...]))
     }
     return units
+}
+
+/// The codec of a frame that starts with a parameter set (every keyframe from the phone does):
+/// an H.265 VPS or SPS, or an H.264 SPS. Nil for other frames.
+public func castCodec(of nalUnits: [[UInt8]]) -> VideoCodec? {
+    guard let first = nalUnits.first?.first else { return nil }
+    if first & 0x1F == H264NALType.sps.rawValue, first & 0x80 == 0, nalUnits.first!.count > 1,
+       (first >> 5) != 0 {
+        return .h264
+    }
+    if let type = HEVCNALType.of(nalUnits.first!), type == HEVCNALType.vps || type == HEVCNALType.sps {
+        return .hevc
+    }
+    return nil
 }
 
 /// Converts the phone's capture time to the 90 kHz clock the renderer and recorder use for RTP.

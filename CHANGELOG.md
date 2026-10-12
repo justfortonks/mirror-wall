@@ -11,6 +11,9 @@ if it hasn't been released yet.
   app: open it, tap a slot, allow sharing. An Android phone gets a tile like an iPhone, with its
   own window for OBS, recording, screenshots and Stats for Nerds, and iPhones and Android phones
   can share at the same time in different slots.
+- Android phones reconnect by themselves when Mirror Wall restarts their slot (for example after
+  turning Sharper Picture on), and send H.265 at full screen resolution when Sharper Picture is
+  on, if the phone can.
 
 ## October 12, 2026: Mirror Wall for Windows
 
