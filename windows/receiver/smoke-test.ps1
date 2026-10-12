@@ -15,6 +15,9 @@ $receivers = foreach ($slot in 1, 2) {
     $info.Environment['GST_PLUGIN_SCANNER'] = Join-Path $out 'gst-plugin-scanner.exe'
     $info.Environment['GST_REGISTRY'] = Join-Path $env:RUNNER_TEMP 'gstreamer-registry.bin'
     $info.Environment['MIRROR_WALL_QUIT_ON_EOF'] = '1'
+    # GStreamer's warnings, which name a missing plugin or library.
+    $info.Environment['GST_DEBUG'] = '2'
+    $info.Environment['GST_DEBUG_NO_COLOR'] = '1'
     $port = 7200 + $slot * 100
     $rtp = 5598 + $slot * 2
     foreach ($argument in @(
