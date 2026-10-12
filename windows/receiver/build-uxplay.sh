@@ -36,7 +36,10 @@ git apply "$here/uxplay-windows.patch"
 
 mkdir build
 cd build
-cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
+# NO_MARCH_NATIVE: UxPlay otherwise compiles for the build machine's own processor, and a
+# receiver built on one GitHub runner then crashed (illegal instruction) on another, as it
+# would on PCs with older processors.
+cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DNO_MARCH_NATIVE=ON
 ninja
 cp uxplay.exe "$out/"
 
