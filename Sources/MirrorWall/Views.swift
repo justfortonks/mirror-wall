@@ -122,6 +122,7 @@ struct SlotTile: View {
                     StatsOverlay(slot: slot, stats: slot.stats)
                 }
             }
+            .overlay(alignment: .topTrailing) { popOutButton }
             .aspectRatio(aspectRatio, contentMode: .fit)
             .background(Color.black)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -156,6 +157,25 @@ struct SlotTile: View {
     private var hasStandbyImage: Bool {
         if case .image = store.standby(for: slot) { return true }
         return false
+    }
+
+    /// Opens the slot's own window, or closes it if open. Sits in the picture's top right corner,
+    /// clear of Stats for Nerds in the top left.
+    private var popOutButton: some View {
+        let isOpen = store.poppedOutIDs.contains(slot.id)
+        return Button {
+            if isOpen { store.closeOwnWindow(slot) } else { store.openOwnWindow(slot) }
+        } label: {
+            Image(systemName: isOpen ? "arrow.down.left" : "arrow.up.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(8)
+        .help(isOpen ? "Close this slot's own window" : "Open this slot in its own window, for OBS")
     }
 
     private var pausedBanner: some View {
@@ -212,13 +232,6 @@ struct SlotTile: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                Button {
-                    if store.poppedOutIDs.contains(slot.id) { store.closeOwnWindow(slot) } else { store.openOwnWindow(slot) }
-                } label: {
-                    Image(systemName: store.poppedOutIDs.contains(slot.id) ? "arrow.down.left.square" : "arrow.up.right.square")
-                }
-                .buttonStyle(.borderless)
-                .help(store.poppedOutIDs.contains(slot.id) ? "Close this slot's own window" : "Open this slot in its own window, for OBS")
                 Button {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
                 } label: {
