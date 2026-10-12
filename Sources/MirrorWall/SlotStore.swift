@@ -18,6 +18,8 @@ final class SlotStore: ObservableObject {
     /// When on, only phones in `allowedDeviceIDs` can mirror. Off by default: any phone can.
     @Published private(set) var allowListEnabled: Bool
     @Published private(set) var allowedDeviceIDs: Set<String>
+    /// What slots show while no phone is mirroring, unless a slot has its own.
+    @Published private(set) var defaultStandby: StandbyPicture
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
@@ -28,6 +30,7 @@ final class SlotStore: ObservableObject {
     private let knownPhonesKey = "knownPhones"
     private let allowListEnabledKey = "allowListEnabled"
     private let allowedDevicesKey = "allowedDevices"
+    private let defaultStandbyKey = "defaultStandby"
     static let bounceKey = "bounceOnDisconnect"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
@@ -51,6 +54,7 @@ final class SlotStore: ObservableObject {
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
         allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
+        defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
@@ -283,8 +287,26 @@ final class SlotStore: ObservableObject {
     }
 
     func chooseStandbyImage(for slot: Slot) {
-        guard let picture = StandbyPictures.choose(for: slot.id) else { return }
+        guard let picture = StandbyPictures.choose(label: "slot-\(slot.id)") else { return }
         setStandby(slot, picture)
+    }
+
+    /// What `slot` shows while no phone is mirroring: its own choice, or the one for all slots.
+    func standby(for slot: Slot) -> StandbyPicture {
+        slot.config.standby ?? defaultStandby
+    }
+
+    func setDefaultStandby(_ standby: StandbyPicture) {
+        let old = defaultStandby
+        guard standby != old else { return }
+        defaultStandby = standby
+        if let data = try? JSONEncoder().encode(standby) { defaults.set(data, forKey: defaultStandbyKey) }
+        StandbyPictures.discard(old)
+    }
+
+    func chooseDefaultStandbyImage() {
+        guard let picture = StandbyPictures.choose(label: "all-slots") else { return }
+        setDefaultStandby(picture)
     }
 
     func screenshotAll() {
@@ -305,7 +327,7 @@ final class SlotStore: ObservableObject {
             existing.show()
             return
         }
-        let window = PopOutWindow(slot: slot, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)", size: popOutSize)
+        let window = PopOutWindow(slot: slot, store: self, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)", size: popOutSize)
         let id = slot.id
         window.onClose = { [weak self] in self?.ownWindowClosed(id) }
         popOutWindows[id] = window

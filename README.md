@@ -97,10 +97,11 @@ access, allow it.
   while staying distinct from the Mac's own AirPlay receiver (which uses the Mac's full name).
   Slots still on a name an earlier version gave them take the new one. Rename (⋯ menu) sets any name up to 30 characters, and
   restarts that slot; Use the Mac's Name goes back to the default.
-- **Standby picture:** the ⋯ menu's Standby Picture sets what a slot shows while no phone is
-  mirroring: the waiting message (default), blank black, or an image of your choice (a copy is
-  kept in `~/Library/Application Support/Mirror Wall/Standby`). It shows in the slot's own window,
-  and faintly behind the tile's status text.
+- **Standby picture:** what a slot shows while no phone is mirroring: the waiting message
+  (default), blank black, or an image of your choice, scaled to fit with black bars if its shape
+  differs (a copy is kept in `~/Library/Application Support/Mirror Wall/Standby`). Settings sets it
+  for all slots; a slot's ⋯ › Standby Picture can give that slot its own. It shows in the slot's
+  own window, and faintly behind the tile's status text.
 - **Screenshots:** the camera button in a tile's footer (or ⋯ › Take Screenshot, or File ›
   Screenshot All Slots) saves the picture at the stream's full size as a PNG in
   `~/Pictures/Mirror Wall`.
