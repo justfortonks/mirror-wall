@@ -14,10 +14,14 @@ slots ("Mirror Wall 1" and "Mirror Wall 2") and you can add up to eight.
 page). Open it, drag **Mirror Wall** to Applications, then follow "Install on another Mac" below
 from step 2. It needs an Apple Silicon Mac with macOS 26 or later.
 
-Releases are built on GitHub's Macs by `.github/workflows/release.yml`: in the Actions tab pick
-**Release DMG › Run workflow** with Publish ticked. It builds UxPlay with this repository's
-patches, Syphon and the app, and makes a release `v0.<build number>` with the DMG and the UxPlay
-source attached.
+For Windows, **[download MirrorWall-Setup.exe](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe)**
+and see [windows/README.md](windows/README.md).
+
+Releases are built on GitHub's machines by `.github/workflows/release.yml`: in the Actions tab
+pick **Release › Run workflow** with Publish ticked. It builds UxPlay with this repository's
+patches, Syphon and the Mac app on a Mac, and the Windows installer on Windows
+(`.github/workflows/windows.yml`), and makes a release `v0.<build number>` with the DMG, the
+installer and the UxPlay source attached.
 
 ## How it works
 

@@ -64,8 +64,26 @@ done | sort -u | while read -r library; do
     cp -n "$library" "$out/"
 done
 
-# Licences: UxPlay is GPLv3, GStreamer LGPL.
+# Licences: UxPlay is GPLv3, GStreamer LGPL. licenses/packages.txt lists the MSYS2 package (and
+# version) each bundled file came from, and each package's licence files are copied beside it.
 cp "$work/UxPlay/LICENSE" "$out/UxPlay-LICENSE.txt"
+mkdir -p "$out/licenses"
+for file in "$out"/*.exe "$out"/*.dll "$out"/lib/gstreamer-1.0/*.dll; do
+    name=$(basename "$file")
+    for dir in /ucrt64/bin /ucrt64/lib/gstreamer-1.0 /ucrt64/libexec/gstreamer-1.0; do
+        if [ -f "$dir/$name" ]; then
+            pacman -Qo "$dir/$name" 2>/dev/null | awk '{print $(NF-1), $NF}'
+            break
+        fi
+    done
+done | sort -u > "$out/licenses/packages.txt"
+while read -r package version; do
+    licenses="/ucrt64/share/licenses/${package#mingw-w64-ucrt-x86_64-}"
+    if [ -d "$licenses" ]; then
+        cp -r "$licenses" "$out/licenses/"
+    fi
+done < "$out/licenses/packages.txt"
+echo "Licences for $(wc -l < "$out/licenses/packages.txt") MSYS2 packages in $out/licenses"
 echo "UxPlay $UXPLAY_COMMIT with Mirror Wall's patches" > "$out/VERSION.txt"
 
 count=$(ls "$out"/*.dll | wc -l)

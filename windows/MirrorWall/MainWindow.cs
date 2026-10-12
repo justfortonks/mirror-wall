@@ -41,6 +41,11 @@ internal sealed class MainWindow : Window
         Width = 900;
         Height = 700;
         RestoreSavedBounds();
+        if (SpoutFeed.IsAvailable)
+        {
+            // Once the wall is on screen, so the notice has something to sit over.
+            ContentRendered += (_, _) => Dispatcher.BeginInvoke(() => ObsSpoutPlugin.CheckOnFirstLaunch(this));
+        }
 
         addButton.Style = (Style)Application.Current.Resources["IconButton"];
         addButton.Content = Glyphs.Add;
