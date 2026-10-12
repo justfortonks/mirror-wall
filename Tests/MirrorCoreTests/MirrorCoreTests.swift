@@ -112,7 +112,7 @@ final class SlotConfigTests: XCTestCase {
         let fast = SlotConfig(id: 2, name: "Kitchen iPhone").uxplayArguments(maxFrameRate: 60)
         XCTAssertEqual(fast[fast.firstIndex(of: "-fps")! + 1], "60")
         XCTAssertEqual(args[args.firstIndex(of: "-p")! + 1], "7400")
-        XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink host=127.0.0.1 port=5602"))
+        XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink sync=false host=127.0.0.1 port=5602"))
         XCTAssertEqual(args[args.firstIndex(of: "-d")! + 1], "1")
         XCTAssertFalse(args.contains("-restrict"))
     }
