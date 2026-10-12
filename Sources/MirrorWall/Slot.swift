@@ -51,6 +51,8 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var screenshotSavedAt: Date?
 
     let renderer = H264Renderer()
+    /// The slot's OBS feed, while it's on.
+    private var syphonFeed: SyphonFeed?
     /// The most frames a second phones are asked to send; takes effect when the receiver starts.
     var maxFrameRate = 30
     /// Offers phones H.265 for a sharper picture; takes effect when the receiver starts.
@@ -189,6 +191,37 @@ final class Slot: ObservableObject, Identifiable {
             restart(uxplay: uxplay)
         }
     }
+
+    /// Sends the slot's picture to OBS through Syphon, under `name`, or stops. Returns false if
+    /// the feed couldn't start (no Syphon in this build).
+    @discardableResult
+    func setOBSFeed(_ on: Bool, name: String) -> Bool {
+        objectWillChange.send()
+        if on {
+            if let feed = syphonFeed {
+                feed.name = name
+            } else if let feed = SyphonFeed(name: name) {
+                syphonFeed = feed
+                renderer.onShow = { [weak feed] image in feed?.publish(image) }
+                if let image = renderer.currentImage { feed.publish(image) }
+            } else {
+                config.obsFeed = nil
+                return false
+            }
+            config.obsFeed = true
+        } else {
+            renderer.onShow = nil
+            syphonFeed?.stop()
+            syphonFeed = nil
+            config.obsFeed = nil
+        }
+        return true
+    }
+
+    /// True while the slot is sending its picture to OBS through Syphon.
+    var sendsToOBS: Bool { syphonFeed != nil }
+    /// The name OBS lists the slot's feed under, while it's on.
+    var obsFeedName: String? { syphonFeed?.name }
 
     func setStandby(_ standby: StandbyPicture?) {
         objectWillChange.send()

@@ -113,6 +113,14 @@ access, allow it.
   when the pointer is over it. Open windows, and where they were, come back the next time the app
   starts. OBS captures the window even behind other windows. It can't capture a minimized
   window, so these windows have no minimize button; leave them behind other windows instead.
+- **Send to OBS (Syphon):** a tile's ⋯ menu can also send that slot's picture straight to OBS,
+  remembered per slot. In OBS add a **Syphon Client** source and pick `[Mirror Wall] MacMirror-<phone
+  name>` (the same name as the slot's own window). It gets every frame directly at the stream's
+  full size, with no window needing to be open, and it keeps the last picture while the phone is
+  away. The tile shows a small broadcast icon while it's on. Window capture works as before; use
+  whichever suits a scene. Needs the app built with Syphon (`scripts/build-syphon.sh`, which needs
+  Xcode's Metal Toolchain: `xcodebuild -downloadComponent MetalToolchain`); without it the menu
+  item doesn't appear.
 - **Slot names:** new slots are named "Mirror Wall 1 · MacBook Air": the Mac's name without its
   owner, shortened to 14 characters at a word, so two Macs' slots can be told apart on the phone
   while staying distinct from the Mac's own AirPlay receiver (which uses the Mac's full name).
