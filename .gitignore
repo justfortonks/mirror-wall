@@ -6,3 +6,8 @@ MirrorWall.app/
 .DS_Store
 MirrorWall.dmg
 Vendor/
+windows/receiver/work/
+windows/receiver/out/
+windows/**/bin/
+windows/**/obj/
+windows/dist/

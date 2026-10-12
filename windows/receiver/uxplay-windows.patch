@@ -1,0 +1,81 @@
+--- a/uxplay.cpp
++++ b/uxplay.cpp
+@@ -3285,6 +3285,55 @@
+ }
+ #endif
+ 
++#ifdef _WIN32
++#include <signal.h>
++
++/* Mirror Wall on Windows. A receiver that crashes exits quietly instead of putting up Windows'
++ * "uxplay.exe has stopped working" dialog in front of the wall; the app starts a fresh one. And
++ * with MIRROR_WALL_QUIT_ON_EOF=1, the app can stop uxplay cleanly by closing its input: a program
++ * without a console of its own can't be sent Ctrl-C. */
++static void mirror_wall_crashed() {
++    const char message[] = "*** Mirror Wall: uxplay crashed; exiting without a crash report\n";
++    DWORD written;
++    WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, sizeof(message) - 1, &written, NULL);
++    TerminateProcess(GetCurrentProcess(), 3);
++}
++
++static void mirror_wall_abort(int sig) {
++    mirror_wall_crashed();
++}
++
++static LONG WINAPI mirror_wall_exception(EXCEPTION_POINTERS *info) {
++    mirror_wall_crashed();
++    return EXCEPTION_EXECUTE_HANDLER;
++}
++
++static DWORD WINAPI mirror_wall_watch_input(LPVOID arg) {
++    char buffer[256];
++    DWORD count;
++    while (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &count, NULL) && count > 0) {}
++    LOGI("*** Mirror Wall: input closed, shutting down");
++    if (gmainloop) {
++        g_idle_add(handle_signal, NULL);
++    } else {
++        cleanup();
++        exit(0);
++    }
++    return 0;
++}
++
++static void mirror_wall_install_windows() {
++    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
++    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
++    signal(SIGABRT, mirror_wall_abort);
++    SetUnhandledExceptionFilter(mirror_wall_exception);
++    const char *quit_on_eof = getenv("MIRROR_WALL_QUIT_ON_EOF");
++    if (quit_on_eof && quit_on_eof[0] == '1') {
++        CreateThread(NULL, 0, mirror_wall_watch_input, NULL, 0, NULL);
++    }
++}
++#endif
++
+ #ifdef GST_MACOS
+ /* workaround for GStreamer >= 1.22 "Official Builds" on macOS */
+ #include <TargetConditionals.h>
+@@ -3321,6 +3370,9 @@
+ #ifdef __APPLE__
+     mirror_wall_install_quiet_crash();
+ #endif
++#ifdef _WIN32
++    mirror_wall_install_windows();
++#endif
+ 
+ #ifdef __OpenBSD__
+     if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
+@@ -3405,9 +3457,9 @@
+ 
+ #ifdef _WIN32    /*  use utf-8 terminal output; don't buffer stdout in WIN32 when debug_log = false */
+     SetConsoleOutputCP(CP_UTF8);
+-    if (!debug_log) {
+-        setbuf(stdout, NULL);
+-    }
++    /* Mirror Wall: unbuffered even with -d, so the app reads each log line as it's written
++     * rather than in blocks of several kilobytes. */
++    setbuf(stdout, NULL);
+ #endif
+ 
+     LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
