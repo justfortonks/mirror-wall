@@ -1,0 +1,91 @@
+# Builds MirrorWall.dmg on a GitHub Mac: UxPlay with this repository's patches, Syphon, the app.
+# Run it from the Actions tab (Release DMG › Run workflow) with "Publish" ticked to make a
+# release with the DMG and the UxPlay source attached; the newest release's DMG is always at
+# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg
+# Pull requests that change the packaging build the DMG too (kept as a workflow artifact only).
+name: Release DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a release with the DMG
+        type: boolean
+        default: true
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "scripts/**"
+      - "patches/**"
+      - "Package.swift"
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    # The DMG runs on this macOS version or later (its libraries come from this Mac's Homebrew).
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the build number is the commit count
+
+      - name: Install build tools
+        run: brew install cmake pkgconf libplist openssl@3 gstreamer
+
+      - name: Build UxPlay with Mirror Wall's patches
+        run: |
+          scripts/build-uxplay.sh
+          scripts/build-uxplay.sh --source-archive
+
+      - name: Build Syphon
+        run: |
+          xcodebuild -downloadComponent MetalToolchain
+          scripts/build-syphon.sh
+
+      - name: Test
+        run: swift test
+
+      - name: Build the DMG
+        run: |
+          scripts/make-dmg.sh
+          test -x MirrorWall.app/Contents/Resources/receiver/bin/uxplay
+          test -d MirrorWall.app/Contents/Frameworks/Syphon.framework
+          cat MirrorWall.app/Contents/Resources/receiver/licenses/README.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MirrorWall
+          path: |
+            MirrorWall.dmg
+            build/UxPlay-source-*.tar.gz
+
+      - name: Publish a release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v0.$(git rev-list --count HEAD)"
+          fi
+          cat > notes.md <<'NOTES'
+          **Download [MirrorWall.dmg](https://github.com/${{ github.repository }}/releases/download/TAG/MirrorWall.dmg)**, open it and drag Mirror Wall to Applications.
+
+          The app isn't signed by a registered Apple developer, so the first time you open it macOS blocks it: go to System Settings › Privacy & Security, find the message about Mirror Wall and click **Open Anyway**. This is needed once per Mac. When it asks to find devices on your local network, allow it.
+
+          Needs an Apple Silicon Mac with macOS 26 or later. Then on each iPhone (same Wi-Fi): Control Center › Screen Mirroring › pick "Mirror Wall 1" or another slot.
+
+          Mirror Wall is free software under the GNU GPL v3. Its receiver is UxPlay; the exact UxPlay source it was built from, with Mirror Wall's patches, is attached below. See "Licenses and Source Code.txt" in the DMG.
+          NOTES
+          sed -i '' "s/TAG/$TAG/" notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" MirrorWall.dmg build/UxPlay-source-*.tar.gz --clobber
+          else
+            gh release create "$TAG" MirrorWall.dmg build/UxPlay-source-*.tar.gz \
+              --target "$GITHUB_SHA" --title "Mirror Wall ${TAG#v}" --notes-file notes.md
+          fi
