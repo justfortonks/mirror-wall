@@ -126,6 +126,11 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
             "-as", "0",                 // view only: no audio
             "-d", "1",                  // debug log without packet dumps: reports connects and disconnects
             "-fps", String(maxFrameRate),
+            // Rebuild the video pipeline after every disconnect. uxplay on macOS skips that from a
+            // receiver's second disconnect on (its "-nc" workaround for closing its own window,
+            // which Mirror Wall never opens), leaving the next phone with no video in H.264 mode
+            // and crashing the receiver in H.265 mode.
+            "-nc", "no",
             // sync=false: send each frame on at once even when the receiver stamps it with the
             // phone's capture time (patches/uxplay-frame-timestamps.patch).
             "-vrtp", "config-interval=1 ! udpsink sync=false host=127.0.0.1 port=\(rtpPort)",
