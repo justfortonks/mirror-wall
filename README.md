@@ -7,6 +7,18 @@ phones. View only: the Mac can't control the phones.
 Each tile is a "slot": its own AirPlay receiver that one iPhone mirrors to. The app starts two
 slots ("Mirror Wall 1" and "Mirror Wall 2") and you can add up to eight.
 
+## Download
+
+**[Download MirrorWall.dmg](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg)**
+(the newest release; all of them are on the [Releases](https://github.com/justfortonks/mirror-wall/releases)
+page). Open it, drag **Mirror Wall** to Applications, then follow "Install on another Mac" below
+from step 2. It needs an Apple Silicon Mac with macOS 26 or later.
+
+Releases are built on GitHub's Macs by `.github/workflows/release.yml`: in the Actions tab pick
+**Release DMG › Run workflow** with Publish ticked. It builds UxPlay with this repository's
+patches, Syphon and the app, and makes a release `v0.<build number>` with the DMG and the UxPlay
+source attached.
+
 ## How it works
 
 The AirPlay protocol work is done by [UxPlay](https://github.com/FDH2/UxPlay) (GPLv3), run as
@@ -29,8 +41,8 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 
 ## Install on another Mac
 
-`scripts/make-dmg.sh` builds `MirrorWall.dmg`, a disk image holding the complete app: it carries
-its own uxplay and the parts of GStreamer uxplay needs, so the other Mac needs nothing installed
+Download the DMG (above), or build it yourself: `scripts/make-dmg.sh` builds `MirrorWall.dmg`,
+a disk image holding the complete app: it carries its own uxplay and the parts of GStreamer uxplay needs, so the other Mac needs nothing installed
 (no Homebrew, no Xcode).
 
 1. Copy `MirrorWall.dmg` to the other Mac, open it and drag **Mirror Wall** to Applications.
@@ -47,7 +59,9 @@ macOS 27, it needs Apple Silicon and macOS 27.
 
 - macOS 14 or later, Xcode (or the Swift toolchain).
 - A `uxplay` build that supports `-vrtp` (UxPlay 1.72 or later). Homebrew has no UxPlay
-  formula, so build it from source following UxPlay's README (it needs Homebrew's `gstreamer`).
+  formula; `scripts/build-uxplay.sh` builds the exact one releases use (UxPlay at a fixed commit
+  with all three patches below) into `build/UxPlay/build/uxplay`, after
+  `brew install cmake pkgconf libplist openssl@3 gstreamer`.
   Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
   `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
   `scripts/build-app.sh` looks in the same places, or takes `UXPLAY=/path/to/uxplay`.
@@ -81,8 +95,8 @@ scripts/make-dmg.sh        # the same, packed into MirrorWall.dmg for another Ma
 the libraries they load into `MirrorWall.app/Contents/Resources/receiver`, and rewrites their
 load paths so they find each other there instead of in Homebrew. Three of the plugins (libav,
 playback, autodetect) are there only because uxplay won't start without them. The app runs that
-uxplay with GStreamer pointed at those plugins alone. UxPlay is GPLv3 and GStreamer LGPL, which
-matters if the app is ever given to anyone else.
+uxplay with GStreamer pointed at those plugins alone. It also copies each bundled library's
+licence files into `receiver/licenses`.
 
 Each build of MirrorWall.app is numbered by the commits it was built from (0.61, 0.62…), and
 Mirror Wall › About Mirror Wall also shows the commit and when it was built, so two Macs' copies
@@ -202,3 +216,11 @@ access, allow it.
 
 - USB-connected iPhones (planned next, via CoreMediaIO, the way QuickTime does it).
 - Audio (deliberately off: `-as 0`).
+
+## Licence
+
+Mirror Wall is free software under the GNU General Public License v3 (`LICENSE`), the same
+licence as UxPlay, the AirPlay receiver it ships. Anyone given the app can get its source here;
+each release also attaches the exact UxPlay source it was built from. `THIRD_PARTY_NOTICES.md`
+(also in the DMG as "Licenses and Source Code.txt") covers UxPlay, GStreamer and its libraries,
+and Syphon. Mirror Wall isn't affiliated with Apple; AirPlay is Apple's trademark.
