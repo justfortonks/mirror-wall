@@ -22,18 +22,33 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         self.lastPhoneName = lastPhoneName
     }
 
-    /// "Alex's MacBook Pro 1": the Mac's name, so phones can tell two Macs' slots apart.
+    /// "Mirror Wall 1 · MacBook Air": the Mac's name, without its owner, so phones can tell two
+    /// Macs' slots apart. "Mirror Wall" comes first because the phone's list cuts long names at
+    /// the end, and because the Mac's own AirPlay receiver goes by the Mac's full name.
     public static func defaultName(for id: Int, computerName: String?) -> String {
-        let computer = computerName.map { shortened(collapsed($0), limit: maxComputerNameLength) } ?? ""
-        return (computer.isEmpty ? "Mirror Wall" : computer) + " \(id)"
+        let computer = computerName.map { shortened(withoutOwner(collapsed($0)), limit: maxComputerNameLength) } ?? ""
+        return "Mirror Wall \(id)" + (computer.isEmpty ? "" : " · " + computer)
     }
 
-    /// The name every slot had before names included the Mac's.
-    public static func isOldDefaultName(_ name: String, id: Int) -> Bool {
-        name == "Mirror Wall \(id)"
+    /// Names given by earlier versions, which a slot still using one should replace: "Mirror Wall 1",
+    /// and "Alex's MacBook Air 1" (which looked too much like the Mac's own AirPlay receiver).
+    public static func isOldDefaultName(_ name: String, id: Int, computerName: String?) -> Bool {
+        if name == "Mirror Wall \(id)" { return true }
+        guard let computerName else { return false }
+        return name == shortened(collapsed(computerName), limit: 20) + " \(id)"
     }
 
-    static let maxComputerNameLength = 20
+    /// "Alex's MacBook Air" → "MacBook Air".
+    static func withoutOwner(_ name: String) -> String {
+        for apostrophe in ["'s ", "’s "] {
+            if let range = name.range(of: apostrophe), !name[range.upperBound...].isEmpty {
+                return String(name[range.upperBound...])
+            }
+        }
+        return name
+    }
+
+    static let maxComputerNameLength = 14
     /// Longer names get cut in the iPhone's Screen Mirroring list anyway.
     public static let maxNameLength = 30
     /// Bonjour allows 63 bytes; a little to spare.

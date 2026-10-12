@@ -92,9 +92,10 @@ access, allow it.
   when the pointer is over it. Open windows, and where they were, come back the next time the app
   starts. OBS captures the window even behind other windows. It can't capture a minimized
   window, so these windows have no minimize button; leave them behind other windows instead.
-- **Slot names:** new slots are named after the Mac ("Alex's MacBook Pro 1"), shortened to 20
-  characters at a word, so two Macs' slots can be told apart on the phone. Slots still called
-  "Mirror Wall N" take the new name. Rename (⋯ menu) sets any name up to 30 characters, and
+- **Slot names:** new slots are named "Mirror Wall 1 · MacBook Air": the Mac's name without its
+  owner, shortened to 14 characters at a word, so two Macs' slots can be told apart on the phone
+  while staying distinct from the Mac's own AirPlay receiver (which uses the Mac's full name).
+  Slots still on a name an earlier version gave them take the new one. Rename (⋯ menu) sets any name up to 30 characters, and
   restarts that slot; Use the Mac's Name goes back to the default.
 - **Standby picture:** the ⋯ menu's Standby Picture sets what a slot shows while no phone is
   mirroring: the waiting message (default), blank black, or an image of your choice (a copy is
