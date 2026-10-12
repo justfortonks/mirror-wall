@@ -43,10 +43,15 @@ jobs:
         run: bash windows/receiver/build-uxplay.sh
 
       # Starts two receivers side by side, as the app does, and checks both come up and announce
-      # themselves on the network.
+      # themselves on the network. MSYS2 is moved aside first, so the receiver is tried as it runs
+      # on a PC without it.
       - name: Try the receiver
         shell: pwsh
-        run: windows/receiver/smoke-test.ps1
+        run: |
+          $msys = Join-Path $env:RUNNER_TEMP 'msys64'
+          if (Test-Path $msys) { Rename-Item $msys 'msys64-aside' }
+          try { windows/receiver/smoke-test.ps1 }
+          finally { if (Test-Path "$msys-aside") { Rename-Item "$msys-aside" 'msys64' } }
 
       - uses: actions/upload-artifact@v4
         with:

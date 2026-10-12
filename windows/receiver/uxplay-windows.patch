@@ -1,6 +1,8 @@
+diff --git a/uxplay.cpp b/uxplay.cpp
+index 94c9557..52dc5ce 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
-@@ -3285,6 +3285,55 @@
+@@ -3285,6 +3285,67 @@ static void mirror_wall_install_quiet_crash() {
  }
  #endif
  
@@ -11,19 +13,31 @@
 + * "uxplay.exe has stopped working" dialog in front of the wall; the app starts a fresh one. And
 + * with MIRROR_WALL_QUIT_ON_EOF=1, the app can stop uxplay cleanly by closing its input: a program
 + * without a console of its own can't be sent Ctrl-C. */
-+static void mirror_wall_crashed() {
-+    const char message[] = "*** Mirror Wall: uxplay crashed; exiting without a crash report\n";
++static void mirror_wall_crashed(const char *what) {
++    char message[600];
++    int length = snprintf(message, sizeof(message), "*** Mirror Wall: uxplay crashed (%s); exiting without a crash report\n", what);
 +    DWORD written;
-+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, sizeof(message) - 1, &written, NULL);
++    WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, length, &written, NULL);
 +    TerminateProcess(GetCurrentProcess(), 3);
 +}
 +
 +static void mirror_wall_abort(int sig) {
-+    mirror_wall_crashed();
++    mirror_wall_crashed("abort");
 +}
 +
++/* Names the exception and the library it happened in, for the slot's log. */
 +static LONG WINAPI mirror_wall_exception(EXCEPTION_POINTERS *info) {
-+    mirror_wall_crashed();
++    char what[520];
++    char module[MAX_PATH] = "unknown library";
++    void *address = info->ExceptionRecord->ExceptionAddress;
++    HMODULE handle = NULL;
++    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                           (LPCSTR) address, &handle)) {
++        GetModuleFileNameA(handle, module, sizeof(module));
++    }
++    snprintf(what, sizeof(what), "exception 0x%08lx at %s+0x%llx", info->ExceptionRecord->ExceptionCode, module,
++             (unsigned long long) ((char *) address - (char *) handle));
++    mirror_wall_crashed(what);
 +    return EXCEPTION_EXECUTE_HANDLER;
 +}
 +
@@ -56,7 +70,7 @@
  #ifdef GST_MACOS
  /* workaround for GStreamer >= 1.22 "Official Builds" on macOS */
  #include <TargetConditionals.h>
-@@ -3321,6 +3370,9 @@
+@@ -3321,6 +3382,9 @@ int main (int argc, char *argv[]) {
  #ifdef __APPLE__
      mirror_wall_install_quiet_crash();
  #endif
@@ -66,7 +80,7 @@
  
  #ifdef __OpenBSD__
      if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
-@@ -3405,9 +3457,9 @@
+@@ -3405,9 +3469,9 @@ int main (int argc, char *argv[]) {
  
  #ifdef _WIN32    /*  use utf-8 terminal output; don't buffer stdout in WIN32 when debug_log = false */
      SetConsoleOutputCP(CP_UTF8);
