@@ -5,6 +5,13 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 12, 2026: Android phones
+
+- Android phones can share their screens to Mirror Wall on a Mac with the new Mirror Wall Cast
+  app: open it, tap a slot, allow sharing. An Android phone gets a tile like an iPhone, with its
+  own window for OBS, recording, screenshots and Stats for Nerds, and iPhones and Android phones
+  can share at the same time in different slots.
+
 ## October 12, 2026: Mirror Wall for Windows
 
 - Mirror Wall now runs on Windows 10 and 11 too: the same tile wall, each slot's own window for

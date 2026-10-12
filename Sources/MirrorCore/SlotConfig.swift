@@ -95,6 +95,12 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         7200 + UInt16(id) * 100
     }
 
+    /// TCP port Android phones (Mirror Wall Cast) connect to: 7350, 7450, ... Clear of uxplay's
+    /// three ports.
+    public var castPort: UInt16 {
+        airplayBasePort + 50
+    }
+
     /// Localhost UDP port uxplay forwards the decrypted H.264 RTP stream to: 5600, 5602, ...
     public var rtpPort: UInt16 {
         5598 + UInt16(id) * 2

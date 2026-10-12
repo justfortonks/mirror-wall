@@ -1,0 +1,70 @@
+# Builds Mirror Wall Cast, the Android app that shares a phone's screen to a Mirror Wall slot.
+# Each run attaches "MirrorWallCast-debug" (installable for testing). When the repository has the
+# ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD
+# secrets, it also attaches "MirrorWallCast-release", signed for Intune / managed Google Play.
+name: Android
+
+on:
+  push:
+    paths: ['android/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the build number is the commit count
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export MIRROR_WALL_BUILD=$(git rev-list --count HEAD)
+          tasks="assembleDebug"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+            tasks="$tasks assembleRelease bundleRelease"
+          fi
+          ./gradlew --no-daemon $tasks
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/MirrorWallCast-0.$MIRROR_WALL_BUILD-debug.apk"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            cp app/build/outputs/apk/release/app-release.apk "dist/MirrorWallCast-0.$MIRROR_WALL_BUILD.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "dist/MirrorWallCast-0.$MIRROR_WALL_BUILD.aab"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MirrorWallCast-debug
+          path: android/dist/*-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ hashFiles('android/dist/*.aab') != '' }}
+        with:
+          name: MirrorWallCast-release
+          path: |
+            android/dist/*.aab
+            android/dist/MirrorWallCast-0.*[0-9].apk
