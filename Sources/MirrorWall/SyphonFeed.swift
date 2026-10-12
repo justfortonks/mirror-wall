@@ -30,6 +30,23 @@ final class SyphonFeed {
     // Guarded by `lock`.
     private var waiting: CVImageBuffer?
     private var busy = false
+    private var framesOn = true
+
+    /// Whether the phone's frames get through. Turned off the moment the phone leaves, so its
+    /// last few frames, still being decoded or held for Smoother Motion, can't land on top of
+    /// the standby picture. Stills sent with `publish` always get through.
+    var passesFrames: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return framesOn }
+        set { lock.lock(); framesOn = newValue; lock.unlock() }
+    }
+
+    /// Hands one of the phone's frames to OBS, unless `passesFrames` is off.
+    func publishFrame(_ image: CVImageBuffer) {
+        lock.lock()
+        let on = framesOn
+        lock.unlock()
+        if on { publish(image) }
+    }
 
     /// Nil if this Mac has no Metal device (every Mac that runs macOS 14 does).
     init?(name: String) {
@@ -126,7 +143,9 @@ final class SyphonFeed {
     static let isAvailable = false
     init?(name: String) { return nil }
     var name = ""
+    var passesFrames = true
     func publish(_ image: CVImageBuffer) {}
+    func publishFrame(_ image: CVImageBuffer) {}
     func stop() {}
 }
 
