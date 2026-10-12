@@ -63,6 +63,7 @@ internal sealed class SlotTile : UserControl
         this.store = store;
         this.toggleFocus = toggleFocus;
         stats = new StatsOverlay(slot);
+        VerticalAlignment = VerticalAlignment.Top;
 
         RenderOptions.SetBitmapScalingMode(picture, BitmapScalingMode.HighQuality);
         placeholder.Children.Add(placeholderIcon);
@@ -162,12 +163,20 @@ internal sealed class SlotTile : UserControl
         stats.Detach();
     }
 
-    /// <summary>In single-slot view, keeps the picture within the window.</summary>
+    /// <summary>Keeps the picture short enough for the wall to fit the window. The tile narrows
+    /// to match, so its footer stays under its picture.</summary>
     public double MaxPictureHeight
     {
         get => pictureBox.MaxContentHeight;
-        set => pictureBox.MaxContentHeight = value;
+        set
+        {
+            pictureBox.MaxContentHeight = value;
+            UpdateMaxWidth();
+        }
     }
+
+    private void UpdateMaxWidth() =>
+        MaxWidth = double.IsInfinity(pictureBox.MaxContentHeight) ? double.PositiveInfinity : Math.Max(160, pictureBox.MaxContentHeight * pictureBox.Ratio);
 
     private IEnumerable<object> MenuItems() =>
         Menus.SlotItems(slot, store, IsFocusedSlot, () => toggleFocus(slot), Window.GetWindow(this));
@@ -187,6 +196,7 @@ internal sealed class SlotTile : UserControl
         bool hasStandbyImage = standbyPicture.Kind == StandbyKind.Image;
 
         pictureBox.Ratio = slot.VideoSize is { Height: > 0 } size ? size.Width / size.Height : 9.0 / 19.5;
+        UpdateMaxWidth();
         picture.Source = slot.Renderer.Bitmap;
         picture.Visibility = showsPicture ? Visibility.Visible : Visibility.Hidden;
 

@@ -63,7 +63,7 @@ internal sealed class MainWindow : Window
         bar.Children.Add(MenuBar());
 
         scroller.Content = grid;
-        scroller.SizeChanged += (_, _) => UpdateFocusedHeight();
+        scroller.SizeChanged += (_, _) => FitToWindow();
         var root = new DockPanel();
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);
@@ -178,17 +178,42 @@ internal sealed class MainWindow : Window
             tile.IsFocusedSlot = focusedSlotId != null;
             grid.Children.Add(tile);
         }
-        // One column filling the window when focused.
-        grid.MinColumnWidth = focusedSlotId == null ? 220 : 10_000;
-        foreach (var tile in tiles.Values) tile.MaxPictureHeight = double.PositiveInfinity;
-        UpdateFocusedHeight();
+        FitToWindow();
     }
 
-    /// <summary>Keeps a focused slot's picture, and its footer, within the window.</summary>
-    private void UpdateFocusedHeight()
+    /// <summary>
+    /// Sizes the tiles so the whole wall fits the window, footers included: picks the number of
+    /// columns that gives the biggest pictures, then caps their height to fit the rows. With many
+    /// slots in a small window the tiles stop shrinking at a readable size and the wall scrolls.
+    /// </summary>
+    private void FitToWindow()
     {
-        if (focusedSlotId is int id && tiles.TryGetValue(id, out var tile))
-            tile.MaxPictureHeight = Math.Max(200, scroller.ActualHeight - 32 - 70);
+        const double spacing = 16, margin = 16, footer = 64, smallest = 160;
+        const double portrait = 9.0 / 19.5; // planned for portrait phones; landscape ones fit easily
+        int count = grid.Children.Count;
+        double width = scroller.ActualWidth - 2 * margin - SystemParameters.VerticalScrollBarWidth;
+        double height = scroller.ActualHeight - 2 * margin;
+        if (count == 0 || width <= 0 || height <= 0) return;
+
+        int bestColumns = 1;
+        double bestHeight = 0;
+        int maxColumns = focusedSlotId == null ? count : 1;
+        for (int columns = 1; columns <= maxColumns; columns++)
+        {
+            int rows = (count + columns - 1) / columns;
+            double columnWidth = (width - spacing * (columns - 1)) / columns;
+            double rowHeight = (height - spacing * (rows - 1)) / rows - footer;
+            double pictureHeight = Math.Min(columnWidth / portrait, rowHeight);
+            if (pictureHeight > bestHeight + 0.5)
+            {
+                bestHeight = pictureHeight;
+                bestColumns = columns;
+            }
+        }
+        grid.FixedColumns = bestColumns;
+        double rowsHeight = (height - spacing * ((count + bestColumns - 1) / bestColumns - 1)) / ((count + bestColumns - 1) / bestColumns) - footer;
+        double cap = Math.Max(smallest, rowsHeight);
+        foreach (SlotTile tile in grid.Children) tile.MaxPictureHeight = cap;
     }
 
     private UIElement SetupView()

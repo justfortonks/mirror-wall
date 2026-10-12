@@ -21,7 +21,7 @@ $receivers = foreach ($slot in 1, 2) {
     $port = 7200 + $slot * 100
     $rtp = 5598 + $slot * 2
     foreach ($argument in @(
-        '-n', "Mirror Wall $slot", '-nh', '-p', "$port", '-m', "02:00:00:00:00:0$slot",
+        '-n', "Mirror Wall $slot · Test PC", '-nh', '-p', "$port", '-m', "02:00:00:00:00:0$slot",
         '-vsync', 'no', '-as', '0', '-d', '1', '-fps', '30', '-nc', 'no',
         '-vrtp', "config-interval=1 ! udpsink sync=false host=127.0.0.1 port=$rtp")) {
         $info.ArgumentList.Add($argument)

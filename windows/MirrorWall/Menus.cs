@@ -44,7 +44,8 @@ internal static class Menus
 
     public static ContextMenu Context(Func<IEnumerable<object>> items)
     {
-        var menu = new ContextMenu();
+        // A menu takes its font from what it opens from, which for the ⋯ button is the icon font.
+        var menu = new ContextMenu { FontFamily = SystemFonts.MessageFontFamily, FontSize = SystemFonts.MessageFontSize, FontWeight = FontWeights.Normal };
         menu.Opened += (_, _) =>
         {
             menu.Items.Clear();

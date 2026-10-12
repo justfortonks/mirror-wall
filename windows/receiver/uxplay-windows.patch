@@ -1,8 +1,8 @@
 diff --git a/uxplay.cpp b/uxplay.cpp
-index 94c9557..52dc5ce 100644
+index 94c9557..2983f5b 100644
 --- a/uxplay.cpp
 +++ b/uxplay.cpp
-@@ -3285,6 +3285,67 @@ static void mirror_wall_install_quiet_crash() {
+@@ -3285,6 +3285,91 @@ static void mirror_wall_install_quiet_crash() {
  }
  #endif
  
@@ -55,6 +55,30 @@ index 94c9557..52dc5ce 100644
 +    return 0;
 +}
 +
++/* uxplay checks its arguments are UTF-8 and quietly exits if not, but Windows hands main() them
++ * in the PC's legacy code page, so a slot name like "Mirror Wall 1 · PC" stopped it at once. Take
++ * them from the Unicode command line instead. */
++#include <shellapi.h>
++static void mirror_wall_utf8_arguments(int *argc, char ***argv) {
++    int count = 0;
++    LPWSTR *wide = CommandLineToArgvW(GetCommandLineW(), &count);
++    if (!wide) {
++        return;
++    }
++    char **utf8 = (char **) calloc(count + 1, sizeof(char *));
++    for (int i = 0; i < count; i++) {
++        int size = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, NULL, 0, NULL, NULL);
++        utf8[i] = (char *) malloc(size > 0 ? size : 1);
++        utf8[i][0] = '\0';
++        if (size > 0) {
++            WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, utf8[i], size, NULL, NULL);
++        }
++    }
++    LocalFree(wide);
++    *argc = count;
++    *argv = utf8;
++}
++
 +static void mirror_wall_install_windows() {
 +    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
 +    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
@@ -70,17 +94,18 @@ index 94c9557..52dc5ce 100644
  #ifdef GST_MACOS
  /* workaround for GStreamer >= 1.22 "Official Builds" on macOS */
  #include <TargetConditionals.h>
-@@ -3321,6 +3382,9 @@ int main (int argc, char *argv[]) {
+@@ -3321,6 +3406,10 @@ int main (int argc, char *argv[]) {
  #ifdef __APPLE__
      mirror_wall_install_quiet_crash();
  #endif
 +#ifdef _WIN32
 +    mirror_wall_install_windows();
++    mirror_wall_utf8_arguments(&argc, &argv);
 +#endif
  
  #ifdef __OpenBSD__
      if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
-@@ -3405,9 +3469,9 @@ int main (int argc, char *argv[]) {
+@@ -3405,9 +3494,9 @@ int main (int argc, char *argv[]) {
  
  #ifdef _WIN32    /*  use utf-8 terminal output; don't buffer stdout in WIN32 when debug_log = false */
      SetConsoleOutputCP(CP_UTF8);
