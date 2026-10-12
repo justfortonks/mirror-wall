@@ -97,10 +97,10 @@ jobs:
             -p:Version=0.$count -p:InformationalVersion="0.$count+$commit.$date" `
             -p:IncludeSourceRevisionInInformationalVersion=false -o windows/dist/MirrorWall
           Copy-Item "$env:RUNNER_TEMP\spout-build\Release\MirrorSpout.dll" windows/dist/MirrorWall/
-          # The FFmpeg the app is built against (FFmpeg.AutoGen 8.1) must be the one the receiver brings.
-          if (-not (Test-Path windows/dist/MirrorWall/receiver/avcodec-62.dll)) {
+          # The FFmpeg the app is built against (FFmpeg.AutoGen 9) must be the one the receiver brings.
+          if (-not (Test-Path windows/dist/MirrorWall/receiver/avcodec-63.dll)) {
             Get-ChildItem windows/dist/MirrorWall/receiver -Filter 'av*.dll' | ForEach-Object Name
-            throw "The receiver's FFmpeg isn't version 8 (avcodec-62.dll)"
+            throw "The receiver's FFmpeg isn't version 9 (avcodec-63.dll)"
           }
 
       - name: Make the installer
