@@ -546,3 +546,44 @@ final class ChangeLogTests: XCTestCase {
         XCTAssertNil(ChangeLogEntry.latest(in: "# Nothing yet\n"))
     }
 }
+
+final class CastProtocolTests: XCTestCase {
+    func testRoundTripsEveryMessageOneByteAtATime() throws {
+        let messages: [CastMessage] = [
+            .hello(CastHello(name: "Front Desk", model: "Zebra HC50", deviceID: "abc123")),
+            .welcome(CastWelcome(slot: "Mirror Wall 1 · Mac", maxFrameRate: 30)),
+            .video(captureMicros: 1_234_567_890_123, accessUnit: [0, 0, 0, 1, 0x65, 9]),
+            .paused, .resumed, .heartbeat,
+            .busy(CastBusy(reason: "In use")),
+            .bye,
+        ]
+        let reader = CastReader()
+        var decoded: [CastMessage] = []
+        for byte in messages.flatMap({ $0.encoded() }) {
+            decoded += try reader.push([byte])
+        }
+        XCTAssertEqual(decoded, messages)
+    }
+
+    func testSkipsUnknownMessagesAndRejectsHugeOnes() throws {
+        let reader = CastReader()
+        XCTAssertEqual(try reader.push([0x40, 0, 0, 0, 2, 7, 7] + CastMessage.heartbeat.encoded()), [.heartbeat])
+        XCTAssertThrowsError(try CastReader().push([0x02, 0x7F, 0, 0, 0]))
+    }
+
+    func testSplitsAnnexB() {
+        let stream: [UInt8] = [0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5]
+        XCTAssertEqual(annexBNALUnits(stream), [[0x67, 1, 2], [0x68, 3], [0x65, 4, 5]])
+        XCTAssertEqual(annexBNALUnits([0x65, 1]), [])
+    }
+
+    func testCaptureTimeBecomesNinetyKilohertz() {
+        XCTAssertEqual(castRTPTimestamp(captureMicros: 1_000_000), 90_000)
+        XCTAssertEqual(castRTPTimestamp(captureMicros: 1_000_000 + 33_333) &- castRTPTimestamp(captureMicros: 1_000_000), 2_999)
+    }
+
+    func testCastPortsSitBesideEachSlotsAirPlayPorts() {
+        XCTAssertEqual(SlotConfig(id: 1, name: "a").castPort, 7350)
+        XCTAssertEqual(SlotConfig(id: 8, name: "a").castPort, 8050)
+    }
+}

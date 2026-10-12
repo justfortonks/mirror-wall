@@ -217,6 +217,22 @@ access, allow it.
   runs it with `-nc no` so it rebuilds every time.)
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
+## Android phones
+
+Android phones (Android 10 or newer) share their screens with the **Mirror Wall Cast** app in
+`android/`, which speaks a small protocol of its own ([docs/mirror-wall-cast.md](docs/mirror-wall-cast.md))
+rather than AirPlay. Open the app, tap a slot, and allow Android's "Start recording or casting?"
+prompt (Android asks every time). The phone gets a tile like an iPhone; iPhones and Android
+phones can share at once in different slots. A slot busy with one phone turns the other away.
+
+- Builds come from Actions › Android: `MirrorWallCast-debug` for testing, plus a signed APK and
+  AAB for Intune (managed Google Play private app) once the signing-key secrets are set.
+- The phone and the Mac must be on the same network with multicast allowed for the slot list;
+  otherwise type the Mac's address in the app (port 7350 for slot 1, 7450 for slot 2, ...).
+- Apps that protect their screens (banking, DRM video) show black, and Android 15 hides
+  notification contents while sharing. That's Android, by design.
+- Windows support for Android phones is not in yet.
+
 ## Not done yet
 
 - USB-connected iPhones (planned next, via CoreMediaIO, the way QuickTime does it).
