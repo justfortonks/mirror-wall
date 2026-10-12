@@ -32,6 +32,7 @@ struct MirrorWallApp: App {
             }
             StatsCommands()
             FrameRateCommands(store: appDelegate.store)
+            SmoothMotionCommands(store: appDelegate.store)
             PopOutSizeCommands(store: appDelegate.store)
         }
 
@@ -51,6 +52,21 @@ struct PopOutSizeCommands: Commands {
             Menu("Pop-out Window Size") {
                 PopOutSizeItems(store: store)
             }
+        }
+    }
+}
+
+/// View › Smoother Motion: shows frames at the phone's pace, a moment late, instead of in
+/// Wi-Fi's bursts.
+struct SmoothMotionCommands: Commands {
+    @ObservedObject var store: SlotStore
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Toggle("Smoother Motion", isOn: Binding(
+                get: { store.smoothMotion },
+                set: { store.setSmoothMotion($0) }
+            ))
         }
     }
 }
