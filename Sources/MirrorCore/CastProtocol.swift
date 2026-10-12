@@ -209,14 +209,16 @@ public func annexBNALUnits(_ bytes: [UInt8]) -> [[UInt8]] {
 }
 
 /// The codec of a frame that starts with a parameter set (every keyframe from the phone does):
-/// an H.265 VPS or SPS, or an H.264 SPS. Nil for other frames.
+/// an H.264 SPS, or an H.265 VPS or SPS. Nil for other frames.
+///
+/// An H.265 header is matched on both its bytes (layer 0, temporal ID 1), because its first byte
+/// alone can be an ordinary H.264 picture's: 0x41 is both an H.265 VPS and an H.264 P slice.
 public func castCodec(of nalUnits: [[UInt8]]) -> VideoCodec? {
-    guard let first = nalUnits.first?.first else { return nil }
-    if first & 0x1F == H264NALType.sps.rawValue, first & 0x80 == 0, nalUnits.first!.count > 1,
-       (first >> 5) != 0 {
+    guard let first = nalUnits.first, first.count >= 2 else { return nil }
+    if first[0] & 0x80 == 0, first[0] & 0x1F == H264NALType.sps.rawValue, first[0] & 0x60 != 0 {
         return .h264
     }
-    if let type = HEVCNALType.of(nalUnits.first!), type == HEVCNALType.vps || type == HEVCNALType.sps {
+    if (first[0] == HEVCNALType.vps << 1 || first[0] == HEVCNALType.sps << 1), first[1] == 0x01 {
         return .hevc
     }
     return nil
