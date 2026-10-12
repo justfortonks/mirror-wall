@@ -12,8 +12,20 @@ public sealed class AdaptiveGrid : Panel
     public double MinColumnWidth { get; set; } = 220;
     public double Spacing { get; set; } = 16;
 
+    /// <summary>A set number of columns, instead of as many as fit at <see cref="MinColumnWidth"/>.</summary>
+    public int? FixedColumns
+    {
+        get => fixedColumns;
+        set
+        {
+            fixedColumns = value;
+            InvalidateMeasure();
+        }
+    }
+    private int? fixedColumns;
+
     private int Columns(double width) =>
-        Math.Max(1, Math.Min(InternalChildren.Count, (int)((width + Spacing) / (MinColumnWidth + Spacing))));
+        Math.Max(1, Math.Min(InternalChildren.Count, fixedColumns ?? (int)((width + Spacing) / (MinColumnWidth + Spacing))));
 
     private double ColumnWidth(double width, int columns) => Math.Max(0, (width - Spacing * (columns - 1)) / columns);
 
