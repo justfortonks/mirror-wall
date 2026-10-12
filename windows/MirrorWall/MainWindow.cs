@@ -73,7 +73,11 @@ internal sealed class MainWindow : Window
         foreach (var slot in store.Slots) AddTile(slot);
         store.Slots.CollectionChanged += SlotsChanged;
         store.PropertyChanged += StoreChanged;
-        Closing += (_, _) => SaveBounds();
+        Closing += (_, _) =>
+        {
+            SaveBounds();
+            store.BeginExit();
+        };
         Update();
     }
 

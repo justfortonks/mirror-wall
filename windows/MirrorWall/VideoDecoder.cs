@@ -100,11 +100,9 @@ internal sealed unsafe class VideoDecoder : IDisposable
             int status = ffmpeg.avcodec_send_packet(context, packet);
             packet->data = null;
             packet->size = 0;
-            if (status < 0 && status != ffmpeg.AVERROR(ffmpeg.EAGAIN))
-            {
-                waitingForKeyframe = true;
-                return null;
-            }
+            // A damaged frame is dropped and decoding carries on: an iPhone may not send another
+            // keyframe for a long time, so waiting for one could freeze a still screen.
+            if (status < 0 && status != ffmpeg.AVERROR(ffmpeg.EAGAIN)) return null;
         }
         while (true)
         {

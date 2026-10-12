@@ -87,7 +87,7 @@ internal sealed class PopOutWindow : Window
         slot.PropertyChanged += SlotChanged;
         slot.Renderer.PropertyChanged += SlotChanged;
         store.PropertyChanged += StoreChanged;
-        LocationChanged += (_, _) => { if (IsLoaded) store.SetPopOutPosition(slot, Left, Top); };
+        LocationChanged += (_, _) => { if (IsLoaded) store.SetPopOutPosition(slot, Left, Top, save: false); };
         SourceInitialized += (_, _) => HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WindowMessage);
         Closed += (_, _) =>
         {
@@ -172,6 +172,8 @@ internal sealed class PopOutWindow : Window
                 if (userResizing && store.PopOutSize == PopOutSize.Custom && ResizeMode == ResizeMode.CanResize)
                     store.SetCustomLongSide(slot, Math.Max(ActualWidth, ActualHeight));
                 userResizing = false;
+                // Saved once a move (or resize) ends, not on every step of the drag.
+                store.SetPopOutPosition(slot, Left, Top, save: true);
                 break;
         }
         return IntPtr.Zero;

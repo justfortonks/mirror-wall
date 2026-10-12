@@ -8,8 +8,13 @@
 
 #define EXPORT extern "C" __declspec(dllexport)
 
-// A sender named `name` (UTF-8), or null if this PC has no Direct3D 11 graphics.
-EXPORT void *mw_spout_create(const char *name) {
+// One feed. Renaming replaces the sender: spoutDX's ReleaseSender leaves the frame counter and
+// access lock under the old name, so a reused sender would lose OBS's frame timing.
+struct Feed {
+    spoutDX *sender = nullptr;
+};
+
+static spoutDX *open_sender(const char *name) {
     spoutDX *sender = new spoutDX();
     if (!sender->OpenDirectX11()) {
         delete sender;
@@ -19,21 +24,37 @@ EXPORT void *mw_spout_create(const char *name) {
     return sender;
 }
 
-// Renames the sender: receivers set to the old name lose it.
-EXPORT void mw_spout_rename(void *handle, const char *name) {
-    spoutDX *sender = static_cast<spoutDX *>(handle);
+static void close_sender(spoutDX *sender) {
+    if (!sender) return;
     sender->ReleaseSender();
-    sender->SetSenderName(name);
+    sender->CloseDirectX11();
+    delete sender;
+}
+
+// A sender named `name` (UTF-8), or null if this PC has no Direct3D 11 graphics.
+EXPORT void *mw_spout_create(const char *name) {
+    spoutDX *sender = open_sender(name);
+    if (!sender) return nullptr;
+    Feed *feed = new Feed();
+    feed->sender = sender;
+    return feed;
+}
+
+// Renames the feed: receivers set to the old name lose it.
+EXPORT void mw_spout_rename(void *handle, const char *name) {
+    Feed *feed = static_cast<Feed *>(handle);
+    close_sender(feed->sender);
+    feed->sender = open_sender(name);
 }
 
 // Sends a BGRA picture, `stride` bytes per row. The sender takes the picture's size.
 EXPORT bool mw_spout_send(void *handle, const unsigned char *bgra, unsigned int width, unsigned int height, unsigned int stride) {
-    return static_cast<spoutDX *>(handle)->SendImage(bgra, width, height, stride);
+    Feed *feed = static_cast<Feed *>(handle);
+    return feed->sender && feed->sender->SendImage(bgra, width, height, stride);
 }
 
 EXPORT void mw_spout_destroy(void *handle) {
-    spoutDX *sender = static_cast<spoutDX *>(handle);
-    sender->ReleaseSender();
-    sender->CloseDirectX11();
-    delete sender;
+    Feed *feed = static_cast<Feed *>(handle);
+    close_sender(feed->sender);
+    delete feed;
 }
