@@ -1,6 +1,31 @@
 import AppKit
 import Combine
+import MirrorCore
 import SwiftUI
+
+/// The fixed size of slots' own windows, as the length of their longer side in points, so a scene
+/// laid out in OBS never shifts because a window was resized.
+enum PopOutSize: String, CaseIterable, Identifiable {
+    case small, medium, large
+
+    var id: String { rawValue }
+
+    var longSide: CGFloat {
+        switch self {
+        case .small: return 600
+        case .medium: return 800
+        case .large: return 1000
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+}
 
 /// A slot in a window of its own, showing only the phone's picture so OBS (or anything else)
 /// can capture it cleanly. OBS finds the window again by its title, so the store keeps that
@@ -11,13 +36,21 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
     var onClose: (() -> Void)?
 
     private var cancellables: Set<AnyCancellable> = []
+    private var videoSize: CGSize?
 
-    init(slot: Slot, title: String) {
+    /// Changing it resizes the window, keeping its top-left corner where it is.
+    var size: PopOutSize {
+        didSet { if size != oldValue { fit() } }
+    }
+
+    init(slot: Slot, title: String, size: PopOutSize) {
+        self.size = size
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 780),
             // Not minimizable: macOS only gives capture apps a frozen thumbnail of a minimized
             // window, so OBS would show a tiny still picture. Covered windows capture fine.
-            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            // Not resizable: the size comes from View › Pop-out Window Size.
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -38,14 +71,19 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         ))
         window.delegate = self
         window.center()
-        // Restores the size and place the window had last time, if any.
+        // Restores the place the window had last time, if any; `fit` then sets its size.
         window.setFrameAutosaveName("MacMirror slot \(slot.id)")
         showWindowButtons(false)
+        videoSize = slot.videoSize
+        fit()
 
         slot.$videoSize
             .compactMap { $0 }
             .removeDuplicates()
-            .sink { [weak self] size in self?.fit(to: size) }
+            .sink { [weak self] size in
+                self?.videoSize = size
+                self?.fit()
+            }
             .store(in: &cancellables)
     }
 
@@ -67,20 +105,18 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Gives the window the picture's shape (portrait or landscape), keeping its longer side and
-    /// its top-left corner where they are. The picture fills the whole frame (the title bar is
-    /// see-through), so the frame itself takes the picture's shape.
-    private func fit(to videoSize: CGSize) {
-        guard videoSize.width > 0, videoSize.height > 0 else { return }
-        window.aspectRatio = videoSize
+    /// Gives the window the picture's shape (portrait or landscape, a portrait iPhone until the
+    /// first picture arrives) at the chosen size, keeping its top-left corner where it is. The
+    /// picture fills the whole frame (the title bar is see-through), so the frame itself takes
+    /// the picture's shape.
+    private func fit() {
+        let picture = videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
+        let scale = size.longSide / max(picture.width, picture.height)
+        let newSize = NSSize(width: (picture.width * scale).rounded(), height: (picture.height * scale).rounded())
         var frame = window.frame
-        guard frame.height > 0, abs(frame.width / frame.height - videoSize.width / videoSize.height) > 0.01 else {
-            return
-        }
-        let scale = max(frame.width, frame.height) / max(videoSize.width, videoSize.height)
-        let size = NSSize(width: (videoSize.width * scale).rounded(), height: (videoSize.height * scale).rounded())
-        frame.origin.y += frame.height - size.height
-        frame.size = size
+        guard frame.size != newSize else { return }
+        frame.origin.y += frame.height - newSize.height
+        frame.size = newSize
         window.setFrame(frame, display: true)
     }
 }
@@ -94,13 +130,20 @@ struct PopOutView: View {
     var body: some View {
         ZStack {
             Color.black
-            VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
-            if !showsPicture {
-                Text(waitingText)
-                    .font(.callout)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding()
+            VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture)
+            if !slot.showsPicture {
+                switch slot.config.standby {
+                case nil:
+                    Text(waitingText)
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding()
+                case .blank?:
+                    EmptyView()
+                case .image(let fileName)?:
+                    StandbyImage(fileName: fileName)
+                }
             }
         }
         .ignoresSafeArea()
@@ -111,12 +154,21 @@ struct PopOutView: View {
         }
     }
 
-    private var showsPicture: Bool {
-        slot.lastFrameAt != nil && (slot.state == .live || slot.state == .paused)
-    }
-
     private var waitingText: String {
         let phone = slot.config.lastPhoneName ?? "an iPhone"
         return "Waiting for \(phone) to mirror to “\(slot.name)”"
+    }
+}
+
+/// A slot's chosen standby picture, filling the space without distortion.
+struct StandbyImage: View {
+    let fileName: String
+
+    var body: some View {
+        if let image = StandbyPictures.image(named: fileName) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+        }
     }
 }

@@ -114,6 +114,39 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertEqual(args[args.firstIndex(of: "-p")! + 1], "7400")
         XCTAssertTrue(args[args.firstIndex(of: "-vrtp")! + 1].hasSuffix("udpsink host=127.0.0.1 port=5602"))
         XCTAssertEqual(args[args.firstIndex(of: "-d")! + 1], "1")
+        XCTAssertFalse(args.contains("-restrict"))
+    }
+
+    func testAllowList() {
+        let args = SlotConfig(id: 1, name: "x").uxplayArguments(maxFrameRate: 30, allowedDevices: ["AA:BB", "CC:DD"])
+        XCTAssertEqual(Array(args.suffix(5)), ["-restrict", "-allow", "AA:BB", "-allow", "CC:DD"])
+    }
+
+    func testDefaultNamesUseTheMacsName() {
+        XCTAssertEqual(SlotConfig.defaultName(for: 1, computerName: "Alex's MacBook Pro"), "Alex's MacBook Pro 1")
+        XCTAssertEqual(SlotConfig.defaultName(for: 2, computerName: "Alex's Mac Studio in the Office"), "Alex's Mac Studio 2")
+        XCTAssertEqual(SlotConfig.defaultName(for: 3, computerName: nil), "Mirror Wall 3")
+        XCTAssertEqual(SlotConfig.defaultName(for: 3, computerName: "  "), "Mirror Wall 3")
+        XCTAssertTrue(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 2))
+        XCTAssertFalse(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 1))
+    }
+
+    func testTidyNames() {
+        XCTAssertEqual(SlotConfig.tidyName("  Kitchen   iPhone "), "Kitchen iPhone")
+        XCTAssertEqual(SlotConfig.tidyName("The Very Long Name Of My Demo Phone Number Two"), "The Very Long Name Of My Demo")
+        XCTAssertEqual(SlotConfig.tidyName("Supercalifragilisticexpialidocious-phone"), "Supercalifragilisticexpialidoc")
+        XCTAssertEqual(SlotConfig.tidyName("   "), "")
+        XCTAssertLessThanOrEqual(SlotConfig.tidyName(String(repeating: "📱", count: 30)).utf8.count, 60)
+    }
+
+    func testOldSavedSlotsStillLoad() throws {
+        let json = #"[{"id":1,"name":"Mirror Wall 1","lastPhoneName":"Phone"}]"#
+        let configs = try JSONDecoder().decode([SlotConfig].self, from: Data(json.utf8))
+        XCTAssertNil(configs[0].standby)
+        var config = configs[0]
+        config.standby = .image(fileName: "standby-1.png")
+        let again = try JSONDecoder().decode(SlotConfig.self, from: JSONEncoder().encode(config))
+        XCTAssertEqual(again.standby, .image(fileName: "standby-1.png"))
     }
 }
 
@@ -121,11 +154,11 @@ final class UxPlayEventTests: XCTestCase {
     func testConnectionRequest() {
         XCTAssertEqual(
             UxPlayEvent(line: "connection request from t-bone's iPhone (iPhone18,2) with deviceID = 12:34:56:78:9A:BC"),
-            .clientConnecting(name: "t-bone's iPhone", model: "iPhone18,2")
+            .clientConnecting(name: "t-bone's iPhone", model: "iPhone18,2", deviceID: "12:34:56:78:9A:BC")
         )
         XCTAssertEqual(
             UxPlayEvent(line: "connection request from Kid (2) (iPhone14,6) with deviceID = AA"),
-            .clientConnecting(name: "Kid (2)", model: "iPhone14,6")
+            .clientConnecting(name: "Kid (2)", model: "iPhone14,6", deviceID: "AA")
         )
     }
 

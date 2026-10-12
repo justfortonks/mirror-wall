@@ -83,6 +83,8 @@ access, allow it.
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
 - **Own window (for OBS):** the ⋯ menu's **Open in Own Window** puts that phone in a window of
   its own that shows only the picture, sized to the phone's shape. The tile keeps showing it too.
+  These windows have a fixed size, set in View › Pop-out Window Size (Small, Medium or Large: 600,
+  800 or 1000 points along the longer side), so an OBS layout never shifts.
   The window is titled `MacMirror-<phone name>` (the slot's name until a phone has connected),
   and keeps that title after the phone disconnects, so an OBS Window Capture source finds it
   again. If two phones have the same name, the slot number is added (`MacMirror-iPhone-2`); giving
@@ -90,8 +92,23 @@ access, allow it.
   when the pointer is over it. Open windows, and where they were, come back the next time the app
   starts. OBS captures the window even behind other windows. It can't capture a minimized
   window, so these windows have no minimize button; leave them behind other windows instead.
-- The ⋯ menu also has Rename (changes the name on the iPhone and restarts that slot), Restart,
-  Show Log and Remove Slot. Each slot's log is also written to
+- **Slot names:** new slots are named after the Mac ("Alex's MacBook Pro 1"), shortened to 20
+  characters at a word, so two Macs' slots can be told apart on the phone. Slots still called
+  "Mirror Wall N" take the new name. Rename (⋯ menu) sets any name up to 30 characters, and
+  restarts that slot; Use the Mac's Name goes back to the default.
+- **Standby picture:** the ⋯ menu's Standby Picture sets what a slot shows while no phone is
+  mirroring: the waiting message (default), blank black, or an image of your choice (a copy is
+  kept in `~/Library/Application Support/Mirror Wall/Standby`). It shows in the slot's own window,
+  and faintly behind the tile's status text.
+- **Screenshots:** the camera button in a tile's footer (or ⋯ › Take Screenshot, or File ›
+  Screenshot All Slots) saves the picture at the stream's full size as a PNG in
+  `~/Pictures/Mirror Wall`.
+- **Settings** (the gear in the toolbar, or Mirror Wall › Settings):
+  - *Who can mirror:* off by default, so any iPhone on the network can mirror. Turned on, only
+    the ticked phones can (uxplay's `-restrict` and `-allow`). Phones are listed once they've
+    mirrored to this Mac. Changing it restarts the slots.
+  - *Alerts:* the Dock icon bounces when a mirroring phone drops, until Mirror Wall is clicked.
+- The ⋯ menu also has Restart, Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.
 - The tile footer shows the phone's name and its state: Waiting, Connecting, Live, Screen off or
   Disconnected. Next to Live is how long the phone has been connected; next to Screen off is

@@ -22,6 +22,9 @@ struct MirrorWallApp: App {
                 Button("Stop All Recordings") { appDelegate.store.stopAllRecordings() }
                     .keyboardShortcut(".", modifiers: [.command, .shift])
                 Button("Show Recordings in Finder") { appDelegate.store.showRecordings() }
+                Divider()
+                Button("Screenshot All Slots") { appDelegate.store.screenshotAll() }
+                Button("Show Screenshots in Finder") { Screenshots.showInFinder() }
             }
             CommandGroup(before: .windowList) {
                 ShowMainWindowButton()
@@ -29,6 +32,28 @@ struct MirrorWallApp: App {
             }
             StatsCommands()
             FrameRateCommands(store: appDelegate.store)
+            PopOutSizeCommands(store: appDelegate.store)
+        }
+
+        Settings {
+            SettingsView()
+                .environmentObject(appDelegate.store)
+        }
+    }
+}
+
+/// View › Pop-out Window Size: the fixed size of slots' own windows.
+struct PopOutSizeCommands: Commands {
+    @ObservedObject var store: SlotStore
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Picker("Pop-out Window Size", selection: Binding(
+                get: { store.popOutSize },
+                set: { store.setPopOutSize($0) }
+            )) {
+                ForEach(PopOutSize.allCases) { Text($0.title).tag($0) }
+            }
         }
     }
 }
