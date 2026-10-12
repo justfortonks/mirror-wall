@@ -24,7 +24,8 @@ done
 
 if [ "${1:-}" = "--source-archive" ]; then
     OUT="$(pwd)/build/UxPlay-source-${COMMIT:0:12}.tar.gz"
-    cp patches/*.patch "$SRC/"
+    # The Windows receiver is this source with one more patch on top.
+    cp patches/*.patch windows/receiver/uxplay-windows.patch "$SRC/"
     tar -czf "$OUT" -C build --exclude=.git --exclude=UxPlay/build UxPlay
     rm "$SRC"/*.patch
     echo "Wrote $OUT"

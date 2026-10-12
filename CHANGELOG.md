@@ -5,6 +5,14 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 12, 2026: Mirror Wall for Windows
+
+- Mirror Wall now runs on Windows 10 and 11 too: the same tile wall, each slot's own window for
+  OBS, and an OBS feed per slot through Spout (the Windows version of Syphon). Download
+  MirrorWall-Setup.exe from the Releases page.
+- The first time it opens, the Windows version checks that OBS has the Spout2 plugin and offers
+  its download page if not, and asks again only when a feed is turned on without it.
+
 ## October 12, 2026: Download it, and see what changed
 
 - Mirror Wall can be downloaded as a ready-made DMG from the Releases page, so nobody needs to
