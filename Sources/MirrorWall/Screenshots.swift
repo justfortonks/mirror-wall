@@ -51,18 +51,19 @@ enum StandbyPictures {
 
     private static var cache: [String: NSImage] = [:]
 
-    /// Asks for an image and keeps a copy for `slotID`. Nil if cancelled or unreadable.
-    static func choose(for slotID: Int) -> StandbyPicture? {
+    /// Asks for an image and keeps a copy, its file name starting with `label`. Nil if
+    /// cancelled or unreadable.
+    static func choose(label: String) -> StandbyPicture? {
         let panel = NSOpenPanel()
         panel.title = "Choose a standby picture"
-        panel.message = "Shown in this slot, and in its own window, while no phone is mirroring."
+        panel.message = "Shown while no phone is mirroring. It's scaled to fit, with black bars if its shape differs."
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let source = panel.url, NSImage(contentsOf: source) != nil else { return nil }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension
-            let fileName = "slot-\(slotID)-\(UUID().uuidString).\(ext)"
+            let fileName = "\(label)-\(UUID().uuidString).\(ext)"
             try FileManager.default.copyItem(at: source, to: folder.appendingPathComponent(fileName))
             return .image(fileName: fileName)
         } catch {

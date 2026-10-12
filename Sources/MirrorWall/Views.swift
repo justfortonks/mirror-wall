@@ -108,7 +108,7 @@ struct SlotTile: View {
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
-                if !showsPicture, case .image(let fileName)? = slot.config.standby {
+                if !showsPicture, case .image(let fileName) = store.standby(for: slot) {
                     StandbyImage(fileName: fileName)
                         .opacity(0.5)
                 }
@@ -284,12 +284,14 @@ struct SlotTile: View {
                 get: { StandbyChoice(slot.config.standby) },
                 set: { choice in
                     switch choice {
-                    case .message: store.setStandby(slot, nil)
+                    case .allSlots: store.setStandby(slot, nil)
+                    case .message: store.setStandby(slot, .message)
                     case .blank: store.setStandby(slot, .blank)
                     case .image: store.chooseStandbyImage(for: slot)
                     }
                 }
             )) {
+                Text("Same as All Slots (Settings)").tag(StandbyChoice.allSlots)
                 Text("Waiting Message").tag(StandbyChoice.message)
                 Text("Blank").tag(StandbyChoice.blank)
                 Text("Image…").tag(StandbyChoice.image)
@@ -434,13 +436,14 @@ struct VideoLayerView: NSViewRepresentable {
     }
 }
 
-/// The choices in a slot's Standby Picture menu.
+/// The choices in a Standby Picture menu. `allSlots` only applies to a single slot.
 enum StandbyChoice: Hashable {
-    case message, blank, image
+    case allSlots, message, blank, image
 
     init(_ standby: StandbyPicture?) {
         switch standby {
-        case nil: self = .message
+        case nil: self = .allSlots
+        case .message?: self = .message
         case .blank?: self = .blank
         case .image?: self = .image
         }

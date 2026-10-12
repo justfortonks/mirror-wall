@@ -151,6 +151,8 @@ final class SlotConfigTests: XCTestCase {
         config.standby = .image(fileName: "standby-1.png")
         let again = try JSONDecoder().decode(SlotConfig.self, from: JSONEncoder().encode(config))
         XCTAssertEqual(again.standby, .image(fileName: "standby-1.png"))
+        config.standby = .message
+        XCTAssertEqual(try JSONDecoder().decode(SlotConfig.self, from: JSONEncoder().encode(config)).standby, .message)
     }
 }
 

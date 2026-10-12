@@ -1,7 +1,7 @@
 import MirrorCore
 import SwiftUI
 
-/// Mirror Wall › Settings: who can mirror, and alerts.
+/// Mirror Wall › Settings: who can mirror, the standby picture, and alerts.
 struct SettingsView: View {
     @EnvironmentObject private var store: SlotStore
     @AppStorage(SlotStore.bounceKey) private var bounceOnDisconnect = true
@@ -39,6 +39,32 @@ struct SettingsView: View {
                 Text("Who can mirror")
             } footer: {
                 Text("Off: any iPhone on your network can mirror to a slot. Changing this restarts the slots, so phones mirroring now will need to reconnect. If a ticked phone can't connect, turn this off, mirror once, and turn it back on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Show", selection: Binding(
+                    get: { StandbyChoice(store.defaultStandby) },
+                    set: { choice in
+                        switch choice {
+                        case .allSlots, .message: store.setDefaultStandby(.message)
+                        case .blank: store.setDefaultStandby(.blank)
+                        case .image: store.chooseDefaultStandbyImage()
+                        }
+                    }
+                )) {
+                    Text("Waiting message").tag(StandbyChoice.message)
+                    Text("Blank").tag(StandbyChoice.blank)
+                    Text("Image…").tag(StandbyChoice.image)
+                }
+                if case .image = store.defaultStandby {
+                    Button("Choose a Different Image…") { store.chooseDefaultStandbyImage() }
+                }
+            } header: {
+                Text("Standby picture")
+            } footer: {
+                Text("What every slot, and its own window, shows while no phone is mirroring. A slot can have its own from its ⋯ menu. Images are scaled to fit, with black bars if the shape differs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

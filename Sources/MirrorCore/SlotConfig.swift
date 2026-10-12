@@ -12,7 +12,7 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// The name of the last iPhone that mirrored to this slot. Kept after it disconnects so the
     /// slot's own window keeps the same title (OBS finds windows by title).
     public var lastPhoneName: String?
-    /// What the slot shows while no phone is mirroring; nil for the usual waiting message.
+    /// What the slot shows while no phone is mirroring; nil to use the one set for all slots.
     public var standby: StandbyPicture?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
@@ -133,8 +133,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     }
 }
 
-/// A slot's picture while no phone is mirroring, in place of the usual waiting message.
+/// What a slot shows while no phone is mirroring.
 public enum StandbyPicture: Codable, Hashable {
+    /// "Waiting for … to mirror to …", the default.
+    case message
     case blank
     /// An image file the app keeps a copy of, by its file name in the app's own folder.
     case image(fileName: String)

@@ -43,7 +43,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         didSet { if size != oldValue { fit() } }
     }
 
-    init(slot: Slot, title: String, size: PopOutSize) {
+    init(slot: Slot, store: SlotStore, title: String, size: PopOutSize) {
         self.size = size
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 780),
@@ -66,6 +66,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = NSHostingView(rootView: PopOutView(
             slot: slot,
+            store: store,
             onClose: { [weak self] in self?.close() },
             onHover: { [weak self] hovering in self?.showWindowButtons(hovering) }
         ))
@@ -124,6 +125,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
 /// The pop-out window's content: the picture and nothing else once a phone is mirroring.
 struct PopOutView: View {
     @ObservedObject var slot: Slot
+    @ObservedObject var store: SlotStore
     let onClose: () -> Void
     let onHover: (Bool) -> Void
 
@@ -132,16 +134,16 @@ struct PopOutView: View {
             Color.black
             VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture)
             if !slot.showsPicture {
-                switch slot.config.standby {
-                case nil:
+                switch store.standby(for: slot) {
+                case .message:
                     Text(waitingText)
                         .font(.callout)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white.opacity(0.5))
                         .padding()
-                case .blank?:
+                case .blank:
                     EmptyView()
-                case .image(let fileName)?:
+                case .image(let fileName):
                     StandbyImage(fileName: fileName)
                 }
             }
@@ -160,7 +162,7 @@ struct PopOutView: View {
     }
 }
 
-/// A slot's chosen standby picture, filling the space without distortion.
+/// A standby image, scaled to fit the space without distortion (black bars if its shape differs).
 struct StandbyImage: View {
     let fileName: String
 
