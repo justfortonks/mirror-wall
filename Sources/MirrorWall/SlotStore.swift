@@ -13,6 +13,8 @@ final class SlotStore: ObservableObject {
     @Published private(set) var maxFrameRate: Int
     /// The size of slots' own windows.
     @Published private(set) var popOutSize: PopOutSize
+    /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
+    @Published private(set) var popOutSizeLocked: Bool
     /// Phones that have mirrored to this Mac, newest first.
     @Published private(set) var knownPhones: [KnownPhone]
     /// When on, only phones in `allowedDeviceIDs` can mirror. Off by default: any phone can.
@@ -27,6 +29,7 @@ final class SlotStore: ObservableObject {
     private let poppedOutKey = "poppedOutSlots"
     private let maxFrameRateKey = "maxFrameRate"
     private let popOutSizeKey = "popOutSize"
+    private let popOutSizeLockedKey = "popOutSizeLocked"
     private let knownPhonesKey = "knownPhones"
     private let allowListEnabledKey = "allowListEnabled"
     private let allowedDevicesKey = "allowedDevices"
@@ -40,7 +43,7 @@ final class SlotStore: ObservableObject {
     static let maxSlots = 8
 
     init() {
-        defaults.register(defaults: [Self.bounceKey: true])
+        defaults.register(defaults: [Self.bounceKey: true, popOutSizeLockedKey: true])
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
         var configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0, computerName: Self.computerName)) }
         // Slots still on a name earlier versions gave them take the current default, so two Macs'
@@ -51,6 +54,7 @@ final class SlotStore: ObservableObject {
         let savedRate = defaults.integer(forKey: maxFrameRateKey)
         maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
         popOutSize = defaults.string(forKey: popOutSizeKey).flatMap(PopOutSize.init(rawValue:)) ?? .medium
+        popOutSizeLocked = defaults.bool(forKey: popOutSizeLockedKey)
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
         allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
@@ -322,12 +326,19 @@ final class SlotStore: ObservableObject {
         popOutWindows.values.forEach { $0.size = size }
     }
 
+    func setPopOutSizeLocked(_ locked: Bool) {
+        guard locked != popOutSizeLocked else { return }
+        popOutSizeLocked = locked
+        defaults.set(locked, forKey: popOutSizeLockedKey)
+        popOutWindows.values.forEach { $0.locked = locked }
+    }
+
     func openOwnWindow(_ slot: Slot) {
         if let existing = popOutWindows[slot.id] {
             existing.show()
             return
         }
-        let window = PopOutWindow(slot: slot, store: self, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)", size: popOutSize)
+        let window = PopOutWindow(slot: slot, store: self, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)", size: popOutSize, locked: popOutSizeLocked)
         let id = slot.id
         window.onClose = { [weak self] in self?.ownWindowClosed(id) }
         popOutWindows[id] = window

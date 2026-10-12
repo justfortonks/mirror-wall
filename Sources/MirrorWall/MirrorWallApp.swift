@@ -42,17 +42,14 @@ struct MirrorWallApp: App {
     }
 }
 
-/// View › Pop-out Window Size: the fixed size of slots' own windows.
+/// View › Pop-out Window Size: the size of slots' own windows, and the Custom lock.
 struct PopOutSizeCommands: Commands {
     @ObservedObject var store: SlotStore
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
-            Picker("Pop-out Window Size", selection: Binding(
-                get: { store.popOutSize },
-                set: { store.setPopOutSize($0) }
-            )) {
-                ForEach(PopOutSize.allCases) { Text($0.title).tag($0) }
+            Menu("Pop-out Window Size") {
+                PopOutSizeItems(store: store)
             }
         }
     }

@@ -83,8 +83,11 @@ access, allow it.
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
 - **Own window (for OBS):** the ⋯ menu's **Open in Own Window** puts that phone in a window of
   its own that shows only the picture, sized to the phone's shape. The tile keeps showing it too.
-  These windows have a fixed size, set in View › Pop-out Window Size (Small, Medium or Large: 600,
-  800 or 1000 points along the longer side), so an OBS layout never shifts.
+  Their size is set in View › Pop-out Window Size (or the window's own right-click menu), so an
+  OBS layout never shifts: Small, Medium or Large (600, 800 or 1000 points along the longer side)
+  for every window, or Custom, where each window keeps a size of its own. With Custom, untick
+  Lock Custom Size, drag the windows to the sizes you want (each slot's is remembered), then tick
+  it again. A window always takes its phone's shape, so it turns wide if the phone rotates.
   The window is titled `MacMirror-<phone name>` (the slot's name until a phone has connected),
   and keeps that title after the phone disconnects, so an OBS Window Capture source finds it
   again. If two phones have the same name, the slot number is added (`MacMirror-iPhone-2`); giving
@@ -102,6 +105,8 @@ access, allow it.
   differs (a copy is kept in `~/Library/Application Support/Mirror Wall/Standby`). Settings sets it
   for all slots; a slot's ⋯ › Standby Picture can give that slot its own. It shows in the slot's
   own window and in its tile, whose footer still gives the status.
+- **Record button:** the circle button in a tile's footer starts and stops that slot's
+  recording, the same as ⋯ › Start Recording.
 - **Screenshots:** the camera button in a tile's footer (or ⋯ › Take Screenshot, or File ›
   Screenshot All Slots) saves the picture at the stream's full size as a PNG in
   `~/Pictures/Mirror Wall`.

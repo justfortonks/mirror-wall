@@ -3,18 +3,21 @@ import Combine
 import MirrorCore
 import SwiftUI
 
-/// The fixed size of slots' own windows, as the length of their longer side in points, so a scene
-/// laid out in OBS never shifts because a window was resized.
+/// The size of slots' own windows, so a scene laid out in OBS never shifts because a window
+/// was resized: a fixed size for all of them (the length of their longer side in points), or
+/// Custom, where each window keeps a size of its own that can be locked.
 enum PopOutSize: String, CaseIterable, Identifiable {
-    case small, medium, large
+    case small, medium, large, custom
 
     var id: String { rawValue }
 
-    var longSide: CGFloat {
+    /// Nil for Custom, where each window has its own.
+    var presetLongSide: CGFloat? {
         switch self {
         case .small: return 600
         case .medium: return 800
         case .large: return 1000
+        case .custom: return nil
         }
     }
 
@@ -23,6 +26,7 @@ enum PopOutSize: String, CaseIterable, Identifiable {
         case .small: return "Small"
         case .medium: return "Medium"
         case .large: return "Large"
+        case .custom: return "Custom"
         }
     }
 }
@@ -37,19 +41,31 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
 
     private var cancellables: Set<AnyCancellable> = []
     private var videoSize: CGSize?
+    private let customSizeKey: String
 
     /// Changing it resizes the window, keeping its top-left corner where it is.
     var size: PopOutSize {
-        didSet { if size != oldValue { fit() } }
+        didSet {
+            guard size != oldValue else { return }
+            updateResizable()
+            fit()
+        }
     }
 
-    init(slot: Slot, store: SlotStore, title: String, size: PopOutSize) {
+    /// With a Custom size, whether the window can be resized by dragging its edges.
+    var locked: Bool {
+        didSet { if locked != oldValue { updateResizable() } }
+    }
+
+    init(slot: Slot, store: SlotStore, title: String, size: PopOutSize, locked: Bool) {
         self.size = size
+        self.locked = locked
+        customSizeKey = "popOutCustomLongSide.\(slot.id)"
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 780),
             // Not minimizable: macOS only gives capture apps a frozen thumbnail of a minimized
             // window, so OBS would show a tiny still picture. Covered windows capture fine.
-            // Not resizable: the size comes from View › Pop-out Window Size.
+            // Resizable only with an unlocked Custom size (`updateResizable`).
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -76,6 +92,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         window.setFrameAutosaveName("MacMirror slot \(slot.id)")
         showWindowButtons(false)
         videoSize = slot.videoSize
+        updateResizable()
         fit()
 
         slot.$videoSize
@@ -100,6 +117,27 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         onClose?()
     }
 
+    /// Remembers a Custom size, per slot, once the user has finished resizing.
+    func windowDidEndLiveResize(_ notification: Notification) {
+        guard size == .custom else { return }
+        UserDefaults.standard.set(Double(max(window.frame.width, window.frame.height)), forKey: customSizeKey)
+    }
+
+    private func updateResizable() {
+        if size == .custom && !locked {
+            window.styleMask.insert(.resizable)
+        } else {
+            window.styleMask.remove(.resizable)
+        }
+    }
+
+    /// The window's longer side: the preset's, or this slot's remembered Custom size.
+    private var longSide: CGFloat {
+        if let preset = size.presetLongSide { return preset }
+        let saved = UserDefaults.standard.double(forKey: customSizeKey)
+        return saved >= 200 ? CGFloat(saved) : 800
+    }
+
     private func showWindowButtons(_ visible: Bool) {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(button)?.isHidden = !visible
@@ -112,7 +150,9 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
     /// the picture's shape.
     private func fit() {
         let picture = videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
-        let scale = size.longSide / max(picture.width, picture.height)
+        // Resizing by dragging keeps the picture's shape.
+        window.aspectRatio = picture
+        let scale = longSide / max(picture.width, picture.height)
         let newSize = NSSize(width: (picture.width * scale).rounded(), height: (picture.height * scale).rounded())
         var frame = window.frame
         guard frame.size != newSize else { return }
@@ -152,6 +192,9 @@ struct PopOutView: View {
         .onHover(perform: onHover)
         .contextMenu {
             Button("Show Mirror Wall Window") { MainWindow.show() }
+            Menu("Window Size") {
+                PopOutSizeItems(store: store)
+            }
             Button("Close This Window", action: onClose)
         }
     }
@@ -172,5 +215,25 @@ struct StandbyImage: View {
                 .resizable()
                 .scaledToFit()
         }
+    }
+}
+
+/// Ticked size choices plus the Custom lock, for the View menu and pop-out windows' own menu.
+struct PopOutSizeItems: View {
+    @ObservedObject var store: SlotStore
+
+    var body: some View {
+        ForEach(PopOutSize.allCases) { size in
+            Toggle(size.title, isOn: Binding(
+                get: { store.popOutSize == size },
+                set: { _ in store.setPopOutSize(size) }
+            ))
+        }
+        Divider()
+        Toggle("Lock Custom Size", isOn: Binding(
+            get: { store.popOutSizeLocked },
+            set: { store.setPopOutSizeLocked($0) }
+        ))
+        .disabled(store.popOutSize != .custom)
     }
 }
