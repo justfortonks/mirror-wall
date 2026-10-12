@@ -231,6 +231,11 @@ struct SlotTile: View {
                 Text(slot.name)
                     .font(.headline)
                     .lineLimit(1)
+                if let feedName = slot.obsFeedName {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .foregroundStyle(.secondary)
+                        .help("Sending to OBS: add a Syphon Client source and pick \"[Mirror Wall] \(feedName)\"")
+                }
                 Spacer(minLength: 4)
                 Button {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
@@ -293,6 +298,12 @@ struct SlotTile: View {
             Button("Close Own Window") { store.closeOwnWindow(slot) }
         } else {
             Button("Open in Own Window") { store.openOwnWindow(slot) }
+        }
+        if SyphonFeed.isAvailable {
+            Toggle("Send to OBS (Syphon)", isOn: Binding(
+                get: { slot.sendsToOBS },
+                set: { store.setOBSFeed(slot, on: $0) }
+            ))
         }
         Button("Rename…") {
             newName = slot.name

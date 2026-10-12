@@ -24,7 +24,14 @@ final class Slot: ObservableObject, Identifiable {
     var id: Int { config.id }
 
     @Published private(set) var state: State = .stopped {
-        didSet { if state != oldValue { stateSince = Date() } }
+        didSet {
+            if state != oldValue { stateSince = Date() }
+            syphonFeed?.passesFrames = carriesPhoneFrames
+        }
+    }
+    /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
+    private var carriesPhoneFrames: Bool {
+        state == .connecting || state == .live || state == .paused
     }
     /// When the current state began, e.g. how long the screen has been off.
     @Published private(set) var stateSince = Date()
@@ -39,6 +46,9 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var hasPicture = false
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
+    /// The last picture size seen, kept after the phone leaves, for sizing the OBS feed's standby
+    /// picture like the phone's.
+    private(set) var lastPictureSize: CGSize?
     /// The receiver's output, kept apart so a new line only redraws the log window.
     let log = SlotLog()
     /// The connected phone's name, as it introduced itself to uxplay.
@@ -51,6 +61,8 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var screenshotSavedAt: Date?
 
     let renderer = H264Renderer()
+    /// The slot's OBS feed, while it's on.
+    private var syphonFeed: SyphonFeed?
     /// The most frames a second phones are asked to send; takes effect when the receiver starts.
     var maxFrameRate = 30
     /// Offers phones H.265 for a sharper picture; takes effect when the receiver starts.
@@ -190,6 +202,43 @@ final class Slot: ObservableObject, Identifiable {
         }
     }
 
+    /// Sends the slot's picture to OBS through Syphon, under `name`, or stops. Returns false if
+    /// the feed couldn't start (no Syphon in this build).
+    @discardableResult
+    func setOBSFeed(_ on: Bool, name: String) -> Bool {
+        objectWillChange.send()
+        if on {
+            if let feed = syphonFeed {
+                feed.name = name
+            } else if let feed = SyphonFeed(name: name) {
+                syphonFeed = feed
+                feed.passesFrames = carriesPhoneFrames
+                renderer.onShow = { [weak feed] image in feed?.publishFrame(image) }
+                if let image = renderer.currentImage { feed.publishFrame(image) }
+            } else {
+                config.obsFeed = nil
+                return false
+            }
+            config.obsFeed = true
+        } else {
+            renderer.onShow = nil
+            syphonFeed?.stop()
+            syphonFeed = nil
+            config.obsFeed = nil
+        }
+        return true
+    }
+
+    /// True while the slot is sending its picture to OBS through Syphon.
+    var sendsToOBS: Bool { syphonFeed != nil }
+    /// The name OBS lists the slot's feed under, while it's on.
+    var obsFeedName: String? { syphonFeed?.name }
+
+    /// Sends a still picture (the standby picture) down the OBS feed, if it's on.
+    func sendToOBS(_ image: CVImageBuffer) {
+        syphonFeed?.publish(image)
+    }
+
     func setStandby(_ standby: StandbyPicture?) {
         objectWillChange.send()
         config.standby = standby
@@ -299,6 +348,7 @@ final class Slot: ObservableObject, Identifiable {
             if let dimensions {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
+                self.lastPictureSize = size
             }
             self.lastSignOfLifeAt = Date()
             let pauseSettled = self.pausedAt.map { Date().timeIntervalSince($0) > 3 } ?? true

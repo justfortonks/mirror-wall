@@ -191,18 +191,7 @@ struct PopOutView: View {
             Color.black
             VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture)
             if !slot.showsPicture {
-                switch store.standby(for: slot) {
-                case .message:
-                    Text(waitingText)
-                        .font(.callout)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding()
-                case .blank:
-                    EmptyView()
-                case .image(let fileName):
-                    StandbyImage(fileName: fileName)
-                }
+                StandbyContent(standby: store.standby(for: slot), slot: slot)
             }
         }
         .ignoresSafeArea()
@@ -213,6 +202,28 @@ struct PopOutView: View {
                 PopOutSizeItems(store: store)
             }
             Button("Close This Window", action: onClose)
+        }
+    }
+
+}
+
+/// What a slot's own window, and its OBS feed, show while no phone is mirroring.
+struct StandbyContent: View {
+    let standby: StandbyPicture
+    let slot: Slot
+
+    var body: some View {
+        switch standby {
+        case .message:
+            Text(waitingText)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.5))
+                .padding()
+        case .blank:
+            EmptyView()
+        case .image(let fileName):
+            StandbyImage(fileName: fileName)
         }
     }
 
