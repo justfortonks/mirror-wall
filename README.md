@@ -57,6 +57,12 @@ macOS 27, it needs Apple Silicon and macOS 27.
   timestamp with uxplay's clock-sync offset. Unpatched, uxplay only reports latency in its full debug
   mode (which also dumps every packet), and in UxPlay 1.74 that report always reads 0. Everything
   else works without the patch.
+- For Smoother Motion, build uxplay with `patches/uxplay-frame-timestamps.patch` too. With
+  `-vsync no`, uxplay otherwise forwards frames unstamped, so their RTP timestamps say when they
+  reached the Mac rather than when the phone captured them. The patch stamps each frame with the
+  phone's capture time (counted from the first frame); the app's `udpsink sync=false` still sends
+  every frame on at once. Without the patch, Smoother Motion has nothing to pace frames by and
+  shows them as they arrive.
 
 ## Build and run
 
@@ -158,6 +164,12 @@ access, allow it.
 - **Frame rate:** View › Frame Rate Limit asks phones for at most 30 (uxplay's default) or 60
   frames a second. A phone may still send fewer. Changing it restarts the receivers, so phones
   have to reconnect. 60 roughly doubles the data while the screen is busy.
+- **Smoother Motion** (View menu, remembered, off by default): Wi-Fi delivers frames in bursts
+  (two within 2 ms, then a 47 ms gap), which shows as slight judder in fast scrolling. With this
+  on, each picture waits a moment and is shown at the pace the phone captured it: about a tenth
+  of a second beyond the quickest recent trip from the phone. A frame that arrives later than that
+  is shown at once. The extra delay is the cost, so leave it off where the lowest lag matters.
+  Recordings and screenshots are unaffected.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet

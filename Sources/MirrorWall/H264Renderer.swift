@@ -7,7 +7,8 @@ import VideoToolbox
 /// AVSampleBufferDisplayLayers, so a slot can appear in its tile and in its own window at once.
 ///
 /// Frames are shown the moment they arrive (no timestamp sync), which is what keeps the
-/// picture alive after a phone sleeps and wakes.
+/// picture alive after a phone sleeps and wakes. With `smoothMotion`, each picture instead waits
+/// a moment and is shown at the pace the phone captured it (see `PlayoutClock`).
 ///
 /// `render` and `reset` run on the slot's UDP thread or after it has stopped; layers are added
 /// and removed on the main thread.
@@ -23,6 +24,24 @@ final class H264Renderer {
     private var layers: [AVSampleBufferDisplayLayer] = []
     private var lastPicture: CMSampleBuffer?
     private var pictureFormat: CMVideoFormatDescription?
+    private var smoothing = false
+    private var playout = PlayoutClock()
+    /// Counts pictures, so one held back can't replace a later one already shown.
+    private var pictureNumber = 0
+    private var shownNumber = 0
+    private let playoutQueue = DispatchQueue(label: "Mirror Wall playout", qos: .userInteractive)
+
+    /// Shows pictures at the pace the phone captured them, about a tenth of a second later,
+    /// rather than as Wi-Fi delivers them.
+    var smoothMotion: Bool {
+        get { lock.withLock { smoothing } }
+        set {
+            lock.withLock {
+                smoothing = newValue
+                playout.reset()
+            }
+        }
+    }
 
     /// Current picture size in pixels, once known.
     var dimensions: CMVideoDimensions? {
@@ -75,9 +94,10 @@ final class H264Renderer {
         layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
     }
 
-    /// Decodes a frame. Returns true if it was handed to the decoder.
+    /// Decodes a frame that arrived at `arrival` (seconds of `DispatchTime` uptime). Returns true
+    /// if it was handed to the decoder.
     @discardableResult
-    func render(_ frame: H264Frame) -> Bool {
+    func render(_ frame: H264Frame, arrival: Double) -> Bool {
         var videoNALs: [[UInt8]] = []
         var parametersChanged = false
         for nal in frame.nalUnits {
@@ -115,7 +135,7 @@ final class H264Renderer {
             session, sampleBuffer: sample, flags: [._1xRealTimePlayback], infoFlagsOut: nil
         ) { [weak self] status, _, imageBuffer, _, _ in
             guard status == noErr, let imageBuffer else { return }
-            self?.show(imageBuffer)
+            self?.present(imageBuffer, rtpTimestamp: frame.timestamp, arrival: arrival)
             self?.onPicture?(imageBuffer, frame.timestamp)
         }
         if status == kVTInvalidSessionErr {
@@ -135,6 +155,8 @@ final class H264Renderer {
         let current = layers
         lastPicture = nil
         pictureFormat = nil
+        playout.reset()
+        shownNumber = pictureNumber
         lock.unlock()
         for layer in current {
             layer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
@@ -164,10 +186,28 @@ final class H264Renderer {
         waitingForKeyframe = true
     }
 
-    /// Hands a decoded picture to every layer.
-    private func show(_ imageBuffer: CVImageBuffer) {
+    /// Shows a decoded picture now or, with Smoother Motion, when it's due.
+    private func present(_ imageBuffer: CVImageBuffer, rtpTimestamp: UInt32, arrival: Double) {
         lock.lock()
-        defer { lock.unlock() }
+        pictureNumber += 1
+        let number = pictureNumber
+        guard smoothing else {
+            show(imageBuffer, number: number)
+            lock.unlock()
+            return
+        }
+        let due = playout.due(rtp: rtpTimestamp, arrival: arrival)
+        lock.unlock()
+        playoutQueue.asyncAfter(deadline: DispatchTime(uptimeNanoseconds: UInt64(max(due, 0) * 1e9))) { [weak self] in
+            guard let self else { return }
+            self.lock.withLock { self.show(imageBuffer, number: number) }
+        }
+    }
+
+    /// Hands a decoded picture to every layer. Call with `lock` held.
+    private func show(_ imageBuffer: CVImageBuffer, number: Int) {
+        guard number > shownNumber else { return }
+        shownNumber = number
         if pictureFormat.map({ !CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: imageBuffer) }) ?? true {
             var format: CMVideoFormatDescription?
             CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: imageBuffer, formatDescriptionOut: &format)

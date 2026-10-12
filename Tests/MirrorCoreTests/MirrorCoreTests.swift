@@ -384,3 +384,61 @@ final class RecordingClockTests: XCTestCase {
         XCTAssertEqual(clock.time(atArrival: 1.2), 1.2, accuracy: 1e-9)
     }
 }
+
+final class PlayoutClockTests: XCTestCase {
+    /// Frames captured 1/30 s apart that arrived in bursts come out evenly spaced.
+    func testSpacesBurstyFramesEvenly() {
+        var clock = PlayoutClock(delay: 0.1)
+        let step: UInt32 = 3000 // 1/30 s
+        let first = clock.due(rtp: 0, arrival: 10.000)
+        XCTAssertEqual(first, 10.1, accuracy: 1e-9)
+        // The next three arrive in a burst, the first of them late.
+        let second = clock.due(rtp: step, arrival: 10.105)
+        let third = clock.due(rtp: 2 * step, arrival: 10.106)
+        let fourth = clock.due(rtp: 3 * step, arrival: 10.107)
+        XCTAssertEqual(second - first, 1.0 / 30, accuracy: 1e-9)
+        XCTAssertEqual(third - second, 1.0 / 30, accuracy: 1e-9)
+        XCTAssertEqual(fourth - third, 1.0 / 30, accuracy: 1e-9)
+    }
+
+    func testFasterTripLowersTheDelay() {
+        var clock = PlayoutClock(delay: 0.1)
+        _ = clock.due(rtp: 0, arrival: 10.05)
+        // Captured 0.1 s later, this frame made the trip 40 ms quicker: it waits only the delay.
+        XCTAssertEqual(clock.due(rtp: 9000, arrival: 10.11), 10.21, accuracy: 1e-9)
+    }
+
+    func testLateFrameShowsAtOnceAndNeverBeforeThePreviousOne() {
+        var clock = PlayoutClock(delay: 0.1)
+        _ = clock.due(rtp: 0, arrival: 0)
+        // Arrives 300 ms after its capture time: beyond the delay, so shown on arrival.
+        XCTAssertEqual(clock.due(rtp: 3000, arrival: 0.3333), 0.3333, accuracy: 1e-9)
+        // Its successor came quickly, but can't go before it.
+        XCTAssertEqual(clock.due(rtp: 6000, arrival: 0.3334), 0.3334, accuracy: 1e-9)
+    }
+
+    func testStartsOverAfterAJump() {
+        var clock = PlayoutClock(delay: 0.1)
+        _ = clock.due(rtp: 0, arrival: 0)
+        // The screen was off for a minute: the stamp jumps 60 s.
+        XCTAssertEqual(clock.due(rtp: 5_400_000, arrival: 60), 60.1, accuracy: 1e-9)
+        // Backwards (a new stream): starts over too.
+        XCTAssertEqual(clock.due(rtp: 100, arrival: 61), 61.1, accuracy: 1e-9)
+    }
+
+    /// A network that gets slower stops making every frame late once the window turns over.
+    func testAdaptsWhenTheNetworkSlows() {
+        var clock = PlayoutClock(delay: 0.1)
+        var arrival = 0.0
+        var rtp: UInt32 = 0
+        _ = clock.due(rtp: rtp, arrival: arrival)
+        // From now on every frame takes 200 ms longer.
+        var lastWait = 0.0
+        for _ in 0..<(30 * 11) {
+            rtp &+= 3000
+            arrival += 1.0 / 30
+            lastWait = clock.due(rtp: rtp, arrival: arrival + 0.2) - (arrival + 0.2)
+        }
+        XCTAssertEqual(lastWait, 0.1, accuracy: 1e-6)
+    }
+}
