@@ -49,8 +49,13 @@ for name in "${plugins[@]}"; do
 done
 cp /ucrt64/libexec/gstreamer-1.0/gst-plugin-scanner.exe "$out/"
 
+# FFmpeg, which the app itself decodes and records with (gst-libav already needs most of it).
+for name in avcodec avformat avutil swscale swresample; do
+    cp /ucrt64/bin/$name-[0-9]*.dll "$out/"
+done
+
 # Every library those load, from MSYS2's folder. Windows finds them next to uxplay.exe.
-for file in "$out"/*.exe "$out"/lib/gstreamer-1.0/*.dll; do
+for file in "$out"/*.exe "$out"/*.dll "$out"/lib/gstreamer-1.0/*.dll; do
     ldd "$file" | awk '{print $3}' | grep -i '^/ucrt64/' || true
 done | sort -u | while read -r library; do
     cp -n "$library" "$out/"
@@ -62,4 +67,5 @@ echo "UxPlay $UXPLAY_COMMIT with Mirror Wall's patches" > "$out/VERSION.txt"
 
 count=$(ls "$out"/*.dll | wc -l)
 size=$(du -sm "$out" | cut -f1)
+ls "$out" | grep -E '^(avcodec|avformat|avutil|swscale|swresample)-'
 echo "Packaged uxplay with ${#plugins[@]} plugins and $count libraries (${size} MB) in $out"
