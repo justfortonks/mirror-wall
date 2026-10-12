@@ -109,12 +109,12 @@ struct SlotTile: View {
         VStack(spacing: 8) {
             ZStack {
                 if !showsPicture, case .image(let fileName) = store.standby(for: slot) {
+                    // Shown as the slot's own window shows it; the footer still gives the status.
                     StandbyImage(fileName: fileName)
-                        .opacity(0.5)
                 }
                 VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
                 if !showsPicture {
-                    placeholder
+                    if !hasStandbyImage { placeholder }
                 } else if slot.state == .paused {
                     pausedBanner
                 }
@@ -132,7 +132,7 @@ struct SlotTile: View {
             footer
         }
         .contextMenu { menuItems }
-        .sheet(isPresented: $showingLog) { LogView(slot: slot) }
+        .sheet(isPresented: $showingLog) { LogView(slot: slot, log: slot.log) }
         .alert("Rename slot", isPresented: $renaming) {
             TextField("Name", text: $newName)
             Button("Rename") { store.rename(slot, to: newName) }
@@ -151,6 +151,11 @@ struct SlotTile: View {
     /// The last picture stays up while live or paused; a disconnected phone's stale frame is hidden.
     private var showsPicture: Bool {
         slot.showsPicture
+    }
+
+    private var hasStandbyImage: Bool {
+        if case .image = store.standby(for: slot) { return true }
+        return false
     }
 
     private var pausedBanner: some View {
@@ -280,30 +285,24 @@ struct SlotTile: View {
             .disabled(!showsPicture)
         Button("Show Screenshots in Finder") { Screenshots.showInFinder() }
         Menu("Standby Picture") {
-            Picker("Standby Picture", selection: Binding(
-                get: { StandbyChoice(slot.config.standby) },
-                set: { choice in
-                    switch choice {
-                    case .allSlots: store.setStandby(slot, nil)
-                    case .message: store.setStandby(slot, .message)
-                    case .blank: store.setStandby(slot, .blank)
-                    case .image: store.chooseStandbyImage(for: slot)
-                    }
-                }
-            )) {
-                Text("Same as All Slots (Settings)").tag(StandbyChoice.allSlots)
-                Text("Waiting Message").tag(StandbyChoice.message)
-                Text("Blank").tag(StandbyChoice.blank)
-                Text("Image…").tag(StandbyChoice.image)
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-            if case .image? = slot.config.standby {
-                Button("Choose a Different Image…") { store.chooseStandbyImage(for: slot) }
+            let current = StandbyChoice(slot.config.standby)
+            standbyItem("Same as All Slots (Settings)", .allSlots, current: current) { store.setStandby(slot, nil) }
+            standbyItem("Waiting Message", .message, current: current) { store.setStandby(slot, .message) }
+            standbyItem("Blank", .blank, current: current) { store.setStandby(slot, .blank) }
+            // Always offered, so a slot with an image can switch to another one.
+            standbyItem("Image…", .image, current: current) {
+                // Once the menu has closed: a file chooser opened from inside it is unreliable.
+                DispatchQueue.main.async { store.chooseStandbyImage(for: slot) }
             }
         }
         Divider()
         Button("Remove Slot", role: .destructive) { store.remove(slot) }
+    }
+
+    /// A menu item with a tick when it's the current choice. Choosing it again runs it again
+    /// (so Image… can pick a different image).
+    private func standbyItem(_ title: String, _ choice: StandbyChoice, current: StandbyChoice, action: @escaping () -> Void) -> some View {
+        Toggle(title, isOn: Binding(get: { choice == current }, set: { _ in action() }))
     }
 
     private var statusColor: Color {
@@ -340,7 +339,8 @@ struct SlotTile: View {
 }
 
 struct LogView: View {
-    @ObservedObject var slot: Slot
+    let slot: Slot
+    @ObservedObject var log: SlotLog
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -348,7 +348,7 @@ struct LogView: View {
             Text("\(slot.name) log")
                 .font(.headline)
             ScrollView {
-                Text(slot.log.joined(separator: "\n"))
+                Text(log.lines.joined(separator: "\n"))
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -357,7 +357,7 @@ struct LogView: View {
             HStack {
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(slot.log.joined(separator: "\n"), forType: .string)
+                    NSPasteboard.general.setString(log.lines.joined(separator: "\n"), forType: .string)
                 }
                 Spacer()
                 Button("Done") { dismiss() }
