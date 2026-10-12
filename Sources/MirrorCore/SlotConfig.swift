@@ -12,6 +12,8 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// The name of the last iPhone that mirrored to this slot. Kept after it disconnects so the
     /// slot's own window keeps the same title (OBS finds windows by title).
     public var lastPhoneName: String?
+    /// The model code of that iPhone, e.g. "iPhone18,2", for sizing the slot's own window.
+    public var lastPhoneModel: String?
     /// What the slot shows while no phone is mirroring; nil to use the one set for all slots.
     public var standby: StandbyPicture?
 

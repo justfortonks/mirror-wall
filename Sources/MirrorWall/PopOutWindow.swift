@@ -4,8 +4,9 @@ import MirrorCore
 import SwiftUI
 
 /// The size of slots' own windows, so a scene laid out in OBS never shifts because a window
-/// was resized: a fixed size for all of them (the length of their longer side in points), or
-/// Custom, where each window keeps a size of its own that can be locked.
+/// was resized: a fixed scale for all of them, or Custom, where each window keeps a size of its
+/// own that can be locked. The presets show phones at their real relative sizes: the length is
+/// that of an iPhone 17 Pro Max window's longer side, and smaller phones get smaller windows.
 enum PopOutSize: String, CaseIterable, Identifiable {
     case small, medium, large, custom
 
@@ -42,6 +43,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
     private var cancellables: Set<AnyCancellable> = []
     private var videoSize: CGSize?
     private let customSizeKey: String
+    private weak var slot: Slot?
 
     /// Changing it resizes the window, keeping its top-left corner where it is.
     var size: PopOutSize {
@@ -61,6 +63,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         self.size = size
         self.locked = locked
         customSizeKey = "popOutCustomLongSide.\(slot.id)"
+        self.slot = slot
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 780),
             // Not minimizable: macOS only gives capture apps a frozen thumbnail of a minimized
@@ -103,6 +106,12 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
                 self?.fit()
             }
             .store(in: &cancellables)
+        // A different phone may be a different size.
+        slot.$phoneName
+            .compactMap { $0 }
+            .removeDuplicates()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.fit() } }
+            .store(in: &cancellables)
     }
 
     func show() {
@@ -131,9 +140,17 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         }
     }
 
-    /// The window's longer side: the preset's, or this slot's remembered Custom size.
-    private var longSide: CGFloat {
-        if let preset = size.presetLongSide { return preset }
+    /// The window's longer side: the preset's, scaled to this phone's real screen size, or this
+    /// slot's remembered Custom size.
+    private func longSide(for picture: CGSize) -> CGFloat {
+        if let preset = size.presetLongSide {
+            return CGFloat(trueToLifeLongSide(
+                reference: Double(preset),
+                modelCode: slot?.config.lastPhoneModel,
+                pictureWidth: Double(picture.width),
+                pictureHeight: Double(picture.height)
+            ))
+        }
         let saved = UserDefaults.standard.double(forKey: customSizeKey)
         return saved >= 200 ? CGFloat(saved) : 800
     }
@@ -152,7 +169,7 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
         let picture = videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
         // Resizing by dragging keeps the picture's shape.
         window.aspectRatio = picture
-        let scale = longSide / max(picture.width, picture.height)
+        let scale = longSide(for: picture) / max(picture.width, picture.height)
         let newSize = NSSize(width: (picture.width * scale).rounded(), height: (picture.height * scale).rounded())
         var frame = window.frame
         guard frame.size != newSize else { return }

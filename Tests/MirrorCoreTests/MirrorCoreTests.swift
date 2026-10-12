@@ -329,6 +329,17 @@ final class PhoneModelTests: XCTestCase {
         XCTAssertEqual(phoneModelName("iPhone14,6"), "iPhone SE (3rd generation)")
         XCTAssertEqual(phoneModelName("iPhone99,1"), "iPhone99,1")
     }
+
+    func testTrueToLifeSizes() {
+        // The 17 Pro Max is the reference; the SE's screen is about two-thirds as tall.
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone18,2", pictureWidth: 498, pictureHeight: 1080), 800, accuracy: 3)
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone14,6", pictureWidth: 608, pictureHeight: 1080), 524, accuracy: 5)
+        // Landscape uses the same long side.
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone14,6", pictureWidth: 1080, pictureHeight: 608), 524, accuracy: 5)
+        // Unknown phones keep the reference size.
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: "iPhone99,1", pictureWidth: 498, pictureHeight: 1080), 800)
+        XCTAssertEqual(trueToLifeLongSide(reference: 800, modelCode: nil, pictureWidth: 498, pictureHeight: 1080), 800)
+    }
 }
 
 final class RecordingClockTests: XCTestCase {
