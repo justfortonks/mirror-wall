@@ -37,6 +37,10 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var log: [String] = []
     /// The connected phone's name, as it introduced itself to uxplay.
     @Published private(set) var phoneName: String?
+    /// When recording started; nil when not recording.
+    @Published private(set) var recordingSince: Date?
+    /// The last recording error, shown in the tile until recording restarts.
+    @Published private(set) var recordingError: String?
 
     let renderer = H264Renderer()
     /// The most frames a second phones are asked to send; takes effect when the receiver starts.
@@ -47,6 +51,9 @@ final class Slot: ObservableObject, Identifiable {
     var onConfigChanged: (() -> Void)?
 
     private var process: ReceiverProcess?
+    /// Used on the UDP thread and the main queue, so guarded by `recorderLock`.
+    private var recorder: SlotRecorder?
+    private let recorderLock = NSLock()
     private var receiver: UDPReceiver?
     /// When the phone last paused its stream. A locked phone can still send a frame or two (its lock
     /// screen), so frames only count as a resume once they keep coming after this.
@@ -71,6 +78,9 @@ final class Slot: ObservableObject, Identifiable {
 
     init(config: SlotConfig) {
         self.config = config
+        renderer.onPicture = { [weak self] image, rtpTimestamp in
+            self?.record(image: image, rtpTimestamp: rtpTimestamp)
+        }
     }
 
     var name: String { config.name }
@@ -126,6 +136,8 @@ final class Slot: ObservableObject, Identifiable {
     }
 
     func stop() {
+        // A recording carries on into the next connection, in a new file.
+        recorderLock.withLock { recorder?.endFile() }
         generation += 1
         watchdog?.invalidate()
         watchdog = nil
@@ -153,6 +165,47 @@ final class Slot: ObservableObject, Identifiable {
         config.name = name
         if let uxplay, process != nil {
             restart(uxplay: uxplay)
+        }
+    }
+
+    // MARK: - Recording
+
+    func startRecording() {
+        guard recordingSince == nil else { return }
+        let recorder = SlotRecorder(folder: SlotRecorder.defaultFolder, baseName: phoneName ?? config.lastPhoneName ?? name)
+        recorder.onError = { [weak self] message in
+            DispatchQueue.main.async {
+                self?.recordingError = message
+                self?.append("Recording: \(message)")
+            }
+        }
+        recorderLock.withLock {
+            self.recorder = recorder
+            // Start with the picture on screen now: a still screen sends nothing until it changes.
+            if let image = renderer.currentImage {
+                recorder.append(image: image, rtpTimestamp: nil, arrival: Self.uptime())
+            }
+        }
+        recordingError = nil
+        recordingSince = Date()
+        append("Recording to \(SlotRecorder.defaultFolder.path)")
+    }
+
+    /// - Parameter wait: true when quitting, so the file is complete before the app exits.
+    func stopRecording(wait: Bool = false) {
+        guard recordingSince != nil else { return }
+        recorderLock.withLock {
+            recorder?.endFile(wait: wait)
+            recorder = nil
+        }
+        recordingSince = nil
+        append("Recording stopped")
+    }
+
+    /// Decoder thread: hands a picture to the recorder, if recording.
+    private func record(image: CVImageBuffer, rtpTimestamp: UInt32) {
+        recorderLock.withLock {
+            recorder?.append(image: image, rtpTimestamp: rtpTimestamp, arrival: Self.uptime())
         }
     }
 
@@ -226,6 +279,7 @@ final class Slot: ObservableObject, Identifiable {
             lastSignOfLifeAt = nil
             phoneName = name
             connectedSince = Date()
+            recorderLock.withLock { recorder?.baseName = name }
             stats.phoneModel = model.isEmpty ? nil : model
             stats.connections += 1
             if config.lastPhoneName != name {
