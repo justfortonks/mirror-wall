@@ -109,6 +109,25 @@ final class SlotStore: ObservableObject {
         slots.forEach { $0.stop() }
     }
 
+    var isAnyRecording: Bool { slots.contains { $0.recordingSince != nil } }
+
+    func startAllRecordings() {
+        slots.forEach { $0.startRecording() }
+        objectWillChange.send()
+    }
+
+    /// - Parameter wait: true when quitting, so every file is complete before the app exits.
+    func stopAllRecordings(wait: Bool = false) {
+        slots.forEach { $0.stopRecording(wait: wait) }
+        objectWillChange.send()
+    }
+
+    func showRecordings() {
+        let folder = SlotRecorder.defaultFolder
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(folder)
+    }
+
     var canAddSlot: Bool { slots.count < Self.maxSlots }
 
     func addSlot() {
@@ -126,6 +145,7 @@ final class SlotStore: ObservableObject {
 
     func remove(_ slot: Slot) {
         closeOwnWindow(slot)
+        slot.stopRecording()
         slot.stop()
         slots.removeAll { $0 === slot }
         save()

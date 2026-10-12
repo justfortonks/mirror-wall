@@ -29,6 +29,17 @@ final class H264Renderer {
         formatDescription.map(CMVideoFormatDescriptionGetDimensions)
     }
 
+    /// Called with each decoded picture and its frame's RTP timestamp, for recording. Runs on
+    /// the decoder's thread.
+    var onPicture: ((_ image: CVImageBuffer, _ rtpTimestamp: UInt32) -> Void)?
+
+    /// The picture on screen now, if any, e.g. to start a recording with.
+    var currentImage: CVImageBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastPicture.flatMap(CMSampleBufferGetImageBuffer)
+    }
+
     /// The stream's codec, profile and level, e.g. "H.264 High 4.2". Read on the UDP thread.
     var codecDescription: String? {
         sps.map(h264Description(sps:))
@@ -105,6 +116,7 @@ final class H264Renderer {
         ) { [weak self] status, _, imageBuffer, _, _ in
             guard status == noErr, let imageBuffer else { return }
             self?.show(imageBuffer)
+            self?.onPicture?(imageBuffer, frame.timestamp)
         }
         if status == kVTInvalidSessionErr {
             // The Mac slept or the GPU changed: start over at the next keyframe.

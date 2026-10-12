@@ -16,6 +16,12 @@ struct MirrorWallApp: App {
                 Button("Add Slot") { appDelegate.store.addSlot() }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                 Button("Choose uxplay…") { appDelegate.store.chooseUxPlay() }
+                Divider()
+                Button("Record All Slots") { appDelegate.store.startAllRecordings() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Stop All Recordings") { appDelegate.store.stopAllRecordings() }
+                    .keyboardShortcut(".", modifiers: [.command, .shift])
+                Button("Show Recordings in Finder") { appDelegate.store.showRecordings() }
             }
             CommandGroup(before: .windowList) {
                 ShowMainWindowButton()
@@ -93,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         store.prepareForTermination()
+        store.stopAllRecordings(wait: true)
         store.stopAll()
     }
 
