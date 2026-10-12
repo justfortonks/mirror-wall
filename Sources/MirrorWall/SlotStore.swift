@@ -71,6 +71,7 @@ final class SlotStore: ObservableObject {
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
         if saved != nil { save() }
+        updateWindowTitles() // also starts the OBS feeds that were on
     }
 
     /// The Mac's name, as set in System Settings › General › Sharing.
@@ -250,6 +251,7 @@ final class SlotStore: ObservableObject {
 
     func remove(_ slot: Slot) {
         closeOwnWindow(slot)
+        slot.setOBSFeed(false, name: "")
         slot.stopRecording()
         slot.stop()
         StandbyPictures.discard(slot.config.standby)
@@ -393,11 +395,22 @@ final class SlotStore: ObservableObject {
         SlotConfig.windowTitles(for: slots.map(\.config))
     }
 
+    /// Keeps the slots' own windows and OBS feeds named after their phones. A feed goes by the
+    /// same name as the window, so an OBS scene can switch between the two without renaming.
     private func updateWindowTitles() {
         let titles = windowTitles
         for (id, window) in popOutWindows {
             if let title = titles[id], window.window.title != title { window.window.title = title }
         }
+        for slot in slots where slot.config.obsFeed == true {
+            if let title = titles[slot.id], slot.obsFeedName != title { slot.setOBSFeed(true, name: title) }
+        }
+    }
+
+    /// Turns a slot's OBS feed (Syphon) on or off. Remembered per slot.
+    func setOBSFeed(_ slot: Slot, on: Bool) {
+        slot.setOBSFeed(on, name: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
+        save()
     }
 
     private func ownWindowClosed(_ id: Int) {

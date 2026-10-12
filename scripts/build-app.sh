@@ -74,6 +74,14 @@ else
     echo "         The app will look for a uxplay on the Mac it runs on instead." >&2
 fi
 
+# The OBS feed's Syphon framework, if the app was built with it (scripts/build-syphon.sh).
+SYPHON=$(find Vendor/Syphon.xcframework -maxdepth 2 -name Syphon.framework -type d 2>/dev/null | head -1)
+if [ -n "$SYPHON" ]; then
+    mkdir -p "$APP/Contents/Frameworks"
+    cp -R "$SYPHON" "$APP/Contents/Frameworks/"
+    codesign --force --sign - "$APP/Contents/Frameworks/Syphon.framework"
+fi
+
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
 echo "Built $(pwd)/$APP"
