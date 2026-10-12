@@ -99,7 +99,7 @@ final class CastConnection {
         queue.async { [self] in
             guard !ended else { return }
             isAccepted = true
-            send(.welcome(welcome))
+            transmit(.welcome(welcome))
         }
     }
 
@@ -119,7 +119,15 @@ final class CastConnection {
         end()
     }
 
-    private func send(_ message: CastMessage) {
+    /// Sends a message to the phone. Safe from any queue.
+    func send(_ message: CastMessage) {
+        queue.async { [self] in
+            guard !ended else { return }
+            transmit(message)
+        }
+    }
+
+    private func transmit(_ message: CastMessage) {
         connection.send(content: Data(message.encoded()), completion: .contentProcessed { _ in })
     }
 

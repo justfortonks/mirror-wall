@@ -8,28 +8,29 @@ import android.view.Surface
 import java.nio.ByteBuffer
 
 /**
- * The phone's hardware H.264 encoder, fed by a surface the screen is drawn into.
+ * The phone's hardware H.264 or H.265 encoder, fed by a surface the screen is drawn into.
  *
  * Each picture comes out on the encoder's own thread through [onPicture], keyframes with the
  * stream's parameter sets in front so Mirror Wall can start decoding at any of them.
  */
 class ScreenEncoder(
+    val mime: String,
     val width: Int,
     val height: Int,
-    frameRate: Int,
+    val frameRate: Int,
     private val onPicture: (captureMicros: Long, prefix: ByteArray?, data: ByteBuffer, isKeyframe: Boolean) -> Unit,
     private val onError: (Exception) -> Unit,
 ) {
-    private val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+    private val codec = MediaCodec.createEncoderByType(mime)
     val inputSurface: Surface
     @Volatile private var running = true
     private var parameterSets: ByteArray? = null
     private val thread: Thread
 
     init {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+        val format = MediaFormat.createVideoFormat(mime, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitRate(width, height, frameRate))
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate(width, height, frameRate, mime))
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
             setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, frameRate.toFloat())
             // A keyframe every few seconds; more are asked for when frames have to be dropped.
@@ -78,7 +79,7 @@ class ScreenEncoder(
                 if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     // Some encoders give the parameter sets only here, not as a config buffer.
                     val format = codec.outputFormat
-                    val sets = listOf("csd-0", "csd-1").mapNotNull { key ->
+                    val sets = listOf("csd-0", "csd-1", "csd-2").mapNotNull { key ->
                         format.getByteBuffer(key)?.let { ByteArray(it.remaining()).also { bytes -> it.get(bytes) } }
                     }
                     if (sets.isNotEmpty()) parameterSets = sets.reduce { a, b -> a + b }
@@ -103,8 +104,20 @@ class ScreenEncoder(
     }
 
     companion object {
-        /** About 0.15 bits a pixel, which keeps text sharp, between 4 and 16 Mbps. */
-        fun bitRate(width: Int, height: Int, frameRate: Int): Int =
-            (width.toLong() * height * frameRate * 15 / 100).coerceIn(4_000_000, 16_000_000).toInt()
+        /**
+         * About 0.15 bits a pixel for H.264, which keeps text sharp, between 4 and 16 Mbps; H.265
+         * gets the same budget (iPhones send it at about 20 Mbps), so its larger picture is as clean.
+         */
+        fun bitRate(width: Int, height: Int, frameRate: Int, mime: String): Int {
+            val max = if (mime == MediaFormat.MIMETYPE_VIDEO_HEVC) 20_000_000 else 16_000_000
+            return (width.toLong() * height * frameRate * 15 / 100).coerceIn(4_000_000, max.toLong()).toInt()
+        }
+
+        /** True if the phone has an H.265 encoder that takes a picture this size. */
+        fun canEncodeHEVC(width: Int, height: Int): Boolean =
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                info.isEncoder && info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, ignoreCase = true) } &&
+                    info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_HEVC).videoCapabilities.isSizeSupported(width, height)
+            }
     }
 }

@@ -555,6 +555,8 @@ final class CastProtocolTests: XCTestCase {
             .video(captureMicros: 1_234_567_890_123, accessUnit: [0, 0, 0, 1, 0x65, 9]),
             .paused, .resumed, .heartbeat,
             .busy(CastBusy(reason: "In use")),
+            .welcome(CastWelcome(slot: "Mirror Wall 2", maxFrameRate: 60, sharpPicture: true)),
+            .ping(0x0102_0304_0506_0708), .pong(42),
             .bye,
         ]
         let reader = CastReader()
@@ -575,6 +577,13 @@ final class CastProtocolTests: XCTestCase {
         let stream: [UInt8] = [0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5]
         XCTAssertEqual(annexBNALUnits(stream), [[0x67, 1, 2], [0x68, 3], [0x65, 4, 5]])
         XCTAssertEqual(annexBNALUnits([0x65, 1]), [])
+    }
+
+    func testTellsTheCodecFromAKeyframesParameterSets() {
+        XCTAssertEqual(castCodec(of: [[0x67, 0x64, 0x00, 0x2A], [0x68, 1], [0x65, 2]]), .h264)
+        XCTAssertEqual(castCodec(of: [[0x40, 0x01, 0x0C], [0x42, 0x01], [0x44, 0x01], [0x26, 0x01]]), .hevc)
+        XCTAssertNil(castCodec(of: [[0x41, 0x9A]]))
+        XCTAssertNil(castCodec(of: [[0x02, 0x01]]))
     }
 
     func testCaptureTimeBecomesNinetyKilohertz() {

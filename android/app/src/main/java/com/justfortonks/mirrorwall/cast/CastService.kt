@@ -13,12 +13,14 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.Display
 import org.json.JSONObject
@@ -47,7 +49,8 @@ object CastStatus {
 
 /**
  * Shares the screen with one Mirror Wall slot: connects, says hello, and once welcomed sends the
- * screen as H.264 until stopped, the connection drops, or Android ends the capture.
+ * screen until stopped, turned away, or Android ends the capture. If the connection drops (the
+ * Mac restarted the slot, say), it keeps the capture and reconnects to the same slot for a while.
  */
 class CastService : Service() {
     companion object {
@@ -60,10 +63,15 @@ class CastService : Service() {
 
         private const val CHANNEL = "sharing"
         private const val NOTIFICATION_ID = 1
-        /** Longest side sent; matches what iPhones send for H.264. */
+        /** Longest side sent in H.264; matches what iPhones send. */
         private const val MAX_LONG_SIDE = 1920
+        /** Longest side sent in H.265 (Sharper Picture); matches iPhones again. */
+        private const val MAX_LONG_SIDE_HEVC = 2160
         /** Pictures waiting to go out before the oldest are dropped to stay live. */
         private const val MAX_QUEUED = 12
+        /** How long to keep trying after the connection drops. */
+        private const val RECONNECT_FOR_MS = 60_000L
+        private const val RECONNECT_EVERY_MS = 2_000L
         private val END = ByteArray(0)
     }
 
@@ -71,10 +79,15 @@ class CastService : Service() {
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
     private var encoder: ScreenEncoder? = null
-    private var socket: Socket? = null
-    private val outbox = LinkedBlockingQueue<ByteArray>()
+    /** The connection pictures go to; null between connections. Set on the main thread. */
+    @Volatile private var link: Link? = null
+    private var host = ""
+    private var port = 0
     private var slotName = ""
     private var frameRate = 30
+    private var sharpPicture = false
+    /** When the connection dropped, while reconnecting. */
+    private var lostAt: Long? = null
     private var stopped = false
     @Volatile private var screenOff = false
     @Volatile private var waitingForKeyframe = false
@@ -88,8 +101,8 @@ class CastService : Service() {
         }
         if (projection != null) return START_NOT_STICKY // already sharing
 
-        val host = intent.getStringExtra(EXTRA_HOST) ?: return START_NOT_STICKY
-        val port = intent.getIntExtra(EXTRA_PORT, 0)
+        host = intent.getStringExtra(EXTRA_HOST) ?: return START_NOT_STICKY
+        port = intent.getIntExtra(EXTRA_PORT, 0)
         slotName = intent.getStringExtra(EXTRA_SLOT) ?: host
         // Android requires the notification before the capture starts.
         startForeground(NOTIFICATION_ID, notification("Connecting to $slotName…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
@@ -112,7 +125,7 @@ class CastService : Service() {
         }, main)
         this.projection = projection
         CastStatus.set(true, "Connecting to $slotName…")
-        Thread({ connect(host, port) }, "Mirror Wall connection").start()
+        connect()
         return START_NOT_STICKY
     }
 
@@ -121,119 +134,212 @@ class CastService : Service() {
         super.onDestroy()
     }
 
-    // Connection thread: hello, the answer, then reading until the connection ends.
-    private fun connect(host: String, port: Int) {
-        try {
-            val socket = Socket()
-            socket.tcpNoDelay = true
-            socket.sendBufferSize = 256 * 1024
-            socket.connect(InetSocketAddress(host, port), 5000)
-            main.post { if (stopped) socket.close() else this.socket = socket }
-            val output = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
-            val input = DataInputStream(socket.getInputStream())
-            val hello = JSONObject()
-                .put("protocol", CastProtocol.VERSION)
-                .put("name", Phone.name(this))
-                .put("model", Phone.model())
-                .put("deviceID", Phone.id(this))
-            output.write(CastProtocol.message(CastProtocol.HELLO, hello.toString().toByteArray()))
-            output.flush()
-
-            socket.soTimeout = 8000
-            val answer = CastProtocol.read(input)
-            socket.soTimeout = 0
-            when (answer.type) {
-                CastProtocol.BUSY -> {
-                    val reason = JSONObject(String(answer.payload)).optString("reason", "$slotName is busy.")
-                    main.post { finish(reason) }
-                    socket.close()
-                    return
-                }
-                CastProtocol.WELCOME -> {
-                    val welcome = JSONObject(String(answer.payload))
-                    main.post {
-                        slotName = welcome.optString("slot", slotName)
-                        frameRate = welcome.optInt("maxFrameRate", 30).coerceIn(15, 60)
-                        startCapture()
-                    }
-                }
-                else -> throw IOException("Mirror Wall answered unexpectedly")
-            }
-
-            Thread({ send(output) }, "Mirror Wall sender").start()
-            // Nothing else is expected from Mirror Wall yet; this notices when it hangs up.
-            while (true) CastProtocol.read(input)
-        } catch (error: Exception) {
-            main.post {
-                if (!stopped) finish(if (projection != null && encoder != null) "Mirror Wall ended the connection" else "Couldn't reach $slotName (${error.message})")
-            }
-        }
+    private fun connect() {
+        link = Link(host, port).also { it.start() }
     }
 
-    // Sender thread: writes queued messages in order, flushing whenever it catches up.
-    private fun send(output: BufferedOutputStream) {
-        try {
-            while (true) {
-                val message = outbox.take()
-                if (message === END) break
-                output.write(message)
-                if (outbox.isEmpty()) output.flush()
-            }
-            output.flush()
-        } catch (_: Exception) {
-            main.post { if (!stopped) finish("Lost the connection to $slotName") }
-        } finally {
+    /**
+     * One connection to the slot: hello, the answer, then a sender thread for queued messages and
+     * a reader for pings until the connection ends. Reports back on the main thread.
+     */
+    private inner class Link(private val host: String, private val port: Int) {
+        val outbox = LinkedBlockingQueue<ByteArray>()
+        @Volatile private var socket: Socket? = null
+        @Volatile private var closed = false
+
+        fun start() = Thread({ run() }, "Mirror Wall connection").start()
+
+        /** Hangs up, after a goodbye if `bye`. Safe from any thread. */
+        fun close(bye: Boolean) {
+            if (closed) return
+            closed = true
+            outbox.clear()
+            if (bye) outbox.offer(CastProtocol.message(CastProtocol.BYE))
+            outbox.offer(END)
+            main.postDelayed({ closeSocket() }, 1000)
+        }
+
+        private fun closeSocket() {
             try {
                 socket?.close()
             } catch (_: IOException) {
+            }
+        }
+
+        private fun run() {
+            var gotWelcome = false
+            try {
+                val socket = Socket()
+                this.socket = socket
+                if (closed) return
+                socket.tcpNoDelay = true
+                socket.sendBufferSize = 256 * 1024
+                socket.connect(InetSocketAddress(host, port), 5000)
+                val output = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
+                val input = DataInputStream(socket.getInputStream())
+                val hello = JSONObject()
+                    .put("protocol", CastProtocol.VERSION)
+                    .put("name", Phone.name(this@CastService))
+                    .put("model", Phone.model())
+                    .put("deviceID", Phone.id(this@CastService))
+                output.write(CastProtocol.message(CastProtocol.HELLO, hello.toString().toByteArray()))
+                output.flush()
+
+                socket.soTimeout = 8000
+                val answer = CastProtocol.read(input)
+                socket.soTimeout = 0
+                when (answer.type) {
+                    CastProtocol.BUSY -> {
+                        val reason = JSONObject(String(answer.payload)).optString("reason", "$slotName is busy.")
+                        main.post { turnedAway(this, reason) }
+                        closeSocket()
+                        return
+                    }
+                    CastProtocol.WELCOME -> {
+                        gotWelcome = true
+                        val welcome = JSONObject(String(answer.payload))
+                        main.post { welcomed(this, welcome) }
+                    }
+                    else -> throw IOException("Mirror Wall answered unexpectedly")
+                }
+
+                Thread({ send(output) }, "Mirror Wall sender").start()
+                while (true) {
+                    val message = CastProtocol.read(input)
+                    if (message.type == CastProtocol.PING) {
+                        outbox.offer(CastProtocol.message(CastProtocol.PONG, message.payload))
+                    }
+                }
+            } catch (error: Exception) {
+                closeSocket()
+                if (!closed) main.post { lost(this, gotWelcome, error.message) }
+            }
+        }
+
+        // Sender thread: writes queued messages in order, flushing whenever it catches up.
+        private fun send(output: BufferedOutputStream) {
+            try {
+                while (true) {
+                    val message = outbox.take()
+                    if (message === END) break
+                    output.write(message)
+                    if (outbox.isEmpty()) output.flush()
+                }
+                output.flush()
+            } catch (_: Exception) {
+            } finally {
+                closeSocket()
             }
         }
     }
 
     // Main thread from here on, except where noted.
 
-    private fun startCapture() {
-        if (stopped) return
-        val projection = projection ?: return
-        val (width, height, dpi) = captureSize()
-        val encoder = makeEncoder(width, height) ?: return
-        display = projection.createVirtualDisplay(
-            "Mirror Wall", width, height, dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, encoder.inputSurface, null, main,
-        )
-        getSystemService(DisplayManager::class.java).registerDisplayListener(rotationListener, main)
-        val screenEvents = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_SCREEN_ON)
-        }
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(screenReceiver, screenEvents, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(screenReceiver, screenEvents)
-        }
-        main.postDelayed(heartbeat, 2000)
-        update("Sharing to $slotName")
+    private fun welcomed(link: Link, welcome: JSONObject) {
+        if (link !== this.link || stopped) return
+        lostAt = null
+        slotName = welcome.optString("slot", slotName)
+        frameRate = welcome.optInt("maxFrameRate", 30).coerceIn(15, 60)
+        sharpPicture = welcome.optBoolean("sharpPicture", false)
+        startCapture()
     }
 
-    private fun makeEncoder(width: Int, height: Int): ScreenEncoder? = try {
-        ScreenEncoder(width, height, frameRate, ::picture) { error ->
-            main.post { finish("The video encoder stopped (${error.message})") }
-        }.also { encoder = it }
-    } catch (error: Exception) {
-        finish("Couldn't start the video encoder (${error.message})")
-        null
+    private fun turnedAway(link: Link, reason: String) {
+        if (link !== this.link) return
+        finish(reason)
+    }
+
+    /** The connection failed or dropped. Reconnect if it had been sharing; otherwise give up. */
+    private fun lost(link: Link, wasWelcomed: Boolean, error: String?) {
+        if (link !== this.link || stopped) return
+        this.link = null
+        val now = SystemClock.elapsedRealtime()
+        if (lostAt == null && !wasWelcomed && encoder == null) {
+            finish("Couldn't reach $slotName ($error)")
+            return
+        }
+        val since = lostAt ?: now.also { lostAt = it }
+        if (now - since > RECONNECT_FOR_MS) {
+            finish("Lost the connection to $slotName")
+            return
+        }
+        update("Reconnecting to $slotName…")
+        main.postDelayed({ if (!stopped && this.link == null) connect() }, RECONNECT_EVERY_MS)
+    }
+
+    /** Starts capturing, or adapts the running capture to what the slot asked for now. */
+    private fun startCapture() {
+        val projection = projection ?: return
+        val size = captureSize()
+        val current = encoder
+        if (current == null || current.mime != size.mime || current.width != size.width ||
+            current.height != size.height || current.frameRate != frameRate
+        ) {
+            replaceEncoder(size)
+        } else {
+            waitingForKeyframe = true
+            current.requestKeyframe()
+        }
+        val encoder = encoder ?: return
+        if (display == null) {
+            display = projection.createVirtualDisplay(
+                "Mirror Wall", size.width, size.height, size.dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, encoder.inputSurface, null, main,
+            )
+            getSystemService(DisplayManager::class.java).registerDisplayListener(rotationListener, main)
+            val screenEvents = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(screenReceiver, screenEvents, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenReceiver, screenEvents)
+            }
+            main.postDelayed(heartbeat, 2000)
+        }
+        if (screenOff) link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
+        update(if (screenOff) "Screen off: $slotName shows it as paused" else "Sharing to $slotName")
+    }
+
+    /** A new encoder for `size`, drawn into by the virtual display (if there is one yet). */
+    private fun replaceEncoder(size: CaptureSize) {
+        val display = display
+        display?.surface = null
+        encoder?.stop()
+        encoder = null
+        val encoder = try {
+            ScreenEncoder(size.mime, size.width, size.height, frameRate, ::picture) { error ->
+                main.post { finish("The video encoder stopped (${error.message})") }
+            }
+        } catch (error: Exception) {
+            finish("Couldn't start the video encoder (${error.message})")
+            return
+        }
+        this.encoder = encoder
+        if (display != null) {
+            display.resize(size.width, size.height, size.dpi)
+            display.surface = encoder.inputSurface
+        }
+        waitingForKeyframe = true
     }
 
     /** Encoder thread: queues a picture, dropping the backlog if the network can't keep up. */
     private fun picture(captureMicros: Long, prefix: ByteArray?, data: ByteBuffer, isKeyframe: Boolean) {
-        if (screenOff) return
+        val outbox = link?.outbox
+        if (screenOff || outbox == null) {
+            waitingForKeyframe = true
+            return
+        }
         if (outbox.size > MAX_QUEUED) {
             outbox.clear()
             waitingForKeyframe = true
-            encoder?.requestKeyframe()
         }
         if (waitingForKeyframe) {
-            if (!isKeyframe) return
+            if (!isKeyframe) {
+                encoder?.requestKeyframe()
+                return
+            }
             waitingForKeyframe = false
         }
         outbox.offer(CastProtocol.video(captureMicros, prefix, data))
@@ -241,7 +347,7 @@ class CastService : Service() {
 
     private val heartbeat = object : Runnable {
         override fun run() {
-            outbox.offer(CastProtocol.message(CastProtocol.HEARTBEAT))
+            link?.outbox?.offer(CastProtocol.message(CastProtocol.HEARTBEAT))
             main.postDelayed(this, 2000)
         }
     }
@@ -251,15 +357,15 @@ class CastService : Service() {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     screenOff = true
-                    outbox.offer(CastProtocol.message(CastProtocol.PAUSED))
-                    update("Screen off: $slotName shows it as paused")
+                    link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
+                    if (lostAt == null) update("Screen off: $slotName shows it as paused")
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     screenOff = false
-                    outbox.offer(CastProtocol.message(CastProtocol.RESUMED))
+                    link?.outbox?.offer(CastProtocol.message(CastProtocol.RESUMED))
                     waitingForKeyframe = true
                     encoder?.requestKeyframe()
-                    update("Sharing to $slotName")
+                    if (lostAt == null) update("Sharing to $slotName")
                 }
             }
         }
@@ -270,30 +376,38 @@ class CastService : Service() {
         override fun onDisplayChanged(displayId: Int) {
             if (displayId != Display.DEFAULT_DISPLAY) return
             val old = encoder ?: return
-            val (width, height, dpi) = captureSize()
-            if (width == old.width && height == old.height) return
-            val display = display ?: return
-            display.surface = null
-            old.stop()
-            encoder = null
-            val encoder = makeEncoder(width, height) ?: return
-            display.resize(width, height, dpi)
-            display.surface = encoder.inputSurface
-            waitingForKeyframe = true
+            val size = captureSize()
+            if (size.width == old.width && size.height == old.height) return
+            replaceEncoder(size)
         }
 
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
     }
 
-    /** The screen's size scaled to fit [MAX_LONG_SIDE], in multiples of 16 (encoders prefer it). */
-    private fun captureSize(): Triple<Int, Int, Int> {
+    private class CaptureSize(val mime: String, val width: Int, val height: Int, val dpi: Int)
+
+    /**
+     * The screen scaled to fit the codec's longest side, in multiples of 16 (encoders prefer it).
+     * H.265 when Sharper Picture is on and the phone can encode it at that size.
+     */
+    private fun captureSize(): CaptureSize {
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(metrics)
-        val scale = minOf(1.0, MAX_LONG_SIDE.toDouble() / maxOf(metrics.widthPixels, metrics.heightPixels))
-        fun fit(side: Int) = maxOf(16, (side * scale).toInt() / 16 * 16)
-        return Triple(fit(metrics.widthPixels), fit(metrics.heightPixels), metrics.densityDpi)
+        fun fit(longSide: Int): Pair<Int, Int> {
+            val scale = minOf(1.0, longSide.toDouble() / maxOf(metrics.widthPixels, metrics.heightPixels))
+            fun side(pixels: Int) = maxOf(16, (pixels * scale).toInt() / 16 * 16)
+            return side(metrics.widthPixels) to side(metrics.heightPixels)
+        }
+        if (sharpPicture) {
+            val (width, height) = fit(MAX_LONG_SIDE_HEVC)
+            if (ScreenEncoder.canEncodeHEVC(width, height)) {
+                return CaptureSize(MediaFormat.MIMETYPE_VIDEO_HEVC, width, height, metrics.densityDpi)
+            }
+        }
+        val (width, height) = fit(MAX_LONG_SIDE)
+        return CaptureSize(MediaFormat.MIMETYPE_VIDEO_AVC, width, height, metrics.densityDpi)
     }
 
     /** Ends sharing and the service. `reason` is shown in the app; null when nothing needs saying. */
@@ -301,7 +415,7 @@ class CastService : Service() {
         if (stopped) return
         stopped = true
         main.removeCallbacks(heartbeat)
-        if (encoder != null || display != null) {
+        if (display != null) {
             getSystemService(DisplayManager::class.java).unregisterDisplayListener(rotationListener)
             try {
                 unregisterReceiver(screenReceiver)
@@ -314,17 +428,8 @@ class CastService : Service() {
         encoder = null
         projection?.stop()
         projection = null
-        // Say goodbye if connected; the sender closes the connection once it's out.
-        outbox.clear()
-        outbox.offer(CastProtocol.message(CastProtocol.BYE))
-        outbox.offer(END)
-        val socket = socket
-        main.postDelayed({
-            try {
-                socket?.close()
-            } catch (_: IOException) {
-            }
-        }, 1000)
+        link?.close(bye = true)
+        link = null
         CastStatus.set(false, reason ?: "")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
