@@ -321,6 +321,14 @@ final class StreamMeterTests: XCTestCase {
     }
 }
 
+final class PhoneModelTests: XCTestCase {
+    func testFriendlyNames() {
+        XCTAssertEqual(phoneModelName("iPhone18,2"), "iPhone 17 Pro Max")
+        XCTAssertEqual(phoneModelName("iPhone14,6"), "iPhone SE (3rd generation)")
+        XCTAssertEqual(phoneModelName("iPhone99,1"), "iPhone99,1")
+    }
+}
+
 final class RecordingClockTests: XCTestCase {
     func testTimesFramesFromStampsNotBurstyArrival() {
         var clock = RecordingClock()
