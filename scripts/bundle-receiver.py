@@ -9,6 +9,8 @@ at Homebrew, and re-signs them (ad hoc):
     <out>/lib/*.dylib
     <out>/lib/gstreamer-1.0/*.dylib
     <out>/libexec/gst-plugin-scanner
+    <out>/licenses/<Homebrew formula>/...   (each bundled library's licence files)
+    <out>/licenses/README.txt               (which formula, version and licence each came from)
 
 Usage: bundle-receiver.py <path to uxplay> <output folder>
 
@@ -16,6 +18,7 @@ The result runs on the same architecture and macOS version (or later) as the lib
 made from. Run it with GST_PLUGIN_SYSTEM_PATH and GST_PLUGIN_SCANNER pointing into the folder;
 the app does that (see PackagedReceiver).
 """
+import json
 import os
 import re
 import shutil
@@ -60,6 +63,36 @@ def dependencies(path):
             sys.exit(f"error: can't find {reference}, needed by {path}")
         found.append((reference, real))
     return found
+
+
+def collect_licenses(originals, out):
+    """Copies the licence files of every Homebrew formula the bundled files came from, and lists
+    them, since several (GStreamer, GLib and others) are LGPL and their notices must travel with them."""
+    kegs = {}
+    for original in originals:
+        match = re.search(r"/Cellar/([^/]+)/([^/]+)/", original)
+        if match:
+            kegs[match.group(1)] = original[:match.end()]
+    if not kegs:
+        return
+    try:
+        info = {f["name"]: f for f in json.loads(subprocess.check_output(["brew", "info", "--json=v2", *sorted(kegs)], text=True))["formulae"]}
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        info = {}
+        print("warning: couldn't ask Homebrew for licences; copying licence files only", file=sys.stderr)
+    lines = ["Libraries bundled with Mirror Wall's receiver, built by Homebrew (https://brew.sh).",
+             "Each one's licence files are in the folder of the same name; its source is at its homepage.", ""]
+    for formula, keg in sorted(kegs.items()):
+        folder = os.path.join(out, "licenses", formula)
+        os.makedirs(folder, exist_ok=True)
+        for name in os.listdir(keg):
+            if re.match(r"(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE|AUTHORS)", name, re.IGNORECASE) and os.path.isfile(os.path.join(keg, name)):
+                shutil.copy2(os.path.join(keg, name), folder)
+        details = info.get(formula, {})
+        lines.append(f"{formula} {os.path.basename(keg.rstrip('/'))}: {details.get('license') or 'see its licence files'}"
+                     + (f" ({details['homepage']})" if details.get("homepage") else ""))
+    with open(os.path.join(out, "licenses", "README.txt"), "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def main():
@@ -130,6 +163,8 @@ def main():
                  if not ref.startswith(SYSTEM))]
     if leftovers:
         sys.exit("error: these still load libraries from outside the folder: " + ", ".join(os.path.relpath(d, out) for d in leftovers))
+
+    collect_licenses(set(placed.values()), out)
 
     size = sum(os.path.getsize(d) for d in placed) / 1e6
     print(f"Packaged uxplay with {len(PLUGINS)} plugins and {len(placed) - len(PLUGINS) - 2} libraries ({size:.0f} MB) in {out}")

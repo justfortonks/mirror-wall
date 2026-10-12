@@ -514,3 +514,35 @@ final class HEVCDescriptionTests: XCTestCase {
         XCTAssertEqual(hevcDescription(sps: [0x42, 0x01]), "H.265")
     }
 }
+
+final class ChangeLogTests: XCTestCase {
+    func testReadsTheNewestEntryWithWrappedBulletsJoined() {
+        let markdown = """
+        # What's changed
+
+        Intro text.
+
+        ## October 12, 2026: Downloads
+
+        - First item,
+          wrapped.
+        - Second item.
+
+        ## October 11, 2026: Older
+
+        - Not included.
+        """
+        XCTAssertEqual(ChangeLogEntry.latest(in: markdown),
+                       ChangeLogEntry(heading: "October 12, 2026: Downloads", items: ["First item, wrapped.", "Second item."]))
+    }
+
+    func testTheRepositoryChangeLogHasAnEntry() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../CHANGELOG.md")
+        let entry = try XCTUnwrap(ChangeLogEntry.latest(in: String(contentsOf: url, encoding: .utf8)))
+        XCTAssertFalse(entry.items.isEmpty)
+    }
+
+    func testNoEntry() {
+        XCTAssertNil(ChangeLogEntry.latest(in: "# Nothing yet\n"))
+    }
+}
