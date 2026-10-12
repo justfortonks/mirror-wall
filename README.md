@@ -180,9 +180,10 @@ access, allow it.
   608×1080. It's about four times the pixels, so expect more Wi-Fi traffic. A phone that can't
   do H.265 still sends H.264; the app reads which from the stream. Changing it restarts the
   receivers, so phones have to reconnect. Recordings are still saved as H.264, at the larger size.
-  If a receiver quits by itself after running a while (uxplay sometimes crashes as a phone
-  disconnects in this mode), the slot starts a fresh one and shows Disconnected, as after any
-  disconnect.
+  If a receiver quits by itself after running a while, the slot starts a fresh one and shows
+  Disconnected, as after any disconnect. (uxplay on macOS used to skip rebuilding its video
+  pipeline from a receiver's second disconnect on, which in this mode crashed it; the app now
+  runs it with `-nc no` so it rebuilds every time.)
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet
