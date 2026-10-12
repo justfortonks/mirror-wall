@@ -76,7 +76,12 @@ internal static class Menus
             : Item("Open in Own Window", () => store.OpenOwnWindow(slot));
         if (SpoutFeed.IsAvailable)
         {
-            yield return Item("Send to OBS (Spout)", () => store.SetObsFeed(slot, !slot.SendsToObs), isChecked: slot.SendsToObs);
+            yield return Item("Send to OBS (Spout)", () =>
+            {
+                bool on = !slot.SendsToObs;
+                store.SetObsFeed(slot, on);
+                if (on) ObsSpoutPlugin.CheckWhenFeedTurnedOn(owner);
+            }, isChecked: slot.SendsToObs);
         }
         yield return Item("Rename…", () => RenameDialog.Show(owner, slot, store));
         yield return Item("Restart", () => store.Restart(slot));

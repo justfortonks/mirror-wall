@@ -1,5 +1,6 @@
 # Builds Mirror Wall for Windows: the receiver (uxplay and GStreamer, in MSYS2), then the app and
-# its installer. The installer is attached to each run as "MirrorWall-Setup".
+# its installer. The installer is attached to each run as "MirrorWall-Setup". The release workflow
+# (release.yml) runs this too and attaches the installer to the release.
 name: Windows
 
 on:
@@ -8,10 +9,11 @@ on:
   pull_request:
     paths: ['windows/**', 'patches/**', '.github/workflows/windows.yml']
   workflow_dispatch:
+  workflow_call:
 
 # A newer push replaces a run still going on the same branch.
 concurrency:
-  group: windows-${{ github.ref }}
+  group: windows-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -97,6 +99,9 @@ jobs:
             -p:Version=0.$count -p:InformationalVersion="0.$count+$commit.$date" `
             -p:IncludeSourceRevisionInInformationalVersion=false -o windows/dist/MirrorWall
           Copy-Item "$env:RUNNER_TEMP\spout-build\Release\MirrorSpout.dll" windows/dist/MirrorWall/
+          Copy-Item LICENSE windows/dist/MirrorWall/LICENSE.txt
+          Copy-Item THIRD_PARTY_NOTICES.md "windows/dist/MirrorWall/Licenses and Source Code.txt"
+          Copy-Item "$env:RUNNER_TEMP\Spout2\LICENSE" windows/dist/MirrorWall/Spout2-LICENSE.txt
           # The FFmpeg the app is built against (FFmpeg.AutoGen 9) must be the one the receiver brings.
           if (-not (Test-Path windows/dist/MirrorWall/receiver/avcodec-63.dll)) {
             Get-ChildItem windows/dist/MirrorWall/receiver -Filter 'av*.dll' | ForEach-Object Name

@@ -7,9 +7,10 @@ Wall's patches) built for Windows.
 
 ## Install
 
-GitHub builds the installer: open the latest **Windows** run under the repository's Actions tab
-and download **MirrorWall-Setup** from the bottom of the page. Unzip it and run
-`MirrorWall-Setup.exe`.
+**[Download MirrorWall-Setup.exe](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe)**
+(the newest release; all of them are on the [Releases](https://github.com/justfortonks/mirror-wall/releases)
+page) and run it. Test builds from pull requests are on the Actions tab: open a **Windows** run
+and download **MirrorWall-Setup** from the bottom of the page.
 
 1. Windows SmartScreen may say it protected your PC, because the installer isn't signed. Click
    **More info**, then **Run anyway**. This is needed once per installer.
@@ -32,8 +33,14 @@ Each slot can feed OBS two ways:
   [Spout2 plugin for OBS](https://github.com/Off-World-Live/obs-spout2-plugin), tick **Send to
   OBS (Spout)** in the tile's ⋯ menu, then add a **Spout2 Capture** source and pick
   `MacMirror-<phone>`. While no phone is mirroring, the feed shows the slot's standby picture.
+  Mirror Wall looks for the plugin the first time it opens, and again when a feed is turned on,
+  and offers its download page if it's missing.
 
 ## How it's built
+
+Releases come from `.github/workflows/release.yml` (Actions › **Release** › Run workflow, with
+Publish ticked), which builds the Mac DMG and, through this workflow, the installer, and attaches
+both to one release.
 
 `.github/workflows/windows.yml` runs on every change under `windows/` or `patches/`:
 

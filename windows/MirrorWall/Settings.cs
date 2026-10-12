@@ -35,6 +35,8 @@ internal sealed class Settings
     public bool ShowStats { get; set; }
     public string? RecordingsFolder { get; set; }
     public string? ScreenshotsFolder { get; set; }
+    /// <summary>Whether the first launch's check for OBS's Spout2 plugin has run.</summary>
+    public bool CheckedObsSpoutPlugin { get; set; }
     /// <summary>The main window's place: left, top, width, height.</summary>
     public double[]? MainWindowBounds { get; set; }
 

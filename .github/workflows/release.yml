@@ -1,16 +1,18 @@
-# Builds MirrorWall.dmg on a GitHub Mac: UxPlay with this repository's patches, Syphon, the app.
-# Run it from the Actions tab (Release DMG › Run workflow) with "Publish" ticked to make a
-# release with the DMG and the UxPlay source attached; the newest release's DMG is always at
-# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg
-# Pull requests that change the app or its packaging build the DMG too (kept as a workflow
+# Builds MirrorWall.dmg on a GitHub Mac (UxPlay with this repository's patches, Syphon, the app)
+# and, when publishing, the Windows installer (windows.yml). Run it from the Actions tab
+# (Release › Run workflow) with "Publish" ticked to make a release with the DMG, the installer
+# and the UxPlay source attached; the newest release's downloads are always at
+# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg and
+# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe
+# Pull requests that change the Mac app or its packaging build the DMG too (kept as a workflow
 # artifact only). Release notes start with the CHANGELOG.md entries new since the last release.
-name: Release DMG
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish a release with the DMG
+        description: Publish a release with the DMG and the Windows installer
         type: boolean
         default: true
   push:
@@ -67,8 +69,27 @@ jobs:
             MirrorWall.dmg
             build/UxPlay-source-*.tar.gz
 
+  windows:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+    uses: ./.github/workflows/windows.yml
+
+  publish:
+    needs: [dmg, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the build number is the commit count
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: MirrorWall
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: MirrorWall-Setup
+
       - name: Publish a release
-        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -82,18 +103,30 @@ jobs:
           cat >> notes.md <<'NOTES'
           ## Install
 
+          ### Mac
+
           **Download [MirrorWall.dmg](https://github.com/${{ github.repository }}/releases/download/TAG/MirrorWall.dmg)**, open it and drag Mirror Wall to Applications.
 
           The app isn't signed by a registered Apple developer, so the first time you open it macOS blocks it: go to System Settings › Privacy & Security, find the message about Mirror Wall and click **Open Anyway**. This is needed once per Mac. When it asks to find devices on your local network, allow it.
 
           Needs an Apple Silicon Mac with macOS 26 or later. Then on each iPhone (same Wi-Fi): Control Center › Screen Mirroring › pick "Mirror Wall 1" or another slot.
 
-          Mirror Wall is free software under the GNU GPL v3. Its receiver is UxPlay; the exact UxPlay source it was built from, with Mirror Wall's patches, is attached below. See "Licenses and Source Code.txt" in the DMG.
+          ### Windows
+
+          **Download [MirrorWall-Setup.exe](https://github.com/${{ github.repository }}/releases/download/TAG/MirrorWall-Setup.exe)** and run it.
+
+          The installer isn't signed, so Windows SmartScreen may say it protected your PC: click **More info**, then **Run anyway**. It asks for administrator rights to add a firewall rule so iPhones can reach Mirror Wall. The PC's network must be set to **Private** (Settings › Network & internet › your network › Network profile type).
+
+          Needs 64-bit Windows 10 (1809) or Windows 11. Then on each iPhone (same network): Control Center › Screen Mirroring › pick "Mirror Wall 1" or another slot.
+
+          ### Licence
+
+          Mirror Wall is free software under the GNU GPL v3. Its receiver is UxPlay; the exact UxPlay source it was built from, with Mirror Wall's patches, is attached below. See "Licenses and Source Code.txt" in the DMG or the Windows install folder.
           NOTES
-          sed -i '' "s/TAG/$TAG/" notes.md
+          sed -i "s/TAG/$TAG/g" notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" MirrorWall.dmg build/UxPlay-source-*.tar.gz --clobber
+            gh release upload "$TAG" MirrorWall.dmg MirrorWall-Setup.exe build/UxPlay-source-*.tar.gz --clobber
           else
-            gh release create "$TAG" MirrorWall.dmg build/UxPlay-source-*.tar.gz \
+            gh release create "$TAG" MirrorWall.dmg MirrorWall-Setup.exe build/UxPlay-source-*.tar.gz \
               --target "$GITHUB_SHA" --title "Mirror Wall ${TAG#v}" --notes-file notes.md
           fi
