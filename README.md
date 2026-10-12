@@ -81,7 +81,8 @@ access, allow it.
 ## Using it
 
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
-- **Own window (for OBS):** the ⋯ menu's **Open in Own Window** puts that phone in a window of
+- **Own window (for OBS):** the pop-out button in a tile's footer (the arrow pointing up and out),
+  or the ⋯ menu's **Open in Own Window**, puts that phone in a window of
   its own that shows only the picture, sized to the phone's shape. The tile keeps showing it too.
   Their size is set in View › Pop-out Window Size (or the window's own right-click menu), so an
   OBS layout never shifts: Small, Medium or Large, or Custom, where each window keeps a size of

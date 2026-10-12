@@ -213,6 +213,13 @@ struct SlotTile: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Button {
+                    if store.poppedOutIDs.contains(slot.id) { store.closeOwnWindow(slot) } else { store.openOwnWindow(slot) }
+                } label: {
+                    Image(systemName: store.poppedOutIDs.contains(slot.id) ? "arrow.down.left.square" : "arrow.up.right.square")
+                }
+                .buttonStyle(.borderless)
+                .help(store.poppedOutIDs.contains(slot.id) ? "Close this slot's own window" : "Open this slot in its own window, for OBS")
+                Button {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
                 } label: {
                     Image(systemName: slot.recordingSince == nil ? "record.circle" : "stop.circle.fill")
