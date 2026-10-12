@@ -147,3 +147,23 @@ public func h264Description(sps: [UInt8]) -> String {
     let level = sps[3]
     return "H.264 \(profile) \(level / 10).\(level % 10)"
 }
+
+/// "H.265 Main 5.1" from an H.265 sequence parameter set (its profile_tier_level).
+public func hevcDescription(sps: [UInt8]) -> String {
+    // Undo emulation prevention (00 00 03 → 00 00), which the all-zero constraint flags often need.
+    var bytes: [UInt8] = []
+    var zeros = 0
+    for byte in sps {
+        if zeros >= 2, byte == 3 { zeros = 0; continue }
+        zeros = byte == 0 ? zeros + 1 : 0
+        bytes.append(byte)
+    }
+    // 2-byte NAL header, 1 byte of IDs, then profile space/tier/profile, 4 bytes of compatibility
+    // flags, 6 bytes of constraint flags, and the level.
+    guard bytes.count >= 15 else { return "H.265" }
+    let profiles: [UInt8: String] = [1: "Main", 2: "Main 10", 3: "Main Still Picture", 4: "Range Extensions"]
+    let profileID = bytes[3] & 0x1F
+    let profile = profiles[profileID] ?? "profile \(profileID)"
+    let level = Int(bytes[14])
+    return "H.265 \(profile) \(level / 30).\(level % 30 / 3)"
+}

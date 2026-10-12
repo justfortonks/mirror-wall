@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import sys
 
-# What Mirror Wall's pipeline uses (appsrc ! queue ! h264parse ! rtph264pay ! udpsink) ...
+# What Mirror Wall's pipeline uses (appsrc ! queue ! h264parse ! rtph264pay ! udpsink, or the h265 versions) ...
 USED = ["app", "coreelements", "videoparsersbad", "rtp", "udp"]
 # ... and what uxplay refuses to start without, even with audio off and its own video window unused.
 REQUIRED_BY_UXPLAY = ["libav", "playback", "autodetect"]

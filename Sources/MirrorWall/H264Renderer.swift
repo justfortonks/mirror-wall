@@ -3,7 +3,7 @@ import CoreMedia
 import MirrorCore
 import VideoToolbox
 
-/// Decodes H.264 frames once with VideoToolbox and shows each picture in any number of
+/// Decodes H.264 or H.265 frames once with VideoToolbox and shows each picture in any number of
 /// AVSampleBufferDisplayLayers, so a slot can appear in its tile and in its own window at once.
 ///
 /// Frames are shown the moment they arrive (no timestamp sync), which is what keeps the
@@ -13,6 +13,9 @@ import VideoToolbox
 /// `render` and `reset` run on the slot's UDP thread or after it has stopped; layers are added
 /// and removed on the main thread.
 final class H264Renderer {
+    private var codec: VideoCodec = .h264
+    /// H.265 only.
+    private var vps: [UInt8]?
     private var sps: [UInt8]?
     private var pps: [UInt8]?
     private var formatDescription: CMVideoFormatDescription?
@@ -61,7 +64,10 @@ final class H264Renderer {
 
     /// The stream's codec, profile and level, e.g. "H.264 High 4.2". Read on the UDP thread.
     var codecDescription: String? {
-        sps.map(h264Description(sps:))
+        switch codec {
+        case .h264: return sps.map(h264Description(sps:))
+        case .hevc: return sps.map(hevcDescription(sps:))
+        }
     }
 
     /// A new layer showing this slot's picture, starting with the latest one.
@@ -98,24 +104,35 @@ final class H264Renderer {
     /// if it was handed to the decoder.
     @discardableResult
     func render(_ frame: H264Frame, arrival: Double) -> Bool {
+        if frame.codec != codec {
+            // The receiver restarted in the other mode: forget the old stream entirely.
+            codec = frame.codec
+            vps = nil
+            sps = nil
+            pps = nil
+            formatDescription = nil
+            invalidateSession()
+        }
         var videoNALs: [[UInt8]] = []
         var parametersChanged = false
         for nal in frame.nalUnits {
-            switch H264NALType(of: nal) {
+            switch ParameterSet(nal, codec: codec) {
+            case .vps:
+                if nal != vps { vps = nal; parametersChanged = true }
             case .sps:
                 if nal != sps { sps = nal; parametersChanged = true }
             case .pps:
                 if nal != pps { pps = nal; parametersChanged = true }
-            case .accessUnitDelimiter, .none:
+            case .skip:
                 continue
-            default:
+            case .none:
                 videoNALs.append(nal)
             }
         }
 
         if parametersChanged || formatDescription == nil {
             // New stream or rotation: a fresh decoder that starts at the next keyframe.
-            if let sps, let pps, let description = Self.makeFormatDescription(sps: sps, pps: pps) {
+            if let description = makeFormatDescription() {
                 formatDescription = description
                 invalidateSession()
             }
@@ -148,6 +165,7 @@ final class H264Renderer {
     /// Clears the picture, e.g. when the slot stops. Only call it once rendering has stopped.
     func reset() {
         invalidateSession()
+        vps = nil
         sps = nil
         pps = nil
         formatDescription = nil
@@ -233,18 +251,72 @@ final class H264Renderer {
         }
     }
 
-    private static func makeFormatDescription(sps: [UInt8], pps: [UInt8]) -> CMVideoFormatDescription? {
+    /// What a NAL unit is to the decoder setup: a parameter set, something to leave out, or
+    /// (nil) picture data to decode.
+    private enum ParameterSet {
+        case vps, sps, pps, skip
+
+        init?(_ nal: [UInt8], codec: VideoCodec) {
+            switch codec {
+            case .h264:
+                switch H264NALType(of: nal) {
+                case .sps: self = .sps
+                case .pps: self = .pps
+                case .accessUnitDelimiter, .none: self = .skip
+                default: return nil
+                }
+            case .hevc:
+                guard let type = HEVCNALType.of(nal) else { self = .skip; return }
+                switch type {
+                case HEVCNALType.vps: self = .vps
+                case HEVCNALType.sps: self = .sps
+                case HEVCNALType.pps: self = .pps
+                case HEVCNALType.accessUnitDelimiter: self = .skip
+                default: return nil
+                }
+            }
+        }
+    }
+
+    /// The decoder's format from the current parameter sets, once there are enough of them.
+    private func makeFormatDescription() -> CMVideoFormatDescription? {
+        guard let sps, let pps else { return nil }
+        let sets: [[UInt8]]
+        switch codec {
+        case .h264: sets = [sps, pps]
+        case .hevc:
+            guard let vps else { return nil }
+            sets = [vps, sps, pps]
+        }
+        // Copies the sets into one buffer, so their pointers stay valid for the call.
+        let joined = sets.flatMap { $0 }
         var description: CMFormatDescription?
-        let status = sps.withUnsafeBufferPointer { spsBuffer in
-            pps.withUnsafeBufferPointer { ppsBuffer in
-                let pointers = [spsBuffer.baseAddress!, ppsBuffer.baseAddress!]
-                let sizes = [spsBuffer.count, ppsBuffer.count]
+        let status = joined.withUnsafeBufferPointer { buffer -> OSStatus in
+            var offset = 0
+            var pointers: [UnsafePointer<UInt8>] = []
+            for set in sets {
+                pointers.append(buffer.baseAddress! + offset)
+                offset += set.count
+            }
+            let sizes = sets.map(\.count)
+            switch codec {
+            case .h264:
                 return CMVideoFormatDescriptionCreateFromH264ParameterSets(
                     allocator: kCFAllocatorDefault,
-                    parameterSetCount: 2,
+                    parameterSetCount: sets.count,
                     parameterSetPointers: pointers,
                     parameterSetSizes: sizes,
                     nalUnitHeaderLength: 4,
+                    formatDescriptionOut: &description
+                )
+            case .hevc:
+                return CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                    allocator: kCFAllocatorDefault,
+                    parameterSetCount: sets.count,
+                    parameterSetPointers: pointers,
+                    parameterSetSizes: sizes,
+                    nalUnitHeaderLength: 4,
+                    extensions: nil,
                     formatDescriptionOut: &description
                 )
             }

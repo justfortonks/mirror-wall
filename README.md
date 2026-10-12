@@ -63,6 +63,10 @@ macOS 27, it needs Apple Silicon and macOS 27.
   phone's capture time (counted from the first frame); the app's `udpsink sync=false` still sends
   every frame on at once. Without the patch, Smoother Motion has nothing to pace frames by and
   shows them as they arrive.
+- Build uxplay with `patches/uxplay-quiet-crash.patch` as well. In H.265 mode uxplay sometimes
+  crashes as a phone disconnects, and macOS then puts up a "uxplay quit unexpectedly" dialog,
+  possibly in front of what OBS is capturing. With the patch a crashing uxplay exits quietly
+  (it logs that it crashed); the app starts a fresh one either way.
 
 ## Build and run
 
@@ -170,6 +174,15 @@ access, allow it.
   of a second beyond the quickest recent trip from the phone. A frame that arrives later than that
   is shown at once. The extra delay is the cost, so leave it off where the lowest lag matters.
   Recordings and screenshots are unaffected.
+- **Sharper Picture (H.265)** (View menu, remembered, off by default): offers phones H.265 at up to
+  3840×2160 instead of H.264 at 1920×1080. In portrait that doubles the picture each way: an
+  iPhone 17 Pro Max sends 994×2160 instead of 498×1080, an iPhone SE 1214×2160 instead of
+  608×1080. It's about four times the pixels, so expect more Wi-Fi traffic. A phone that can't
+  do H.265 still sends H.264; the app reads which from the stream. Changing it restarts the
+  receivers, so phones have to reconnect. Recordings are still saved as H.264, at the larger size.
+  If a receiver quits by itself after running a while (uxplay sometimes crashes as a phone
+  disconnects in this mode), the slot starts a fresh one and shows Disconnected, as after any
+  disconnect.
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
 
 ## Not done yet
