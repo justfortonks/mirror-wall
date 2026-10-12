@@ -47,3 +47,63 @@ jobs:
         with:
           name: receiver
           path: windows/receiver/out
+
+  app:
+    needs: receiver
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the build number counts commits
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test the stream logic
+        run: dotnet test windows/MirrorCore.Tests
+
+      # The OBS feed's sender: Spout2's SpoutDX, wrapped in a small DLL the app calls.
+      - name: Build MirrorSpout.dll
+        shell: pwsh
+        run: |
+          git clone --quiet --depth 1 --branch 2.007.018 https://github.com/leadedge/Spout2 "$env:RUNNER_TEMP\Spout2"
+          cmake -S windows/MirrorSpout -B "$env:RUNNER_TEMP\spout-build" -A x64 -DSPOUT_DIR="$env:RUNNER_TEMP\Spout2"
+          cmake --build "$env:RUNNER_TEMP\spout-build" --config Release
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: receiver
+          path: windows/dist/MirrorWall/receiver
+
+      - name: Build the app
+        shell: pwsh
+        run: |
+          $count = git rev-list --count HEAD
+          $commit = git rev-parse --short HEAD
+          $date = git log -1 --format=%cs
+          "VERSION=0.$count" >> $env:GITHUB_ENV
+          dotnet publish windows/MirrorWall -c Release -r win-x64 --self-contained `
+            -p:Version=0.$count -p:InformationalVersion="0.$count+$commit.$date" `
+            -p:IncludeSourceRevisionInInformationalVersion=false -o windows/dist/MirrorWall
+          Copy-Item "$env:RUNNER_TEMP\spout-build\Release\MirrorSpout.dll" windows/dist/MirrorWall/
+          # The FFmpeg the app is built against (FFmpeg.AutoGen 8.1) must be the one the receiver brings.
+          if (-not (Test-Path windows/dist/MirrorWall/receiver/avcodec-62.dll)) {
+            Get-ChildItem windows/dist/MirrorWall/receiver -Filter 'av*.dll' | ForEach-Object Name
+            throw "The receiver's FFmpeg isn't version 8 (avcodec-62.dll)"
+          }
+
+      - name: Make the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y | Out-Null
+          }
+          & $iscc /Qp "/DAppVersion=$env:VERSION" windows/installer/MirrorWall.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MirrorWall-Setup
+          path: windows/dist/MirrorWall-Setup.exe
