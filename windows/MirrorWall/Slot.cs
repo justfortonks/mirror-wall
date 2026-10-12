@@ -620,7 +620,11 @@ internal sealed class Slot : Observable
         spoutFeed?.Stop();
         spoutFeed = null;
         Stop();
+        Renderer.Dispose();
         logFile?.Dispose();
         logFile = null;
     }
+
+    /// <summary>Starts the receiver quitting without waiting for it, so several can quit at once.</summary>
+    public void AskReceiverToQuit() => process?.CloseInput();
 }

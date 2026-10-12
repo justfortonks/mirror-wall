@@ -128,7 +128,14 @@ internal sealed class SlotRenderer : Observable
             due = playout.Due(rtp, arrival);
             queue = playoutQueue;
         }
-        queue!.Add((picture, due, number));
+        try
+        {
+            queue!.Add((picture, due, number));
+        }
+        catch (InvalidOperationException)
+        {
+            picture.Release(); // the renderer has just been disposed
+        }
     }
 
     /// <summary>Shows queued pictures when they're due. Due times never go backwards, so a queue in
@@ -185,6 +192,17 @@ internal sealed class SlotRenderer : Observable
         finally
         {
             picture.Release();
+        }
+    }
+
+    /// <summary>Ends the playout thread, when the slot is removed or the app quits.</summary>
+    public void Dispose()
+    {
+        lock (gate)
+        {
+            playoutQueue?.CompleteAdding();
+            playoutQueue = null;
+            smoothing = false;
         }
     }
 

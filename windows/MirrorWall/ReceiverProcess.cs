@@ -75,6 +75,14 @@ internal sealed class ReceiverProcess
         }
     }
 
+    /// <summary>Asks uxplay to shut down (it quits when its input closes) without waiting.</summary>
+    public void CloseInput()
+    {
+        if (!IsRunning) return;
+        try { process.StandardInput.Close(); }
+        catch (IOException) { }
+    }
+
     /// <summary>Asks uxplay to shut down cleanly (by closing its input), then ends it if it hasn't.</summary>
     public void Stop(int waitMilliseconds = 1500)
     {

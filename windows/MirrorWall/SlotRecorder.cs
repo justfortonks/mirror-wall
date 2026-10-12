@@ -107,7 +107,7 @@ internal sealed class SlotRecorder
             Directory.CreateDirectory(folder);
             writer = new Mp4Writer(path, width, height);
         }
-        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or DllNotFoundException)
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or DllNotFoundException or NotSupportedException)
         {
             OnError?.Invoke($"couldn't record to {Path.GetFileName(path)}: {error.Message}");
             writer = null;
@@ -155,6 +155,9 @@ internal sealed unsafe class Mp4Writer : IDisposable
 
     public int Width { get; }
     public int Height { get; }
+    /// <summary>The recorded size: the picture's, made even, as H.264 in NV12 needs.</summary>
+    private int EncodedWidth => Width & ~1;
+    private int EncodedHeight => Height & ~1;
     private AVFormatContext* format;
     private AVCodecContext* encoder;
     private AVStream* stream;
@@ -199,11 +202,11 @@ internal sealed unsafe class Mp4Writer : IDisposable
 
         frame = ffmpeg.av_frame_alloc();
         frame->format = (int)encoder->pix_fmt;
-        frame->width = Width;
-        frame->height = Height;
+        frame->width = EncodedWidth;
+        frame->height = EncodedHeight;
         Check(ffmpeg.av_frame_get_buffer(frame, 0), "out of memory");
         packet = ffmpeg.av_packet_alloc();
-        converter = ffmpeg.sws_getContext(Width, Height, AVPixelFormat.AV_PIX_FMT_BGRA, Width, Height, encoder->pix_fmt,
+        converter = ffmpeg.sws_getContext(Width, Height, AVPixelFormat.AV_PIX_FMT_BGRA, EncodedWidth, EncodedHeight, encoder->pix_fmt,
             (int)SwsFlags.SWS_BILINEAR, null, null, null);
         if (converter == null) throw new InvalidOperationException("couldn't convert the picture for the encoder");
         // Tag the colours as the phone sent them: BT.709, limited range.
@@ -222,8 +225,8 @@ internal sealed unsafe class Mp4Writer : IDisposable
             AVCodec* codec = ffmpeg.avcodec_find_encoder_by_name(name);
             if (codec == null) continue;
             AVCodecContext* context = ffmpeg.avcodec_alloc_context3(codec);
-            context->width = Width;
-            context->height = Height;
+            context->width = EncodedWidth;
+            context->height = EncodedHeight;
             context->time_base = new AVRational { num = 1, den = Timescale };
             context->framerate = new AVRational { num = 60, den = 1 };
             context->pix_fmt = AVPixelFormat.AV_PIX_FMT_NV12;

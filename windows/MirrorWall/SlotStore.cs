@@ -248,8 +248,7 @@ internal sealed class SlotStore : Observable
     {
         CloseOwnWindow(slot);
         slot.SetObsFeed(false, "");
-        slot.StopRecording();
-        slot.Stop();
+        slot.Shutdown();
         slot.PropertyChanged -= SlotChanged;
         StandbyPictures.Discard(slot.Config.Standby);
         Slots.Remove(slot);
@@ -390,10 +389,11 @@ internal sealed class SlotStore : Observable
 
     public double[]? PopOutPosition(Slot slot) => settings.PopOutPositions.TryGetValue(slot.Id, out var place) ? place : null;
 
-    public void SetPopOutPosition(Slot slot, double left, double top)
+    /// <summary>Remembers where a slot's window is; saved to disk once <paramref name="save"/> (after a move ends).</summary>
+    public void SetPopOutPosition(Slot slot, double left, double top, bool save)
     {
         settings.PopOutPositions[slot.Id] = new[] { left, top };
-        if (!terminating) settings.Save();
+        if (save && !terminating) settings.Save();
     }
 
     public void OpenOwnWindow(Slot slot)
@@ -425,10 +425,19 @@ internal sealed class SlotStore : Observable
         foreach (var slot in Slots.Where(slot => ids.Contains(slot.Id)).ToList()) OpenOwnWindow(slot);
     }
 
-    public void PrepareForExit()
+    /// <summary>Called as the wall closes, before Windows closes the slots' own windows, so they
+    /// are still reopened next launch.</summary>
+    public void BeginExit()
     {
         terminating = true;
         settings.Save();
+    }
+
+    public void PrepareForExit()
+    {
+        BeginExit();
+        // Every receiver is asked to quit first, so they shut down together rather than in turn.
+        foreach (var slot in Slots) slot.AskReceiverToQuit();
         foreach (var slot in Slots) slot.Shutdown();
     }
 
