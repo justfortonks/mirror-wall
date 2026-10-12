@@ -5,12 +5,8 @@ import UniformTypeIdentifiers
 
 /// Saves a slot's current picture as a PNG at the stream's full size.
 enum Screenshots {
-    /// ~/Pictures/Mirror Wall.
-    static var folder: URL {
-        let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures")
-        return pictures.appendingPathComponent("Mirror Wall")
-    }
+    /// Documents › MirrorWall › Screenshots, or the folder chosen in Settings.
+    static var folder: URL { SaveFolders.screenshots }
 
     private static let context = CIContext()
 
@@ -33,8 +29,7 @@ enum Screenshots {
     }
 
     static func showInFinder() {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(folder)
+        SaveFolders.showInFinder(.screenshots)
     }
 }
 

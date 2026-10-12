@@ -196,7 +196,7 @@ final class Slot: ObservableObject, Identifiable {
 
     // MARK: - Screenshots
 
-    /// Saves the picture on screen now, at the stream's full size, to Pictures › Mirror Wall.
+    /// Saves the picture on screen now, at the stream's full size, to the screenshots folder.
     func takeScreenshot() {
         guard showsPicture, let image = renderer.currentImage else { return }
         let base = phoneName ?? config.lastPhoneName ?? name

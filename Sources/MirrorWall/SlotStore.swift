@@ -220,9 +220,7 @@ final class SlotStore: ObservableObject {
     }
 
     func showRecordings() {
-        let folder = SlotRecorder.defaultFolder
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(folder)
+        SaveFolders.showInFinder(.recordings)
     }
 
     var canAddSlot: Bool { slots.count < Self.maxSlots }

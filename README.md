@@ -112,11 +112,14 @@ access, allow it.
   recording, the same as ⋯ › Start Recording.
 - **Screenshots:** the camera button in a tile's footer (or ⋯ › Take Screenshot, or File ›
   Screenshot All Slots) saves the picture at the stream's full size as a PNG in
-  `~/Pictures/Mirror Wall`.
+  `~/Documents/MirrorWall/Screenshots`.
 - **Settings** (the gear in the toolbar, or Mirror Wall › Settings):
   - *Who can mirror:* off by default, so any iPhone on the network can mirror. Turned on, only
     the ticked phones can (uxplay's `-restrict` and `-allow`). Phones are listed once they've
     mirrored to this Mac. Changing it restarts the slots.
+  - *Save to:* the folders for recordings and screenshots (Documents › MirrorWall › Recordings
+    and Screenshots by default). A chosen folder that can't be reached, such as an unplugged
+    drive, falls back to the default, and Settings says so.
   - *Alerts:* the Dock icon bounces when a mirroring phone drops, until Mirror Wall is clicked.
 - The ⋯ menu also has Restart, Show Log and Remove Slot. Each slot's log is also written to
   `~/Library/Logs/MirrorWall/slot-N.log`.
@@ -143,7 +146,7 @@ access, allow it.
   changes, so a still screen shows few frames per second. Losses are packets dropped between
   uxplay and the app; the phone's own connection to the Mac is TCP and doesn't lose any.
 - **Recording:** a tile's ⋯ menu has Start Recording (File › Record All Slots, ⇧⌘R, does every
-  slot). Recording starts at once with the picture on screen and writes to `~/Movies/Mirror Wall`.
+  slot). Recording starts at once with the picture on screen and writes to `~/Documents/MirrorWall/Recordings`.
   It records the pictures decoded for the tile and compresses them again with the Mac's video
   encoder (H.264), because the phone's own video can only be copied from a keyframe, and an
   iPhone sends one only when mirroring starts, the screen wakes or it rotates. Frames are timed

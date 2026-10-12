@@ -150,10 +150,6 @@ final class SlotRecorder {
         return "\(safe) \(formatter.string(from: startedAt))\(suffix).mov"
     }
 
-    /// Where recordings go: ~/Movies/Mirror Wall.
-    static var defaultFolder: URL {
-        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies")
-        return movies.appendingPathComponent("Mirror Wall")
-    }
+    /// Where recordings go: Documents › MirrorWall › Recordings, or the folder chosen in Settings.
+    static var defaultFolder: URL { SaveFolders.recordings }
 }

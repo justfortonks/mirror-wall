@@ -219,7 +219,7 @@ struct SlotTile: View {
                         .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
                 }
                 .buttonStyle(.borderless)
-                .help(slot.recordingSince == nil ? "Start recording to Movies › Mirror Wall" : "Stop recording")
+                .help(slot.recordingSince == nil ? "Start recording to \(SaveFolders.recordings.lastPathComponent)" : "Stop recording")
                 Button {
                     slot.takeScreenshot()
                 } label: {
@@ -227,7 +227,7 @@ struct SlotTile: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(!showsPicture)
-                .help("Save a screenshot to Pictures › Mirror Wall")
+                .help("Save a screenshot to \(SaveFolders.screenshots.lastPathComponent)")
                 Menu {
                     menuItems
                 } label: {
@@ -252,7 +252,7 @@ struct SlotTile: View {
                         if let since = slot.recordingSince {
                             Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
                                 .foregroundStyle(.red)
-                                .help(slot.recordingError ?? "Recording to Movies › Mirror Wall")
+                                .help(slot.recordingError ?? "Recording to \(SaveFolders.recordings.path)")
                         }
                         Text(statusText(now: context.date))
                     }
