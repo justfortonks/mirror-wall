@@ -1,6 +1,8 @@
 import AppKit
+import Combine
 import Foundation
 import MirrorCore
+import SwiftUI
 
 /// The list of slots, their own windows, the uxplay location, and persistence of all three.
 @MainActor
@@ -43,6 +45,8 @@ final class SlotStore: ObservableObject {
     static let bounceKey = "bounceOnDisconnect"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
+    /// Watches each slot's state, to send its standby picture to OBS when the phone leaves.
+    private var standbyWatchers: [Int: AnyCancellable] = [:]
     /// Set while quitting, so windows closing then are still reopened next launch.
     private var terminating = false
 
@@ -97,6 +101,15 @@ final class SlotStore: ObservableObject {
         slot.onPhoneDropped = { [weak self] in
             MainActor.assumeIsolated { self?.alertPhoneDropped() }
         }
+        // Deferred to the next turn of the main queue, because @Published sends before the
+        // property changes.
+        standbyWatchers[slot.id] = slot.$state.combineLatest(slot.$hasPicture)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak slot] _ in
+                MainActor.assumeIsolated {
+                    if let self, let slot { self.sendStandbyToOBS(slot) }
+                }
+            }
     }
 
     // MARK: - Allow-list and alerts
@@ -255,6 +268,7 @@ final class SlotStore: ObservableObject {
         slot.stopRecording()
         slot.stop()
         StandbyPictures.discard(slot.config.standby)
+        standbyWatchers[slot.id] = nil
         slots.removeAll { $0 === slot }
         save()
         updateWindowTitles()
@@ -318,6 +332,7 @@ final class SlotStore: ObservableObject {
         slot.setStandby(standby)
         StandbyPictures.discard(old)
         save()
+        sendStandbyToOBS(slot)
     }
 
     func chooseStandbyImage(for slot: Slot) {
@@ -336,6 +351,7 @@ final class SlotStore: ObservableObject {
         defaultStandby = standby
         if let data = try? JSONEncoder().encode(standby) { defaults.set(data, forKey: defaultStandbyKey) }
         StandbyPictures.discard(old)
+        slots.forEach(sendStandbyToOBS)
     }
 
     func chooseDefaultStandbyImage() {
@@ -411,6 +427,27 @@ final class SlotStore: ObservableObject {
     func setOBSFeed(_ slot: Slot, on: Bool) {
         slot.setOBSFeed(on, name: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
         save()
+        sendStandbyToOBS(slot)
+    }
+
+    /// While no phone is mirroring, sends the slot's standby picture down its OBS feed, drawn as
+    /// its own window draws it and at the size of the phone's last picture (an iPhone-shaped
+    /// 1179×2556 before any phone has connected). Live pictures replace it when a phone returns.
+    func sendStandbyToOBS(_ slot: Slot) {
+        guard slot.sendsToOBS, !slot.showsPicture else { return }
+        let size = slot.lastPictureSize ?? CGSize(width: 1179, height: 2556)
+        // Drawn at a third of the size and scaled up 3×, so the waiting message is about as big
+        // relative to the picture as in the slot's own window.
+        let scale: CGFloat = 3
+        let content = ZStack {
+            Color.black
+            StandbyContent(standby: standby(for: slot), slot: slot)
+        }
+        .frame(width: size.width / scale, height: size.height / scale)
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = scale
+        guard let image = renderer.cgImage, let buffer = makePixelBuffer(from: image) else { return }
+        slot.sendToOBS(buffer)
     }
 
     private func ownWindowClosed(_ id: Int) {

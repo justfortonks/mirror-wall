@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreVideo
 import Foundation
 
@@ -76,7 +77,9 @@ final class SyphonFeed {
     }
 
     private func send(_ image: CVImageBuffer) {
-        guard server.hasClients, let bgra = convert(image), let textureCache else { return }
+        // Sent even with no OBS source listening: the server keeps the latest frame, so a source
+        // added later shows the current picture at once, even if the phone's screen is still.
+        guard let bgra = convert(image), let textureCache else { return }
         let width = CVPixelBufferGetWidth(bgra)
         let height = CVPixelBufferGetHeight(bgra)
         var cvTexture: CVMetalTexture?
@@ -128,3 +131,31 @@ final class SyphonFeed {
 }
 
 #endif
+
+/// A still picture (the standby picture) as a BGRA pixel buffer, so it can go down a slot's
+/// OBS feed like a phone's frame.
+func makePixelBuffer(from image: CGImage) -> CVPixelBuffer? {
+    let width = image.width
+    let height = image.height
+    let attributes: [CFString: Any] = [
+        kCVPixelBufferIOSurfacePropertiesKey: [CFString: Any](),
+        kCVPixelBufferMetalCompatibilityKey: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+    ]
+    var buffer: CVPixelBuffer?
+    CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &buffer)
+    guard let buffer else { return nil }
+    CVPixelBufferLockBaseAddress(buffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+    guard let context = CGContext(
+        data: CVPixelBufferGetBaseAddress(buffer),
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+    ) else { return nil }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return buffer
+}
