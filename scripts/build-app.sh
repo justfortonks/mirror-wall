@@ -25,6 +25,7 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # plus the commit itself and the build date, shown in Mirror Wall › About Mirror Wall.
 BUILD=$(git rev-list --count HEAD)
 COMMIT=$(git rev-parse --short HEAD)
+COMMIT_FULL=$(git rev-parse HEAD)
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then COMMIT="$COMMIT with local changes"; fi
 BUILT=$(date "+%Y-%m-%d %H:%M")
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -41,6 +42,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key><string>0.$BUILD</string>
     <key>CFBundleVersion</key><string>$BUILD</string>
     <key>MirrorWallCommit</key><string>$COMMIT</string>
+    <key>MirrorWallCommitFull</key><string>$COMMIT_FULL</string>
     <key>MirrorWallBuilt</key><string>$BUILT</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -57,10 +59,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # The receiver: a uxplay that brings its own GStreamer, so the app runs on a Mac with nothing
-# else installed. Set UXPLAY to the uxplay to package; otherwise the usual places are tried.
+# else installed. Set UXPLAY to the uxplay to package; otherwise the usual places are tried,
+# starting with the one scripts/build-uxplay.sh builds (what releases use).
 UXPLAY="${UXPLAY:-}"
 if [ -z "$UXPLAY" ]; then
-    for candidate in /opt/homebrew/bin/uxplay /usr/local/bin/uxplay ../UxPlay/build/uxplay "$HOME/Documents/Claude Code/casting app/UxPlay/build/uxplay"; do
+    for candidate in build/UxPlay/build/uxplay /opt/homebrew/bin/uxplay /usr/local/bin/uxplay ../UxPlay/build/uxplay "$HOME/Documents/Claude Code/casting app/UxPlay/build/uxplay"; do
         if [ -x "$candidate" ]; then
             UXPLAY="$candidate"
             break
@@ -80,6 +83,15 @@ if [ -n "$SYPHON" ]; then
     mkdir -p "$APP/Contents/Frameworks"
     cp -R "$SYPHON" "$APP/Contents/Frameworks/"
     codesign --force --sign - "$APP/Contents/Frameworks/Syphon.framework"
+fi
+
+# Licences: Mirror Wall's own (GPLv3, as UxPlay's), and the notices of what it bundles.
+cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+# What's new, shown in About Mirror Wall.
+cp CHANGELOG.md "$APP/Contents/Resources/"
+if [ -n "$SYPHON" ] && [ -f build/Syphon-Framework/License.txt ]; then
+    mkdir -p "$APP/Contents/Resources/licenses/syphon"
+    cp build/Syphon-Framework/License.txt "$APP/Contents/Resources/licenses/syphon/"
 fi
 
 codesign --force --sign - "$APP"

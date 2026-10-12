@@ -14,6 +14,7 @@ STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
 cp -R MirrorWall.app "$STAGING/Mirror Wall.app"
 ln -s /Applications "$STAGING/Applications"
+cp THIRD_PARTY_NOTICES.md "$STAGING/Licenses and Source Code.txt"
 
 rm -f MirrorWall.dmg
 hdiutil create -quiet -volname "Mirror Wall" -srcfolder "$STAGING" -format UDZO MirrorWall.dmg

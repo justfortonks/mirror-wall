@@ -160,22 +160,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Mirror Wall › About Mirror Wall: the standard panel, plus which code the build came from,
-/// so two Macs' copies can be told apart.
+/// Mirror Wall › About Mirror Wall: the standard panel, plus which code the build came from
+/// (linked), so two Macs' copies can be told apart, and what changed in it (CHANGELOG.md's
+/// newest entry, which scripts/build-app.sh copies into the app).
 @MainActor
 enum AboutPanel {
+    static let repository = "https://github.com/justfortonks/mirror-wall"
+
     static func show() {
         let info = Bundle.main.infoDictionary ?? [:]
-        let details: String
-        if let commit = info["MirrorWallCommit"] as? String, let built = info["MirrorWallBuilt"] as? String {
-            details = "Built \(built) from commit \(commit)."
-        } else {
-            details = "Development build, run from the source folder."
+        let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let plain: [NSAttributedString.Key: Any] = [.font: small, .foregroundColor: NSColor.secondaryLabelColor]
+        let credits = NSMutableAttributedString()
+        func add(_ text: String, link: String? = nil, bold: Bool = false) {
+            var attributes = plain
+            if let link, let url = URL(string: link) { attributes[.link] = url }
+            if bold { attributes[.font] = NSFont.boldSystemFont(ofSize: NSFont.smallSystemFontSize) }
+            credits.append(NSAttributedString(string: text, attributes: attributes))
         }
-        let credits = NSAttributedString(string: details, attributes: [
-            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ])
+
+        if let commit = info["MirrorWallCommit"] as? String, let built = info["MirrorWallBuilt"] as? String {
+            add("Built \(built) from commit ")
+            let full = info["MirrorWallCommitFull"] as? String
+            add(commit, link: full.map { "\(repository)/commit/\($0)" })
+            add(".")
+        } else {
+            add("Development build, run from the source folder.")
+        }
+
+        if let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+           let markdown = try? String(contentsOf: url, encoding: .utf8),
+           let entry = ChangeLogEntry.latest(in: markdown) {
+            add("\n\nWhat's new: \(entry.heading)\n", bold: true)
+            for item in entry.items {
+                add("• \(item)\n")
+            }
+            add("\n")
+        } else {
+            add("\n\n")
+        }
+        add("Full change log", link: "\(repository)/blob/main/CHANGELOG.md")
+
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
         NSApp.activate(ignoringOtherApps: true)
     }
