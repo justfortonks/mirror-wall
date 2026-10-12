@@ -1,3 +1,5 @@
+import Foundation
+
 /// One mirroring slot: an AirPlay receiver that a single iPhone can mirror to.
 ///
 /// Each slot gets its own uxplay process with its own name, ports and device ID, because one
@@ -10,6 +12,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// The name of the last iPhone that mirrored to this slot. Kept after it disconnects so the
     /// slot's own window keeps the same title (OBS finds windows by title).
     public var lastPhoneName: String?
+    /// The model code of that iPhone, e.g. "iPhone18,2", for sizing the slot's own window.
+    public var lastPhoneModel: String?
+    /// What the slot shows while no phone is mirroring; nil to use the one set for all slots.
+    public var standby: StandbyPicture?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
         precondition(id >= 1 && id <= 99, "slot id out of range")
@@ -18,8 +24,68 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         self.lastPhoneName = lastPhoneName
     }
 
-    public static func defaultName(for id: Int) -> String {
-        "Mirror Wall \(id)"
+    /// "Mirror Wall 1 · MacBook Air": the Mac's name, without its owner, so phones can tell two
+    /// Macs' slots apart. "Mirror Wall" comes first because the phone's list cuts long names at
+    /// the end, and because the Mac's own AirPlay receiver goes by the Mac's full name.
+    public static func defaultName(for id: Int, computerName: String?) -> String {
+        let computer = computerName.map { shortened(withoutOwner(collapsed($0)), limit: maxComputerNameLength) } ?? ""
+        return "Mirror Wall \(id)" + (computer.isEmpty ? "" : " · " + computer)
+    }
+
+    /// Names given by earlier versions, which a slot still using one should replace: "Mirror Wall 1",
+    /// and "Thomas's MacBook Air 1" (which looked too much like the Mac's own AirPlay receiver).
+    public static func isOldDefaultName(_ name: String, id: Int, computerName: String?) -> Bool {
+        if name == "Mirror Wall \(id)" { return true }
+        guard let computerName else { return false }
+        return name == shortened(collapsed(computerName), limit: 20) + " \(id)"
+    }
+
+    /// "Thomas's MacBook Air" → "MacBook Air".
+    static func withoutOwner(_ name: String) -> String {
+        for apostrophe in ["'s ", "’s "] {
+            if let range = name.range(of: apostrophe), !name[range.upperBound...].isEmpty {
+                return String(name[range.upperBound...])
+            }
+        }
+        return name
+    }
+
+    static let maxComputerNameLength = 14
+    /// Longer names get cut in the iPhone's Screen Mirroring list anyway.
+    public static let maxNameLength = 30
+    /// Bonjour allows 63 bytes; a little to spare.
+    static let maxNameBytes = 60
+
+    /// A name as typed, made tidy: single spaces, at most `maxNameLength` characters, cut at a
+    /// word where possible. Empty if nothing is left.
+    public static func tidyName(_ name: String) -> String {
+        shortened(collapsed(name), limit: maxNameLength)
+    }
+
+    private static func collapsed(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// Cuts `text` to `limit` characters, at the last space if that keeps at least half of it.
+    static func shortened(_ text: String, limit: Int) -> String {
+        var result = text.trimmingCharacters(in: .whitespaces)
+        var cut = false
+        if result.count > limit {
+            let prefix = result.prefix(limit)
+            if let space = prefix.lastIndex(of: " "), prefix.distance(from: prefix.startIndex, to: space) >= limit / 2 {
+                result = String(prefix[..<space])
+            } else {
+                result = String(prefix)
+            }
+            cut = true
+        }
+        while result.utf8.count > maxNameBytes {
+            result.removeLast()
+            cut = true
+        }
+        // Don't leave a dangling separator where the name was cut.
+        while cut, let last = result.last, " -–,.;:&+/".contains(last) { result.removeLast() }
+        return result
     }
 
     /// First of the three TCP/UDP ports uxplay uses (base, base+1, base+2): 7300, 7400, ...
@@ -47,9 +113,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     }
 
     /// Command-line arguments for this slot's uxplay process. `maxFrameRate` is the most frames a
-    /// second the phone is asked to send; it may send fewer.
-    public func uxplayArguments(maxFrameRate: Int) -> [String] {
-        [
+    /// second the phone is asked to send; it may send fewer. With `allowedDevices`, only phones
+    /// with those device IDs may connect.
+    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil) -> [String] {
+        var arguments = [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
             "-p", String(airplayBasePort),
@@ -60,6 +127,38 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
             "-fps", String(maxFrameRate),
             "-vrtp", "config-interval=1 ! udpsink host=127.0.0.1 port=\(rtpPort)",
         ]
+        if let allowedDevices {
+            arguments.append("-restrict")
+            for device in allowedDevices { arguments += ["-allow", device] }
+        }
+        return arguments
+    }
+}
+
+/// What a slot shows while no phone is mirroring.
+public enum StandbyPicture: Codable, Hashable {
+    /// "Waiting for … to mirror to …", the default.
+    case message
+    case blank
+    /// An image file the app keeps a copy of, by its file name in the app's own folder.
+    case image(fileName: String)
+}
+
+/// A phone that has mirrored to this Mac, remembered for the allow-list.
+public struct KnownPhone: Codable, Hashable, Identifiable {
+    /// The ID the phone gives AirPlay receivers, e.g. "0E:90:EE:EE:61:54".
+    public var deviceID: String
+    public var name: String
+    public var model: String
+    public var lastSeen: Date
+
+    public var id: String { deviceID }
+
+    public init(deviceID: String, name: String, model: String, lastSeen: Date) {
+        self.deviceID = deviceID
+        self.name = name
+        self.model = model
+        self.lastSeen = lastSeen
     }
 }
 

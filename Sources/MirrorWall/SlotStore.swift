@@ -11,12 +11,30 @@ final class SlotStore: ObservableObject {
     @Published private(set) var poppedOutIDs: Set<Int> = []
     /// The most frames a second phones are asked to send (30 or 60).
     @Published private(set) var maxFrameRate: Int
+    /// The size of slots' own windows.
+    @Published private(set) var popOutSize: PopOutSize
+    /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
+    @Published private(set) var popOutSizeLocked: Bool
+    /// Phones that have mirrored to this Mac, newest first.
+    @Published private(set) var knownPhones: [KnownPhone]
+    /// When on, only phones in `allowedDeviceIDs` can mirror. Off by default: any phone can.
+    @Published private(set) var allowListEnabled: Bool
+    @Published private(set) var allowedDeviceIDs: Set<String>
+    /// What slots show while no phone is mirroring, unless a slot has its own.
+    @Published private(set) var defaultStandby: StandbyPicture
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
     private let uxplayPathKey = "uxplayPath"
     private let poppedOutKey = "poppedOutSlots"
     private let maxFrameRateKey = "maxFrameRate"
+    private let popOutSizeKey = "popOutSize"
+    private let popOutSizeLockedKey = "popOutSizeLocked"
+    private let knownPhonesKey = "knownPhones"
+    private let allowListEnabledKey = "allowListEnabled"
+    private let allowedDevicesKey = "allowedDevices"
+    private let defaultStandbyKey = "defaultStandby"
+    static let bounceKey = "bounceOnDisconnect"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
     /// Set while quitting, so windows closing then are still reopened next launch.
@@ -25,24 +43,103 @@ final class SlotStore: ObservableObject {
     static let maxSlots = 8
 
     init() {
+        defaults.register(defaults: [Self.bounceKey: true, popOutSizeLockedKey: true])
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
-        let configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0)) }
+        var configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0, computerName: Self.computerName)) }
+        // Slots still on a name earlier versions gave them take the current default, so two Macs'
+        // slots can be told apart on the phone.
+        for index in configs.indices where SlotConfig.isOldDefaultName(configs[index].name, id: configs[index].id, computerName: Self.computerName) {
+            configs[index].name = SlotConfig.defaultName(for: configs[index].id, computerName: Self.computerName)
+        }
         let savedRate = defaults.integer(forKey: maxFrameRateKey)
         maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
+        popOutSize = defaults.string(forKey: popOutSizeKey).flatMap(PopOutSize.init(rawValue:)) ?? .medium
+        popOutSizeLocked = defaults.bool(forKey: popOutSizeLockedKey)
+        knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
+        allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
+        allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
+        defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
+        if saved != nil { save() }
+    }
+
+    /// The Mac's name, as set in System Settings › General › Sharing.
+    nonisolated static var computerName: String? {
+        Host.current().localizedName
     }
 
     /// Saves a slot's config when it learns a new phone's name, and retitles windows to match.
     private func watch(_ slot: Slot) {
         slot.maxFrameRate = maxFrameRate
+        slot.allowedDevices = allowedDevices
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
                 self?.save()
                 self?.updateWindowTitles()
             }
         }
+        slot.onPhoneSeen = { [weak self] phone in
+            MainActor.assumeIsolated { self?.remember(phone) }
+        }
+        slot.onPhoneDropped = { [weak self] in
+            MainActor.assumeIsolated { self?.alertPhoneDropped() }
+        }
+    }
+
+    // MARK: - Allow-list and alerts
+
+    /// The device IDs receivers are restricted to, or nil when any phone may connect.
+    private var allowedDevices: [String]? {
+        allowListEnabled ? allowedDeviceIDs.sorted() : nil
+    }
+
+    private func remember(_ phone: KnownPhone) {
+        knownPhones.removeAll { $0.deviceID == phone.deviceID }
+        knownPhones.insert(phone, at: 0)
+        if let data = try? JSONEncoder().encode(knownPhones) { defaults.set(data, forKey: knownPhonesKey) }
+    }
+
+    func forget(_ phone: KnownPhone) {
+        knownPhones.removeAll { $0.deviceID == phone.deviceID }
+        if let data = try? JSONEncoder().encode(knownPhones) { defaults.set(data, forKey: knownPhonesKey) }
+        setAllowed(phone, false)
+    }
+
+    /// Turning the allow-list on starts with every known phone ticked, so nobody is locked out
+    /// by surprise.
+    func setAllowListEnabled(_ enabled: Bool) {
+        guard enabled != allowListEnabled else { return }
+        if enabled && allowedDeviceIDs.isEmpty {
+            allowedDeviceIDs = Set(knownPhones.map(\.deviceID))
+            defaults.set(allowedDeviceIDs.sorted(), forKey: allowedDevicesKey)
+        }
+        allowListEnabled = enabled
+        defaults.set(enabled, forKey: allowListEnabledKey)
+        applyAllowList()
+    }
+
+    func setAllowed(_ phone: KnownPhone, _ allowed: Bool) {
+        let before = allowedDeviceIDs
+        if allowed { allowedDeviceIDs.insert(phone.deviceID) } else { allowedDeviceIDs.remove(phone.deviceID) }
+        guard allowedDeviceIDs != before else { return }
+        defaults.set(allowedDeviceIDs.sorted(), forKey: allowedDevicesKey)
+        if allowListEnabled { applyAllowList() }
+    }
+
+    /// Receivers read the allow-list when they start, so each one restarts.
+    private func applyAllowList() {
+        for slot in slots {
+            slot.allowedDevices = allowedDevices
+            restart(slot)
+        }
+    }
+
+    /// Bounces the Dock icon until Mirror Wall is clicked (macOS doesn't while it's in front).
+    private func alertPhoneDropped() {
+        guard defaults.bool(forKey: Self.bounceKey) else { return }
+        NSApp.requestUserAttention(.criticalRequest)
     }
 
     // MARK: - uxplay
@@ -123,9 +220,7 @@ final class SlotStore: ObservableObject {
     }
 
     func showRecordings() {
-        let folder = SlotRecorder.defaultFolder
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(folder)
+        SaveFolders.showInFinder(.recordings)
     }
 
     var canAddSlot: Bool { slots.count < Self.maxSlots }
@@ -134,7 +229,7 @@ final class SlotStore: ObservableObject {
         guard canAddSlot else { return }
         let used = Set(slots.map(\.id))
         guard let id = (1...Self.maxSlots).first(where: { !used.contains($0) }) else { return }
-        let slot = Slot(config: SlotConfig(id: id, name: SlotConfig.defaultName(for: id)))
+        let slot = Slot(config: SlotConfig(id: id, name: SlotConfig.defaultName(for: id, computerName: Self.computerName)))
         watch(slot)
         slots.append(slot)
         slots.sort { $0.id < $1.id }
@@ -147,6 +242,7 @@ final class SlotStore: ObservableObject {
         closeOwnWindow(slot)
         slot.stopRecording()
         slot.stop()
+        StandbyPictures.discard(slot.config.standby)
         slots.removeAll { $0 === slot }
         save()
         updateWindowTitles()
@@ -170,22 +266,77 @@ final class SlotStore: ObservableObject {
     }
 
     func rename(_ slot: Slot, to name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != slot.name else { return }
-        slot.rename(to: trimmed, uxplay: uxplayURL)
+        let tidy = SlotConfig.tidyName(name)
+        guard !tidy.isEmpty, tidy != slot.name else { return }
+        slot.rename(to: tidy, uxplay: uxplayURL)
         save()
         updateWindowTitles()
         objectWillChange.send()
     }
 
+    func resetName(_ slot: Slot) {
+        rename(slot, to: SlotConfig.defaultName(for: slot.id, computerName: Self.computerName))
+    }
+
+    // MARK: - Standby pictures and screenshots
+
+    func setStandby(_ slot: Slot, _ standby: StandbyPicture?) {
+        let old = slot.config.standby
+        guard standby != old else { return }
+        slot.setStandby(standby)
+        StandbyPictures.discard(old)
+        save()
+    }
+
+    func chooseStandbyImage(for slot: Slot) {
+        guard let picture = StandbyPictures.choose(label: "slot-\(slot.id)") else { return }
+        setStandby(slot, picture)
+    }
+
+    /// What `slot` shows while no phone is mirroring: its own choice, or the one for all slots.
+    func standby(for slot: Slot) -> StandbyPicture {
+        slot.config.standby ?? defaultStandby
+    }
+
+    func setDefaultStandby(_ standby: StandbyPicture) {
+        let old = defaultStandby
+        guard standby != old else { return }
+        defaultStandby = standby
+        if let data = try? JSONEncoder().encode(standby) { defaults.set(data, forKey: defaultStandbyKey) }
+        StandbyPictures.discard(old)
+    }
+
+    func chooseDefaultStandbyImage() {
+        guard let picture = StandbyPictures.choose(label: "all-slots") else { return }
+        setDefaultStandby(picture)
+    }
+
+    func screenshotAll() {
+        slots.forEach { $0.takeScreenshot() }
+    }
+
     // MARK: - Own windows
+
+    func setPopOutSize(_ size: PopOutSize) {
+        guard size != popOutSize else { return }
+        popOutSize = size
+        defaults.set(size.rawValue, forKey: popOutSizeKey)
+        popOutWindows.values.forEach { $0.size = size }
+    }
+
+    func setPopOutSizeLocked(_ locked: Bool) {
+        guard locked != popOutSizeLocked else { return }
+        popOutSizeLocked = locked
+        defaults.set(locked, forKey: popOutSizeLockedKey)
+        popOutWindows.values.forEach { $0.locked = locked }
+    }
 
     func openOwnWindow(_ slot: Slot) {
         if let existing = popOutWindows[slot.id] {
             existing.show()
             return
         }
-        let window = PopOutWindow(slot: slot, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
+        let window = PopOutWindow(slot: slot, store: self, title: windowTitles[slot.id] ?? "MacMirror-\(slot.name)", size: popOutSize, locked: popOutSizeLocked)
         let id = slot.id
         window.onClose = { [weak self] in self?.ownWindowClosed(id) }
         popOutWindows[id] = window

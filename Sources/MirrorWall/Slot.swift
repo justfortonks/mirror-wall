@@ -31,16 +31,24 @@ final class Slot: ObservableObject, Identifiable {
     /// When the current phone connected; nil when none is.
     @Published private(set) var connectedSince: Date?
     /// When the last picture arrived; nil until the first one.
-    @Published private(set) var lastFrameAt: Date?
+    /// Updated with every picture, so not published: a change here would redraw the whole tile
+    /// several times a second, closing any menu open on it. Views that show it re-read it on a
+    /// timer; `hasPicture` tells them when it starts and stops.
+    private(set) var lastFrameAt: Date?
+    /// True once a picture has arrived, until the slot stops.
+    @Published private(set) var hasPicture = false
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
-    @Published private(set) var log: [String] = []
+    /// The receiver's output, kept apart so a new line only redraws the log window.
+    let log = SlotLog()
     /// The connected phone's name, as it introduced itself to uxplay.
     @Published private(set) var phoneName: String?
     /// When recording started; nil when not recording.
     @Published private(set) var recordingSince: Date?
     /// The last recording error, shown in the tile until recording restarts.
     @Published private(set) var recordingError: String?
+    /// When the last screenshot was saved, for a moment's confirmation in the tile.
+    @Published private(set) var screenshotSavedAt: Date?
 
     let renderer = H264Renderer()
     /// The most frames a second phones are asked to send; takes effect when the receiver starts.
@@ -49,6 +57,13 @@ final class Slot: ObservableObject, Identifiable {
     let stats = SlotStats()
     /// Called when the config changes on its own (a new phone's name), so it can be saved.
     var onConfigChanged: (() -> Void)?
+    /// Only phones with these device IDs may connect, or any phone if nil. Takes effect when the
+    /// receiver starts.
+    var allowedDevices: [String]?
+    /// Called when a phone asks to connect, so the store can remember it for the allow-list.
+    var onPhoneSeen: ((KnownPhone) -> Void)?
+    /// Called when a mirroring phone drops unexpectedly (not when the slot is stopped).
+    var onPhoneDropped: (() -> Void)?
 
     private var process: ReceiverProcess?
     /// Used on the UDP thread and the main queue, so guarded by `recorderLock`.
@@ -92,7 +107,7 @@ final class Slot: ObservableObject, Identifiable {
         let currentGeneration = generation
         uxplayURL = uxplay
         if freshLog {
-            log = []
+            log.lines = []
             openLogFile()
         }
         depacketizer.reset()
@@ -111,7 +126,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate),
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -131,7 +146,7 @@ final class Slot: ObservableObject, Identifiable {
         }
         self.process = process
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate).joined(separator: " "))")
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices).joined(separator: " "))")
         state = .waiting
     }
 
@@ -149,6 +164,7 @@ final class Slot: ObservableObject, Identifiable {
         renderer.reset()
         stats.clearStream()
         lastFrameAt = nil
+        hasPicture = false
         videoSize = nil
         phoneName = nil
         connectedSince = nil
@@ -165,6 +181,35 @@ final class Slot: ObservableObject, Identifiable {
         config.name = name
         if let uxplay, process != nil {
             restart(uxplay: uxplay)
+        }
+    }
+
+    func setStandby(_ standby: StandbyPicture?) {
+        objectWillChange.send()
+        config.standby = standby
+    }
+
+    /// True while there's a current picture: live, or paused on its last frame.
+    var showsPicture: Bool {
+        hasPicture && (state == .live || state == .paused)
+    }
+
+    // MARK: - Screenshots
+
+    /// Saves the picture on screen now, at the stream's full size, to the screenshots folder.
+    func takeScreenshot() {
+        guard showsPicture, let image = renderer.currentImage else { return }
+        let base = phoneName ?? config.lastPhoneName ?? name
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                let url = try Screenshots.save(image, baseName: base)
+                DispatchQueue.main.async {
+                    self?.screenshotSavedAt = Date()
+                    self?.append("Saved screenshot \(url.lastPathComponent)")
+                }
+            } catch {
+                DispatchQueue.main.async { self?.append("Screenshot failed: \(error.localizedDescription)") }
+            }
         }
     }
 
@@ -244,6 +289,7 @@ final class Slot: ObservableObject, Identifiable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.process != nil else { return }
             self.lastFrameAt = Date()
+            if !self.hasPicture { self.hasPicture = true }
             if let dimensions {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
@@ -263,8 +309,8 @@ final class Slot: ObservableObject, Identifiable {
         // Latency reports come every second; they feed the stats overlay, not the log.
         if case .videoLatency? = event {} else {
             logFile?.write(Data((line + "\n").utf8))
-            log.append(line)
-            if log.count > 300 { log.removeFirst(log.count - 300) }
+            log.lines.append(line)
+            if log.lines.count > 300 { log.lines.removeFirst(log.lines.count - 300) }
         }
         if let event {
             apply(event)
@@ -273,18 +319,22 @@ final class Slot: ObservableObject, Identifiable {
 
     private func apply(_ event: UxPlayEvent) {
         switch event {
-        case .clientConnecting(let name, let model):
+        case .clientConnecting(let name, let model, let deviceID):
             // The decoder needs no reset here: a new stream starts with new parameter sets, which
             // rebuild it. (This line can also arrive after the new stream's first frames.)
             lastSignOfLifeAt = nil
             phoneName = name
             connectedSince = Date()
             recorderLock.withLock { recorder?.baseName = name }
-            stats.phoneModel = model.isEmpty ? nil : model
+            stats.phoneModel = model.isEmpty ? nil : phoneModelName(model)
             stats.connections += 1
-            if config.lastPhoneName != name {
+            if !deviceID.isEmpty {
+                onPhoneSeen?(KnownPhone(deviceID: deviceID, name: name, model: model, lastSeen: Date()))
+            }
+            if config.lastPhoneName != name || (!model.isEmpty && config.lastPhoneModel != model) {
                 objectWillChange.send()
                 config.lastPhoneName = name
+                if !model.isEmpty { config.lastPhoneModel = model }
                 onConfigChanged?()
             }
             state = .connecting
@@ -296,8 +346,7 @@ final class Slot: ObservableObject, Identifiable {
         case .openConnections(0), .lostConnection:
             connectedSince = nil
             if state != .waiting && state != .disconnected {
-                state = .disconnected
-                restartReceiverSoon()
+                phoneDropped()
             }
         case .heartbeat:
             lastSignOfLifeAt = Date()
@@ -323,8 +372,14 @@ final class Slot: ObservableObject, Identifiable {
               Date().timeIntervalSince(lastSignOfLifeAt) > Self.silenceLimit else { return }
         append("No check-in or video from the phone for \(Int(Self.silenceLimit)) seconds; treating it as disconnected")
         connectedSince = nil
+        phoneDropped()
+    }
+
+    private func phoneDropped() {
+        let wasMirroring = state == .live || state == .paused || state == .connecting
         state = .disconnected
         restartReceiverSoon()
+        if wasMirroring { onPhoneDropped?() }
     }
 
     /// After a phone disconnects, uxplay sometimes fails to rebuild its video output, and the next
@@ -370,4 +425,9 @@ final class Slot: ObservableObject, Identifiable {
         receiver = nil
         state = .failed("The receiver stopped (exit status \(status)). Use Restart, or check the log.")
     }
+}
+
+/// A slot's recent receiver output, for the log window.
+final class SlotLog: ObservableObject {
+    @Published var lines: [String] = []
 }
