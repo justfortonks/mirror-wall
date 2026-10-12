@@ -13,6 +13,8 @@ final class SlotStore: ObservableObject {
     @Published private(set) var maxFrameRate: Int
     /// Shows frames at the pace the phone captured them, a moment later, instead of as they arrive.
     @Published private(set) var smoothMotion: Bool
+    /// Offers phones H.265, for portrait pictures twice as tall and wide. Off by default.
+    @Published private(set) var sharpPicture: Bool
     /// The size of slots' own windows.
     @Published private(set) var popOutSize: PopOutSize
     /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
@@ -31,6 +33,7 @@ final class SlotStore: ObservableObject {
     private let poppedOutKey = "poppedOutSlots"
     private let maxFrameRateKey = "maxFrameRate"
     private let smoothMotionKey = "smoothMotion"
+    private let sharpPictureKey = "sharpPicture"
     private let popOutSizeKey = "popOutSize"
     private let popOutSizeLockedKey = "popOutSizeLocked"
     private let knownPhonesKey = "knownPhones"
@@ -57,6 +60,7 @@ final class SlotStore: ObservableObject {
         let savedRate = defaults.integer(forKey: maxFrameRateKey)
         maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
         smoothMotion = defaults.bool(forKey: smoothMotionKey)
+        sharpPicture = defaults.bool(forKey: sharpPictureKey)
         popOutSize = defaults.string(forKey: popOutSizeKey).flatMap(PopOutSize.init(rawValue:)) ?? .medium
         popOutSizeLocked = defaults.bool(forKey: popOutSizeLockedKey)
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
@@ -78,6 +82,7 @@ final class SlotStore: ObservableObject {
     private func watch(_ slot: Slot) {
         slot.maxFrameRate = maxFrameRate
         slot.renderer.smoothMotion = smoothMotion
+        slot.sharpPicture = sharpPicture
         slot.allowedDevices = allowedDevices
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
@@ -271,6 +276,18 @@ final class SlotStore: ObservableObject {
         smoothMotion = on
         defaults.set(on, forKey: smoothMotionKey)
         for slot in slots { slot.renderer.smoothMotion = on }
+    }
+
+    /// Turns the sharper picture on or off. Each receiver restarts to apply it, so phones
+    /// mirroring now have to reconnect.
+    func setSharpPicture(_ on: Bool) {
+        guard on != sharpPicture else { return }
+        sharpPicture = on
+        defaults.set(on, forKey: sharpPictureKey)
+        for slot in slots {
+            slot.sharpPicture = on
+            restart(slot)
+        }
     }
 
     func restart(_ slot: Slot) {

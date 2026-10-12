@@ -114,8 +114,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
 
     /// Command-line arguments for this slot's uxplay process. `maxFrameRate` is the most frames a
     /// second the phone is asked to send; it may send fewer. With `allowedDevices`, only phones
-    /// with those device IDs may connect.
-    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil) -> [String] {
+    /// with those device IDs may connect. With `sharpPicture`, phones are offered H.265 at up to
+    /// 3840×2160, and send portrait pictures twice as tall and wide as with H.264's 1920×1080.
+    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false) -> [String] {
         var arguments = [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
@@ -129,6 +130,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
             // phone's capture time (patches/uxplay-frame-timestamps.patch).
             "-vrtp", "config-interval=1 ! udpsink sync=false host=127.0.0.1 port=\(rtpPort)",
         ]
+        if sharpPicture {
+            arguments.append("-h265")
+        }
         if let allowedDevices {
             arguments.append("-restrict")
             for device in allowedDevices { arguments += ["-allow", device] }

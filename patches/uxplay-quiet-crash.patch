@@ -1,0 +1,39 @@
+diff --git a/uxplay.cpp b/uxplay.cpp
+index be41031..94c9557 100644
+--- a/uxplay.cpp
++++ b/uxplay.cpp
+@@ -3267,6 +3267,24 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
+     }
+ }
+ 
++#ifdef __APPLE__
++/* Mirror Wall: a receiver that crashes (an assertion in GStreamer or uxplay, typically as a phone
++ * disconnects) exits quietly instead, so macOS doesn't put up its "quit unexpectedly" dialog in
++ * front of the wall. The app sees the exit and starts a fresh receiver. */
++static void mirror_wall_quiet_crash(int sig) {
++    const char message[] = "*** Mirror Wall: uxplay crashed; exiting without a crash report\n";
++    write(STDERR_FILENO, message, sizeof(message) - 1);
++    _exit(128 + sig);
++}
++
++static void mirror_wall_install_quiet_crash() {
++    const int signals[] = { SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGTRAP };
++    for (int sig : signals) {
++        signal(sig, mirror_wall_quiet_crash);
++    }
++}
++#endif
++
+ #ifdef GST_MACOS
+ /* workaround for GStreamer >= 1.22 "Official Builds" on macOS */
+ #include <TargetConditionals.h>
+@@ -3300,6 +3318,9 @@ int main (int argc, char *argv[]) {
+     signal(SIGTERM, CtrlHandler);
+     signal(SIGHUP, CtrlHandler);
+ #endif
++#ifdef __APPLE__
++    mirror_wall_install_quiet_crash();
++#endif
+ 
+ #ifdef __OpenBSD__
+     if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
