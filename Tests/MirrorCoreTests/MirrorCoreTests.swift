@@ -123,12 +123,16 @@ final class SlotConfigTests: XCTestCase {
     }
 
     func testDefaultNamesUseTheMacsName() {
-        XCTAssertEqual(SlotConfig.defaultName(for: 1, computerName: "Thomas's MacBook Pro"), "Thomas's MacBook Pro 1")
-        XCTAssertEqual(SlotConfig.defaultName(for: 2, computerName: "Thomas's Mac Studio in the Office"), "Thomas's Mac Studio 2")
+        XCTAssertEqual(SlotConfig.defaultName(for: 1, computerName: "Thomas's MacBook Air"), "Mirror Wall 1 · MacBook Air")
+        XCTAssertEqual(SlotConfig.defaultName(for: 2, computerName: "Thomas’s Mac Studio in the Office"), "Mirror Wall 2 · Mac Studio in")
+        XCTAssertEqual(SlotConfig.defaultName(for: 2, computerName: "Studio"), "Mirror Wall 2 · Studio")
         XCTAssertEqual(SlotConfig.defaultName(for: 3, computerName: nil), "Mirror Wall 3")
         XCTAssertEqual(SlotConfig.defaultName(for: 3, computerName: "  "), "Mirror Wall 3")
-        XCTAssertTrue(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 2))
-        XCTAssertFalse(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 1))
+        XCTAssertLessThanOrEqual(SlotConfig.defaultName(for: 8, computerName: "Thomas's Extremely Long Mac Name").count, SlotConfig.maxNameLength)
+        XCTAssertTrue(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 2, computerName: nil))
+        XCTAssertFalse(SlotConfig.isOldDefaultName("Mirror Wall 2", id: 1, computerName: nil))
+        XCTAssertTrue(SlotConfig.isOldDefaultName("Thomas's MacBook Air 1", id: 1, computerName: "Thomas's MacBook Air"))
+        XCTAssertFalse(SlotConfig.isOldDefaultName("Kitchen", id: 1, computerName: "Thomas's MacBook Air"))
     }
 
     func testTidyNames() {

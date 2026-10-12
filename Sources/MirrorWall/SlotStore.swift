@@ -40,9 +40,9 @@ final class SlotStore: ObservableObject {
         defaults.register(defaults: [Self.bounceKey: true])
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
         var configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0, computerName: Self.computerName)) }
-        // Slots still on the old "Mirror Wall N" name take the Mac's name, so two Macs' slots
-        // can be told apart on the phone.
-        for index in configs.indices where SlotConfig.isOldDefaultName(configs[index].name, id: configs[index].id) {
+        // Slots still on a name earlier versions gave them take the current default, so two Macs'
+        // slots can be told apart on the phone.
+        for index in configs.indices where SlotConfig.isOldDefaultName(configs[index].name, id: configs[index].id, computerName: Self.computerName) {
             configs[index].name = SlotConfig.defaultName(for: configs[index].id, computerName: Self.computerName)
         }
         let savedRate = defaults.integer(forKey: maxFrameRateKey)
