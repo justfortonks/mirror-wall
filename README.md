@@ -99,8 +99,9 @@ uxplay with GStreamer pointed at those plugins alone. It also copies each bundle
 licence files into `receiver/licenses`.
 
 Each build of MirrorWall.app is numbered by the commits it was built from (0.61, 0.62…), and
-Mirror Wall › About Mirror Wall also shows the commit and when it was built, so two Macs' copies
-can be told apart.
+Mirror Wall › About Mirror Wall also shows the commit (linked) and when it was built, so two Macs'
+copies can be told apart, and what changed in that build. Changes are listed in `CHANGELOG.md`:
+add an entry there with any change people will notice; it also starts each release's notes.
 
 Then on each iPhone: Control Center › Screen Mirroring › pick a slot's name. The iPhones must
 be on the same Wi-Fi as the Mac. If macOS asks to allow incoming connections or local network

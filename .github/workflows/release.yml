@@ -2,7 +2,8 @@
 # Run it from the Actions tab (Release DMG › Run workflow) with "Publish" ticked to make a
 # release with the DMG and the UxPlay source attached; the newest release's DMG is always at
 # https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg
-# Pull requests that change the packaging build the DMG too (kept as a workflow artifact only).
+# Pull requests that change the app or its packaging build the DMG too (kept as a workflow
+# artifact only). Release notes start with the CHANGELOG.md entries new since the last release.
 name: Release DMG
 
 on:
@@ -20,6 +21,9 @@ on:
       - "scripts/**"
       - "patches/**"
       - "Package.swift"
+      - "Sources/**"
+      - "Tests/**"
+      - "CHANGELOG.md"
 
 permissions:
   contents: write
@@ -73,7 +77,11 @@ jobs:
           else
             TAG="v0.$(git rev-list --count HEAD)"
           fi
-          cat > notes.md <<'NOTES'
+          PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          { echo "## What's new"; echo; scripts/release-notes.py "$PREVIOUS"; } > notes.md
+          cat >> notes.md <<'NOTES'
+          ## Install
+
           **Download [MirrorWall.dmg](https://github.com/${{ github.repository }}/releases/download/TAG/MirrorWall.dmg)**, open it and drag Mirror Wall to Applications.
 
           The app isn't signed by a registered Apple developer, so the first time you open it macOS blocks it: go to System Settings › Privacy & Security, find the message about Mirror Wall and click **Open Anyway**. This is needed once per Mac. When it asks to find devices on your local network, allow it.
