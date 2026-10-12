@@ -27,6 +27,12 @@ struct ContentView: View {
                 .disabled(!store.canAddSlot || store.uxplayURL == nil)
                 .help("Add a slot another iPhone can mirror to")
             }
+            ToolbarItem {
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .help("Choose which phones can mirror, and alerts")
+            }
         }
     }
 
@@ -102,6 +108,10 @@ struct SlotTile: View {
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
+                if !showsPicture, case .image(let fileName)? = slot.config.standby {
+                    StandbyImage(fileName: fileName)
+                        .opacity(0.5)
+                }
                 VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
                 if !showsPicture {
                     placeholder
@@ -126,9 +136,10 @@ struct SlotTile: View {
         .alert("Rename slot", isPresented: $renaming) {
             TextField("Name", text: $newName)
             Button("Rename") { store.rename(slot, to: newName) }
+            Button("Use the Mac's Name") { store.resetName(slot) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This is the name the iPhone shows in Screen Mirroring. The slot restarts, so a phone mirroring to it will need to reconnect.")
+            Text("This is the name the iPhone shows in Screen Mirroring, up to \(SlotConfig.maxNameLength) characters. The slot restarts, so a phone mirroring to it will need to reconnect.")
         }
     }
 
@@ -139,7 +150,7 @@ struct SlotTile: View {
 
     /// The last picture stays up while live or paused; a disconnected phone's stale frame is hidden.
     private var showsPicture: Bool {
-        slot.lastFrameAt != nil && (slot.state == .live || slot.state == .paused)
+        slot.showsPicture
     }
 
     private var pausedBanner: some View {
@@ -196,6 +207,14 @@ struct SlotTile: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 4)
+                Button {
+                    slot.takeScreenshot()
+                } label: {
+                    Image(systemName: "camera")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!showsPicture)
+                .help("Save a screenshot to Pictures › Mirror Wall")
                 Menu {
                     menuItems
                 } label: {
@@ -214,6 +233,9 @@ struct SlotTile: View {
                 Spacer(minLength: 4)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     HStack(spacing: 6) {
+                        if let saved = slot.screenshotSavedAt, context.date.timeIntervalSince(saved) < 2 {
+                            Text("Screenshot saved")
+                        }
                         if let since = slot.recordingSince {
                             Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
                                 .foregroundStyle(.red)
@@ -253,6 +275,31 @@ struct SlotTile: View {
             Button("Stop Recording") { slot.stopRecording() }
         }
         Button("Show Recordings in Finder") { store.showRecordings() }
+        Divider()
+        Button("Take Screenshot") { slot.takeScreenshot() }
+            .disabled(!showsPicture)
+        Button("Show Screenshots in Finder") { Screenshots.showInFinder() }
+        Menu("Standby Picture") {
+            Picker("Standby Picture", selection: Binding(
+                get: { StandbyChoice(slot.config.standby) },
+                set: { choice in
+                    switch choice {
+                    case .message: store.setStandby(slot, nil)
+                    case .blank: store.setStandby(slot, .blank)
+                    case .image: store.chooseStandbyImage(for: slot)
+                    }
+                }
+            )) {
+                Text("Waiting Message").tag(StandbyChoice.message)
+                Text("Blank").tag(StandbyChoice.blank)
+                Text("Image…").tag(StandbyChoice.image)
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+            if case .image? = slot.config.standby {
+                Button("Choose a Different Image…") { store.chooseStandbyImage(for: slot) }
+            }
+        }
         Divider()
         Button("Remove Slot", role: .destructive) { store.remove(slot) }
     }
@@ -383,6 +430,19 @@ struct VideoLayerView: NSViewRepresentable {
             CATransaction.setDisableActions(true)
             videoLayer.frame = bounds
             CATransaction.commit()
+        }
+    }
+}
+
+/// The choices in a slot's Standby Picture menu.
+enum StandbyChoice: Hashable {
+    case message, blank, image
+
+    init(_ standby: StandbyPicture?) {
+        switch standby {
+        case nil: self = .message
+        case .blank?: self = .blank
+        case .image?: self = .image
         }
     }
 }
