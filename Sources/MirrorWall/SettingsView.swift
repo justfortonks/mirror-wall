@@ -50,7 +50,7 @@ struct SettingsView: View {
                         switch choice {
                         case .allSlots, .message: store.setDefaultStandby(.message)
                         case .blank: store.setDefaultStandby(.blank)
-                        case .image: store.chooseDefaultStandbyImage()
+                        case .image: DispatchQueue.main.async { store.chooseDefaultStandbyImage() }
                         }
                     }
                 )) {
@@ -59,7 +59,7 @@ struct SettingsView: View {
                     Text("Image…").tag(StandbyChoice.image)
                 }
                 if case .image = store.defaultStandby {
-                    Button("Choose a Different Image…") { store.chooseDefaultStandbyImage() }
+                    Button("Choose a Different Image…") { DispatchQueue.main.async { store.chooseDefaultStandbyImage() } }
                 }
             } header: {
                 Text("Standby picture")

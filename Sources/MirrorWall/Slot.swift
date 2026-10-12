@@ -31,10 +31,16 @@ final class Slot: ObservableObject, Identifiable {
     /// When the current phone connected; nil when none is.
     @Published private(set) var connectedSince: Date?
     /// When the last picture arrived; nil until the first one.
-    @Published private(set) var lastFrameAt: Date?
+    /// Updated with every picture, so not published: a change here would redraw the whole tile
+    /// several times a second, closing any menu open on it. Views that show it re-read it on a
+    /// timer; `hasPicture` tells them when it starts and stops.
+    private(set) var lastFrameAt: Date?
+    /// True once a picture has arrived, until the slot stops.
+    @Published private(set) var hasPicture = false
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
-    @Published private(set) var log: [String] = []
+    /// The receiver's output, kept apart so a new line only redraws the log window.
+    let log = SlotLog()
     /// The connected phone's name, as it introduced itself to uxplay.
     @Published private(set) var phoneName: String?
     /// When recording started; nil when not recording.
@@ -101,7 +107,7 @@ final class Slot: ObservableObject, Identifiable {
         let currentGeneration = generation
         uxplayURL = uxplay
         if freshLog {
-            log = []
+            log.lines = []
             openLogFile()
         }
         depacketizer.reset()
@@ -158,6 +164,7 @@ final class Slot: ObservableObject, Identifiable {
         renderer.reset()
         stats.clearStream()
         lastFrameAt = nil
+        hasPicture = false
         videoSize = nil
         phoneName = nil
         connectedSince = nil
@@ -184,7 +191,7 @@ final class Slot: ObservableObject, Identifiable {
 
     /// True while there's a current picture: live, or paused on its last frame.
     var showsPicture: Bool {
-        lastFrameAt != nil && (state == .live || state == .paused)
+        hasPicture && (state == .live || state == .paused)
     }
 
     // MARK: - Screenshots
@@ -282,6 +289,7 @@ final class Slot: ObservableObject, Identifiable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.process != nil else { return }
             self.lastFrameAt = Date()
+            if !self.hasPicture { self.hasPicture = true }
             if let dimensions {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
@@ -301,8 +309,8 @@ final class Slot: ObservableObject, Identifiable {
         // Latency reports come every second; they feed the stats overlay, not the log.
         if case .videoLatency? = event {} else {
             logFile?.write(Data((line + "\n").utf8))
-            log.append(line)
-            if log.count > 300 { log.removeFirst(log.count - 300) }
+            log.lines.append(line)
+            if log.lines.count > 300 { log.lines.removeFirst(log.lines.count - 300) }
         }
         if let event {
             apply(event)
@@ -416,4 +424,9 @@ final class Slot: ObservableObject, Identifiable {
         receiver = nil
         state = .failed("The receiver stopped (exit status \(status)). Use Restart, or check the log.")
     }
+}
+
+/// A slot's recent receiver output, for the log window.
+final class SlotLog: ObservableObject {
+    @Published var lines: [String] = []
 }
