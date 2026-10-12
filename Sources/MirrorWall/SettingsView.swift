@@ -5,6 +5,9 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: SlotStore
     @AppStorage(SlotStore.bounceKey) private var bounceOnDisconnect = true
+    // Read so the rows update when a folder is chosen; SaveFolders reads the same keys.
+    @AppStorage(SaveFolders.Kind.recordings.key) private var recordingsPath = ""
+    @AppStorage(SaveFolders.Kind.screenshots.key) private var screenshotsPath = ""
 
     var body: some View {
         Form {
@@ -70,6 +73,13 @@ struct SettingsView: View {
             }
 
             Section {
+                folderRow("Recordings", .recordings, chosen: recordingsPath)
+                folderRow("Screenshots", .screenshots, chosen: screenshotsPath)
+            } header: {
+                Text("Save to")
+            }
+
+            Section {
                 Toggle("Bounce the Dock icon when a phone disconnects", isOn: $bounceOnDisconnect)
             } header: {
                 Text("Alerts")
@@ -81,6 +91,31 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 480)
-        .frame(minHeight: 360)
+        .frame(minHeight: 560)
+    }
+
+    private func folderRow(_ title: String, _ kind: SaveFolders.Kind, chosen: String) -> some View {
+        let url = chosen.isEmpty ? kind.defaultFolder : URL(fileURLWithPath: chosen)
+        let missing = !chosen.isEmpty && SaveFolders.folder(kind) != url
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(url.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if missing {
+                    Text("Not available right now, so saving to the default folder")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            Spacer()
+            if !chosen.isEmpty {
+                Button("Default") { SaveFolders.reset(kind) }
+            }
+            Button("Choose…") { DispatchQueue.main.async { SaveFolders.choose(kind) } }
+        }
     }
 }
