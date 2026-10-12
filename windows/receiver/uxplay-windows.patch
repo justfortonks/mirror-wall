@@ -32,12 +32,12 @@
 +    DWORD count;
 +    while (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &count, NULL) && count > 0) {}
 +    LOGI("*** Mirror Wall: input closed, shutting down");
-+    if (gmainloop) {
-+        g_idle_add(handle_signal, NULL);
-+    } else {
-+        cleanup();
-+        exit(0);
++    /* Quit the way Ctrl-C does, from the main loop, once it's running (it isn't yet while uxplay
++     * starts, and briefly not while it restarts after a disconnect). */
++    while (!gmainloop) {
++        Sleep(100);
 +    }
++    g_idle_add(handle_signal, NULL);
 +    return 0;
 +}
 +
