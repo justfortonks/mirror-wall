@@ -1,0 +1,4 @@
+# Patches and shell scripts keep Unix line endings even when checked out on Windows, so they
+# apply to (and run in) the receiver build there.
+*.patch text eol=lf
+*.sh text eol=lf
