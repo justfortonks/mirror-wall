@@ -213,6 +213,14 @@ struct SlotTile: View {
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Button {
+                    if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
+                } label: {
+                    Image(systemName: slot.recordingSince == nil ? "record.circle" : "stop.circle.fill")
+                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
+                }
+                .buttonStyle(.borderless)
+                .help(slot.recordingSince == nil ? "Start recording to Movies › Mirror Wall" : "Stop recording")
+                Button {
                     slot.takeScreenshot()
                 } label: {
                     Image(systemName: "camera")
