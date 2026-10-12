@@ -84,8 +84,11 @@ access, allow it.
 - **Own window (for OBS):** the ⋯ menu's **Open in Own Window** puts that phone in a window of
   its own that shows only the picture, sized to the phone's shape. The tile keeps showing it too.
   Their size is set in View › Pop-out Window Size (or the window's own right-click menu), so an
-  OBS layout never shifts: Small, Medium or Large (600, 800 or 1000 points along the longer side)
-  for every window, or Custom, where each window keeps a size of its own. With Custom, untick
+  OBS layout never shifts: Small, Medium or Large, or Custom, where each window keeps a size of
+  its own. The presets show phones at their real relative sizes: an iPhone 17 Pro Max's window is
+  600, 800 or 1000 points along its longer side, and a smaller phone's is smaller in proportion to
+  its screen (an iPhone SE's about two-thirds as tall). A model the app doesn't know gets the full
+  size. With Custom, untick
   Lock Custom Size, drag the windows to the sizes you want (each slot's is remembered), then tick
   it again. A window always takes its phone's shape, so it turns wide if the phone rotates.
   The window is titled `MacMirror-<phone name>` (the slot's name until a phone has connected),

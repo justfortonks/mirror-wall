@@ -331,9 +331,10 @@ final class Slot: ObservableObject, Identifiable {
             if !deviceID.isEmpty {
                 onPhoneSeen?(KnownPhone(deviceID: deviceID, name: name, model: model, lastSeen: Date()))
             }
-            if config.lastPhoneName != name {
+            if config.lastPhoneName != name || (!model.isEmpty && config.lastPhoneModel != model) {
                 objectWillChange.send()
                 config.lastPhoneName = name
+                if !model.isEmpty { config.lastPhoneModel = model }
                 onConfigChanged?()
             }
             state = .connecting
