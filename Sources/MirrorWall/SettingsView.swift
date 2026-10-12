@@ -25,7 +25,7 @@ struct SettingsView: View {
                         )) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(phone.name)
-                                Text("\(phone.model.isEmpty ? "iPhone" : phone.model), last mirrored \(phone.lastSeen.formatted(.relative(presentation: .named)))")
+                                Text("\(phone.model.isEmpty ? "iPhone" : phoneModelName(phone.model)), last mirrored \(phone.lastSeen.formatted(.relative(presentation: .named)))")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

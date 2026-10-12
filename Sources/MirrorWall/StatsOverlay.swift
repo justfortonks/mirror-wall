@@ -21,7 +21,7 @@ final class SlotStats: ObservableObject {
         bestLatency = best
         lag = seconds - best
     }
-    /// The phone's model identifier, e.g. "iPhone16,2".
+    /// The phone's model, e.g. "iPhone 15 Pro Max".
     @Published var phoneModel: String?
     /// Phones that have connected since the app started.
     @Published var connections = 0

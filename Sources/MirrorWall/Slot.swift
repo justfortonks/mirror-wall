@@ -318,7 +318,7 @@ final class Slot: ObservableObject, Identifiable {
             phoneName = name
             connectedSince = Date()
             recorderLock.withLock { recorder?.baseName = name }
-            stats.phoneModel = model.isEmpty ? nil : model
+            stats.phoneModel = model.isEmpty ? nil : phoneModelName(model)
             stats.connections += 1
             if !deviceID.isEmpty {
                 onPhoneSeen?(KnownPhone(deviceID: deviceID, name: name, model: model, lastSeen: Date()))
