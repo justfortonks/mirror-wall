@@ -2,11 +2,13 @@
 
 Mirror Wall is free software: you can redistribute it and/or modify it under the terms of the
 GNU General Public License, version 3 (the `LICENSE` file, also inside the app at
-`Mirror Wall.app/Contents/Resources/LICENSE`). It comes with no warranty.
+`Mirror Wall.app/Contents/Resources/LICENSE`, and `LICENSE.txt` in the Windows version's
+install folder). It comes with no warranty.
 
 Mirror Wall's source code, including the changes it makes to UxPlay, is at
 <https://github.com/justfortonks/mirror-wall>. Each release on that page also carries the exact
-UxPlay source its receiver was built from (`UxPlay-source-<commit>.tar.gz`). If you were given
+UxPlay source its receiver was built from (`UxPlay-source-<commit>.tar.gz`; the Windows
+receiver also has `uxplay-windows.patch`, included in that archive, applied on top). If you were given
 the app some other way and can't reach that page, ask whoever gave it to you for the source:
 under the GPL they must provide it.
 
@@ -76,3 +78,20 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+## The Windows version
+
+The Windows version (`MirrorWall-Setup.exe`, installed to `C:\Program Files\Mirror Wall`) is
+covered by the same licence and carries the same UxPlay, built for Windows with
+`windows/receiver/build-uxplay.sh`, which applies `windows/receiver/uxplay-windows.patch` on top
+of the patches above.
+
+- **GStreamer, FFmpeg and the libraries they load** (mostly LGPL v2.1 or later) are the
+  unmodified builds from [MSYS2](https://www.msys2.org) (UCRT64). `receiver\licenses\packages.txt`
+  lists the MSYS2 package and version each one came from, with each package's licence files
+  beside it; their source is on MSYS2's package pages. They are separate DLLs in the `receiver`
+  folder that you can replace with your own builds. The app itself decodes and records with the
+  same FFmpeg DLLs, through [FFmpeg.AutoGen](https://github.com/Ruslan-B/FFmpeg.AutoGen) (LGPL v3).
+- **Spout2** (BSD 2-clause licence, `Spout2-LICENSE.txt` in the install folder): the OBS feed's
+  `MirrorSpout.dll` is built from [Spout2](https://github.com/leadedge/Spout2) release 2.007.018.
+- **.NET** (MIT licence): the app includes Microsoft's .NET runtime and WPF.
