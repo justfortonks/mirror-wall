@@ -11,6 +11,8 @@ final class SlotStore: ObservableObject {
     @Published private(set) var poppedOutIDs: Set<Int> = []
     /// The most frames a second phones are asked to send (30 or 60).
     @Published private(set) var maxFrameRate: Int
+    /// Shows frames at the pace the phone captured them, a moment later, instead of as they arrive.
+    @Published private(set) var smoothMotion: Bool
     /// The size of slots' own windows.
     @Published private(set) var popOutSize: PopOutSize
     /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
@@ -28,6 +30,7 @@ final class SlotStore: ObservableObject {
     private let uxplayPathKey = "uxplayPath"
     private let poppedOutKey = "poppedOutSlots"
     private let maxFrameRateKey = "maxFrameRate"
+    private let smoothMotionKey = "smoothMotion"
     private let popOutSizeKey = "popOutSize"
     private let popOutSizeLockedKey = "popOutSizeLocked"
     private let knownPhonesKey = "knownPhones"
@@ -53,6 +56,7 @@ final class SlotStore: ObservableObject {
         }
         let savedRate = defaults.integer(forKey: maxFrameRateKey)
         maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
+        smoothMotion = defaults.bool(forKey: smoothMotionKey)
         popOutSize = defaults.string(forKey: popOutSizeKey).flatMap(PopOutSize.init(rawValue:)) ?? .medium
         popOutSizeLocked = defaults.bool(forKey: popOutSizeLockedKey)
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
@@ -73,6 +77,7 @@ final class SlotStore: ObservableObject {
     /// Saves a slot's config when it learns a new phone's name, and retitles windows to match.
     private func watch(_ slot: Slot) {
         slot.maxFrameRate = maxFrameRate
+        slot.renderer.smoothMotion = smoothMotion
         slot.allowedDevices = allowedDevices
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
@@ -258,6 +263,14 @@ final class SlotStore: ObservableObject {
             slot.maxFrameRate = rate
             restart(slot)
         }
+    }
+
+    /// Turns Smoother Motion on or off for every slot. Takes effect at once; nothing restarts.
+    func setSmoothMotion(_ on: Bool) {
+        guard on != smoothMotion else { return }
+        smoothMotion = on
+        defaults.set(on, forKey: smoothMotionKey)
+        for slot in slots { slot.renderer.smoothMotion = on }
     }
 
     func restart(_ slot: Slot) {

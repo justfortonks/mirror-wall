@@ -1,0 +1,34 @@
+diff --git a/renderers/video_renderer.c b/renderers/video_renderer.c
+index a2b470e..92ab5fc 100644
+--- a/renderers/video_renderer.c
++++ b/renderers/video_renderer.c
+@@ -60,6 +60,9 @@ static GstClockTime gst_video_pipeline_base_time = GST_CLOCK_TIME_NONE;
+ static logger_t *logger = NULL;
+ static unsigned short width, height, width_source, height_source;  /* not currently used */
+ static bool first_packet = false;
++/* Mirror Wall: without sync, frames are still stamped with the phone's capture time (relative
++ * to the first frame), so -vrtp's RTP timestamps carry the phone's frame timing. */
++static GstClockTime unsynced_pts_origin = GST_CLOCK_TIME_NONE;
+ static bool sync = false;
+ static bool auto_videosink = true;
+ static bool hls_video = false;
+@@ -552,6 +555,7 @@ void video_renderer_start() {
+     }
+     renderer = NULL;
+     first_packet = true;
++    unsynced_pts_origin = GST_CLOCK_TIME_NONE;
+ #ifdef X_DISPLAY_FIX
+     X11_search_attempts = 0;
+ #endif
+@@ -674,6 +678,11 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
+         //g_print("video latency %8.6f\n", (double) latency / SECOND_IN_NSECS);
+         if (sync) {
+             GST_BUFFER_PTS(buffer) = pts;
++        } else {
++            if (unsynced_pts_origin == GST_CLOCK_TIME_NONE || pts < unsynced_pts_origin) {
++                unsynced_pts_origin = pts;
++            }
++            GST_BUFFER_PTS(buffer) = pts - unsynced_pts_origin;
+         }
+         gst_buffer_fill(buffer, 0, data, *data_len);
+         gst_app_src_push_buffer (GST_APP_SRC(renderer->appsrc), buffer);

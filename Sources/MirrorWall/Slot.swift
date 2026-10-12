@@ -264,7 +264,7 @@ final class Slot: ObservableObject, Identifiable {
         lostPacketsCounted = depacketizer.lostPackets
         var rendered = false
         for frame in frames {
-            let shown = renderer.render(frame)
+            let shown = renderer.render(frame, arrival: arrivedAt)
             meter.frame(at: arrivedAt, isKeyframe: frame.isKeyframe, macTime: shown ? Self.uptime() - arrivedAt : nil)
             rendered = rendered || shown
         }
