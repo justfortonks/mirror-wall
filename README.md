@@ -245,7 +245,7 @@ phones can share at once in different slots. A slot busy with one phone turns th
   about 1 MB, kept on the phone).
 - Any version of the app works with any Mirror Wall that has Android support, older or newer;
   the rules that keep it that way are in [docs/mirror-wall-cast.md](docs/mirror-wall-cast.md#compatibility).
-- Windows support for Android phones is not in yet.
+- Mirror Wall for Windows takes Android phones too, the same way (see [windows/README.md](windows/README.md)).
 
 ## Not done yet
 

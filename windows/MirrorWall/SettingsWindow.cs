@@ -6,7 +6,8 @@ using MirrorWall.Core;
 
 namespace MirrorWall;
 
-/// <summary>File › Settings: who can mirror, the standby picture, where files are saved, and alerts.</summary>
+/// <summary>File › Settings: who can mirror, the standby picture, OBS and own windows, where files
+/// are saved, and alerts.</summary>
 internal sealed class SettingsWindow : Window
 {
     private static SettingsWindow? open;
@@ -30,7 +31,7 @@ internal sealed class SettingsWindow : Window
         this.store = store;
         Title = "Mirror Wall Settings";
         Width = 520;
-        Height = 680;
+        Height = 760;
         MinWidth = 420;
         MinHeight = 400;
         ShowInTaskbar = false;
@@ -44,7 +45,8 @@ internal sealed class SettingsWindow : Window
     private void StoreChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SlotStore.KnownPhones) or nameof(SlotStore.AllowListEnabled)
-            or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect))
+            or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect)
+            or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows))
         {
             Build();
         }
@@ -92,6 +94,26 @@ internal sealed class SettingsWindow : Window
             content.Children.Add(different);
         }
         Note("What every slot, and its own window, shows while no phone is mirroring. A slot can have its own from its ⋯ menu. Images are scaled to fit, with black bars if the shape differs.");
+
+        Header("OBS and own windows");
+        var everySlot = new CheckBox
+        {
+            Content = "Send every slot to OBS (Spout)",
+            IsChecked = store.ObsFeedForAllSlots,
+            // Without MirrorSpout.dll (a build without Spout) there's nothing to send with.
+            IsEnabled = SpoutFeed.IsAvailable,
+        };
+        everySlot.Click += (_, _) =>
+        {
+            bool on = everySlot.IsChecked == true;
+            store.SetObsFeedForAllSlots(on);
+            if (on) ObsSpoutPlugin.CheckWhenFeedTurnedOn(this);
+        };
+        content.Children.Add(everySlot);
+        var reopen = new CheckBox { Content = "Reopen slots' own windows when Mirror Wall starts", IsChecked = store.ReopensOwnWindows, Margin = new Thickness(0, 8, 0, 0) };
+        reopen.Click += (_, _) => store.SetReopensOwnWindows(reopen.IsChecked == true);
+        content.Children.Add(reopen);
+        Note("Sending to OBS applies to every slot, including ones you add later; a slot's ⋯ menu can still turn its own feed off or on. Own windows that were open when Mirror Wall quit stay closed unless the second switch is on.");
 
         Header("Save to");
         content.Children.Add(FolderRow("Recordings", Settings.Current.RecordingsFolder, SaveFolders.DefaultRecordings, path => Settings.Current.RecordingsFolder = path));
