@@ -16,6 +16,7 @@ import android.hardware.display.VirtualDisplay
 import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -92,6 +93,9 @@ class CastService : Service() {
     private var stopped = false
     /** Holds the screen on while sharing, if the app's switch says to. */
     private var screenLock: PowerManager.WakeLock? = null
+    /** Keep the processor and Wi-Fi awake while sharing, even with the screen off. */
+    private var cpuLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     @Volatile private var screenOff = false
     @Volatile private var waitingForKeyframe = false
 
@@ -99,6 +103,7 @@ class CastService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == ACTION_STOP) {
+            AppLog.write(if (intent == null) "Service restarted without a capture; stopping" else "Stop tapped")
             finish("Stopped sharing")
             return START_NOT_STICKY
         }
@@ -107,6 +112,7 @@ class CastService : Service() {
         host = intent.getStringExtra(EXTRA_HOST) ?: return START_NOT_STICKY
         port = intent.getIntExtra(EXTRA_PORT, 0)
         slotName = intent.getStringExtra(EXTRA_SLOT) ?: host
+        AppLog.write("Sharing to $slotName at $host:$port")
         // Android requires the notification before the capture starts.
         startForeground(NOTIFICATION_ID, notification("Connecting to $slotName…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
 
@@ -123,6 +129,7 @@ class CastService : Service() {
         }
         projection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
+                AppLog.write("Android ended the screen capture")
                 main.post { finish("Sharing stopped") }
             }
         }, main)
@@ -133,11 +140,22 @@ class CastService : Service() {
     }
 
     override fun onDestroy() {
+        if (!stopped) AppLog.write("Service destroyed by Android while sharing")
         finish(null)
         super.onDestroy()
     }
 
+    /** Swiping the app away from Recents doesn't stop sharing; the notification's Stop does. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        AppLog.write("App swiped away from Recents; still sharing")
+    }
+
+    override fun onTrimMemory(level: Int) {
+        AppLog.write("Android asked for memory back (level $level)")
+    }
+
     private fun connect() {
+        AppLog.write("Connecting to $host:$port")
         link = Link(host, port).also { it.start() }
     }
 
@@ -189,11 +207,12 @@ class CastService : Service() {
                 output.flush()
 
                 socket.soTimeout = 8000
-                val answer = CastProtocol.read(input)
+                val answer = CastProtocol.readAnswer(input)
                 socket.soTimeout = 0
                 when (answer.type) {
                     CastProtocol.BUSY -> {
                         val reason = JSONObject(String(answer.payload)).optString("reason", "$slotName is busy.")
+                        AppLog.write("Turned away: $reason")
                         main.post { turnedAway(this, reason) }
                         closeSocket()
                         return
@@ -215,7 +234,10 @@ class CastService : Service() {
                 }
             } catch (error: Exception) {
                 closeSocket()
-                if (!closed) main.post { lost(this, gotWelcome, error.message) }
+                if (!closed) {
+                    AppLog.error("Connection to $host:$port ended", error)
+                    main.post { lost(this, gotWelcome, error.message) }
+                }
             }
         }
 
@@ -244,6 +266,7 @@ class CastService : Service() {
         slotName = welcome.optString("slot", slotName)
         frameRate = welcome.optInt("maxFrameRate", 30).coerceIn(15, 60)
         sharpPicture = welcome.optBoolean("sharpPicture", false)
+        AppLog.write("Welcomed by $slotName (protocol ${welcome.optInt("protocol", 1)}, up to $frameRate fps, Sharper Picture ${if (sharpPicture) "on" else "off"})")
         startCapture()
     }
 
@@ -263,10 +286,12 @@ class CastService : Service() {
         }
         val since = lostAt ?: now.also { lostAt = it }
         if (now - since > RECONNECT_FOR_MS) {
+            AppLog.write("Gave up reconnecting after ${RECONNECT_FOR_MS / 1000} s")
             finish("Lost the connection to $slotName")
             return
         }
         update("Reconnecting to $slotName…")
+        AppLog.write("Reconnecting in ${RECONNECT_EVERY_MS / 1000} s")
         main.postDelayed({ if (!stopped && this.link == null) connect() }, RECONNECT_EVERY_MS)
     }
 
@@ -301,6 +326,7 @@ class CastService : Service() {
             }
             main.postDelayed(heartbeat, 2000)
             keepScreenOn()
+            keepAwake()
         }
         if (screenOff) link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
         update(if (screenOff) "Screen off: $slotName shows it as paused" else "Sharing to $slotName")
@@ -322,17 +348,43 @@ class CastService : Service() {
             }
     }
 
+    /**
+     * Keeps the processor running and Wi-Fi out of power saving while sharing, so the phone keeps
+     * sending with the screen off and Wi-Fi doesn't add delay between pictures.
+     */
+    private fun keepAwake() {
+        if (cpuLock == null) {
+            cpuLock = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MirrorWallCast:sending")
+                .apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+        }
+        if (wifiLock == null) {
+            wifiLock = getSystemService(WifiManager::class.java)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "MirrorWallCast:sending")
+                .apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+        }
+    }
+
     /** A new encoder for `size`, drawn into by the virtual display (if there is one yet). */
     private fun replaceEncoder(size: CaptureSize) {
         val display = display
         display?.surface = null
         encoder?.stop()
         encoder = null
+        AppLog.write("Encoding ${if (size.mime == MediaFormat.MIMETYPE_VIDEO_HEVC) "H.265" else "H.264"} ${size.width}×${size.height} at up to $frameRate fps")
         val encoder = try {
             ScreenEncoder(size.mime, size.width, size.height, frameRate, ::picture) { error ->
+                AppLog.error("The video encoder stopped", error)
                 main.post { finish("The video encoder stopped (${error.message})") }
             }
         } catch (error: Exception) {
+            AppLog.error("Couldn't start the video encoder", error)
             finish("Couldn't start the video encoder (${error.message})")
             return
         }
@@ -352,6 +404,7 @@ class CastService : Service() {
             return
         }
         if (outbox.size > MAX_QUEUED) {
+            AppLog.write("Network falling behind: dropped ${outbox.size} queued messages")
             outbox.clear()
             waitingForKeyframe = true
         }
@@ -376,11 +429,13 @@ class CastService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_SCREEN_OFF -> {
+                    AppLog.write("Screen off")
                     screenOff = true
                     link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
                     if (lostAt == null) update("Screen off: $slotName shows it as paused")
                 }
                 Intent.ACTION_SCREEN_ON -> {
+                    AppLog.write("Screen on")
                     screenOff = false
                     // The power button released the hold on the screen; take it again.
                     screenLock?.let { if (!it.isHeld) it.acquire() }
@@ -436,6 +491,7 @@ class CastService : Service() {
     private fun finish(reason: String?) {
         if (stopped) return
         stopped = true
+        AppLog.write("Stopped sharing${reason?.let { ": $it" } ?: ""}")
         main.removeCallbacks(heartbeat)
         if (display != null) {
             getSystemService(DisplayManager::class.java).unregisterDisplayListener(rotationListener)
@@ -446,6 +502,10 @@ class CastService : Service() {
         }
         screenLock?.let { if (it.isHeld) it.release() }
         screenLock = null
+        cpuLock?.let { if (it.isHeld) it.release() }
+        cpuLock = null
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
         display?.release()
         display = null
         encoder?.stop()

@@ -28,6 +28,10 @@ final class SlotStore: ObservableObject {
     @Published private(set) var allowedDeviceIDs: Set<String>
     /// What slots show while no phone is mirroring, unless a slot has its own.
     @Published private(set) var defaultStandby: StandbyPicture
+    /// Every slot sends its picture to OBS unless turned off in its own menu. Off by default.
+    @Published private(set) var obsFeedForAllSlots: Bool
+    /// Reopens the slots' own windows that were open when Mirror Wall last quit. Off by default.
+    @Published private(set) var reopensOwnWindows: Bool
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
@@ -42,6 +46,8 @@ final class SlotStore: ObservableObject {
     private let allowListEnabledKey = "allowListEnabled"
     private let allowedDevicesKey = "allowedDevices"
     private let defaultStandbyKey = "defaultStandby"
+    private let obsFeedForAllSlotsKey = "obsFeedForAllSlots"
+    private let reopensOwnWindowsKey = "reopenOwnWindows"
     static let bounceKey = "bounceOnDisconnect"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
@@ -71,6 +77,8 @@ final class SlotStore: ObservableObject {
         allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
         defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
+        obsFeedForAllSlots = defaults.bool(forKey: obsFeedForAllSlotsKey)
+        reopensOwnWindows = defaults.bool(forKey: reopensOwnWindowsKey)
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
@@ -397,8 +405,9 @@ final class SlotStore: ObservableObject {
         popOutWindows[slot.id]?.close()
     }
 
-    /// Reopens the windows that were open when the app last quit.
+    /// Reopens the windows that were open when the app last quit, if that's turned on.
     func restoreOwnWindows() {
+        guard reopensOwnWindows else { return }
         let ids = Set(defaults.array(forKey: poppedOutKey) as? [Int] ?? [])
         slots.filter { ids.contains($0.id) }.forEach(openOwnWindow)
     }
@@ -418,16 +427,41 @@ final class SlotStore: ObservableObject {
         for (id, window) in popOutWindows {
             if let title = titles[id], window.window.title != title { window.window.title = title }
         }
-        for slot in slots where slot.config.obsFeed == true {
+        for slot in slots where wantsOBSFeed(slot) {
             if let title = titles[slot.id], slot.obsFeedName != title { slot.setOBSFeed(true, name: title) }
         }
     }
 
+    /// Whether a slot should send to OBS: its own choice, or the setting for all slots.
+    private func wantsOBSFeed(_ slot: Slot) -> Bool {
+        slot.config.obsFeed ?? obsFeedForAllSlots
+    }
+
     /// Turns a slot's OBS feed (Syphon) on or off. Remembered per slot.
     func setOBSFeed(_ slot: Slot, on: Bool) {
-        slot.setOBSFeed(on, name: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
+        let started = slot.setOBSFeed(on, name: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
+        slot.rememberOBSFeed(started ? (on == obsFeedForAllSlots ? nil : on) : nil)
         save()
         sendStandbyToOBS(slot)
+    }
+
+    /// Turns every slot's OBS feed on or off, including slots added later. A slot's own menu can
+    /// still change it afterwards.
+    func setOBSFeedForAllSlots(_ on: Bool) {
+        guard on != obsFeedForAllSlots else { return }
+        obsFeedForAllSlots = on
+        defaults.set(on, forKey: obsFeedForAllSlotsKey)
+        for slot in slots {
+            slot.rememberOBSFeed(nil)
+            slot.setOBSFeed(on, name: windowTitles[slot.id] ?? "MacMirror-\(slot.name)")
+            sendStandbyToOBS(slot)
+        }
+        save()
+    }
+
+    func setReopensOwnWindows(_ on: Bool) {
+        reopensOwnWindows = on
+        defaults.set(on, forKey: reopensOwnWindowsKey)
     }
 
     /// While no phone is mirroring, sends the slot's standby picture down its OBS feed, drawn as

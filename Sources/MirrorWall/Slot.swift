@@ -232,17 +232,19 @@ final class Slot: ObservableObject, Identifiable {
                 renderer.onShow = { [weak feed] image in feed?.publishFrame(image) }
                 if let image = renderer.currentImage { feed.publishFrame(image) }
             } else {
-                config.obsFeed = nil
                 return false
             }
-            config.obsFeed = true
         } else {
             renderer.onShow = nil
             syphonFeed?.stop()
             syphonFeed = nil
-            config.obsFeed = nil
         }
         return true
+    }
+
+    /// Remembers this slot's own OBS feed choice; nil follows the setting for all slots.
+    func rememberOBSFeed(_ choice: Bool?) {
+        config.obsFeed = choice
     }
 
     /// True while the slot is sending its picture to OBS through Syphon.

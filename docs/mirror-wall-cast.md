@@ -26,7 +26,7 @@ Unknown types are skipped, so either side can add messages later.
 | Type | Direction | Payload |
 |---|---|---|
 | `0x01` hello | phone → Mirror Wall | JSON: `protocol` (1), `name`, `model`, `deviceID` |
-| `0x81` welcome | Mirror Wall → phone | JSON: `slot` (its name), `maxFrameRate` (30 or 60, View › Frame Rate Limit), `sharpPicture` (View › Sharper Picture: send H.265 up to 2160 pixels tall if the phone can) |
+| `0x81` welcome | Mirror Wall → phone | JSON: `protocol` (from 0.93; absent means 1), `slot` (its name), `maxFrameRate` (30 or 60, View › Frame Rate Limit), `sharpPicture` (View › Sharper Picture: send H.265 up to 2160 pixels tall if the phone can) |
 | `0x82` busy | Mirror Wall → phone | JSON: `reason`, shown on the phone; Mirror Wall then hangs up |
 | `0x02` video | phone → Mirror Wall | 8-byte big-endian capture time in microseconds (phone's steady clock), then one H.264 or H.265 access unit in Annex B. Keyframes carry the parameter sets (H.265: VPS, SPS, PPS) in front, which is how Mirror Wall tells the codec. |
 | `0x03` paused | phone → Mirror Wall | none; the phone's screen turned off |
@@ -47,3 +47,24 @@ Picture), the phone keeps its screen capture and reconnects to the same slot for
 
 Capture times become the 90 kHz RTP timestamps the rest of Mirror Wall uses, so Smoother Motion
 and recording pace Android pictures the same way as iPhone ones.
+
+## Compatibility
+
+Every Mirror Wall Cast app has to work with every Mirror Wall (Mac or Windows) that speaks the
+protocol, older or newer, and the other way round, because phones and computers get updated at
+different times. So:
+
+- The message layout (type, length, payload) never changes, and a message type never changes
+  meaning or payload layout. Retired types are never reused.
+- Both sides skip message types they don't know, and ignore JSON fields they don't know.
+- New JSON fields are optional, and a missing one means what older versions did.
+- `protocol` in hello and welcome is the newest version each side speaks; each side uses the
+  lower of the two. A behaviour that needs both sides to agree (a new kind of video, for
+  example) waits until both have said a version that has it. Version 1 is everything above.
+- Nobody turns the other side away for its version. A phone with a newer version than Mirror
+  Wall knows is welcomed as the newest version Mirror Wall knows.
+- Version 1 stays supported for good: an app from now on must still work with Mirror Wall 0.90,
+  and a Mirror Wall from now on with the Mirror Wall Cast 0.87 app.
+
+The Mac tests (`CastProtocolTests`) and the Windows tests hold the version 1 messages exactly
+as 0.90 sent them, so a change that breaks an older peer fails the build.

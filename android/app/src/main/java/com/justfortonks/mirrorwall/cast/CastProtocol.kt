@@ -10,6 +10,10 @@ import java.nio.ByteBuffer
  * Every message is a one-byte type, a four-byte big-endian payload length, then the payload.
  */
 object CastProtocol {
+    /**
+     * The newest protocol version this app speaks. Read "Compatibility" in docs/mirror-wall-cast.md
+     * before changing anything an older or newer Mirror Wall relies on.
+     */
     const val VERSION = 1
 
     // Phone to Mirror Wall.
@@ -59,5 +63,14 @@ object CastProtocol {
         val payload = ByteArray(length)
         input.readFully(payload)
         return Message(type, payload)
+    }
+
+    /** Mirror Wall's answer to hello: welcome or busy. Messages a newer Mirror Wall might send first are skipped. */
+    @Throws(IOException::class)
+    fun readAnswer(input: DataInputStream): Message {
+        while (true) {
+            val message = read(input)
+            if (message.type == WELCOME || message.type == BUSY) return message
+        }
     }
 }
