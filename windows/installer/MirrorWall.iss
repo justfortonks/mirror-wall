@@ -1,5 +1,5 @@
-; Mirror Wall's installer: the app, its receiver (uxplay with GStreamer and FFmpeg), and a
-; Windows Firewall rule so iPhones on the network can reach the receiver.
+; Mirror Wall's installer: the app, its receiver (uxplay with GStreamer and FFmpeg), and Windows
+; Firewall rules so iPhones on the network can reach the receiver and Android phones the app.
 ; Built by the Windows workflow: ISCC /DAppVersion=0.N MirrorWall.iss
 
 #ifndef AppVersion
@@ -15,7 +15,7 @@ AppPublisher=Mirror Wall
 DefaultDirName={autopf}\Mirror Wall
 DefaultGroupName=Mirror Wall
 DisableProgramGroupPage=yes
-; Adding the firewall rule needs an administrator.
+; Adding the firewall rules needs an administrator.
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -44,10 +44,15 @@ Name: "{autodesktop}\Mirror Wall"; Filename: "{app}\MirrorWall.exe"; Tasks: desk
 ; and work networks (Private and Domain), not public Wi-Fi.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Mirror Wall receiver"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Mirror Wall receiver"" dir=in action=allow program=""{app}\receiver\uxplay.exe"" enable=yes profile=private,domain"; Flags: runhidden
+; Android phones (Mirror Wall Cast) connect to the app itself, on each slot's cast port: 7350 for
+; slot 1, 7450 for slot 2, ... up to slot 8 (SlotStore.MaxSlots). Same networks as above.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Mirror Wall Android phones"""; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Mirror Wall Android phones"" dir=in action=allow program=""{app}\MirrorWall.exe"" protocol=TCP localport=7350,7450,7550,7650,7750,7850,7950,8050 enable=yes profile=private,domain"; Flags: runhidden
 Filename: "{app}\MirrorWall.exe"; Description: "Open Mirror Wall"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Mirror Wall receiver"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Mirror Wall Android phones"""; Flags: runhidden; RunOnceId: "RemoveCastFirewallRule"
 
 [UninstallDelete]
 ; The GStreamer plugin list the app keeps beside its logs.

@@ -18,6 +18,8 @@ if it hasn't been released yet.
   Share Log in the app).
 - Every version of Mirror Wall Cast works with every version of Mirror Wall that supports
   Android phones, older or newer.
+- Mirror Wall for Windows takes Android phones too, and has the same new settings, the
+  right-click to add a slot, and busy slots hidden from the Mirror Wall Cast list.
 
 ## October 12, 2026: Android phones
 
