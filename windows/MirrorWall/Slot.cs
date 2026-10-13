@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Windows;
 using System.Windows.Threading;
@@ -44,6 +45,8 @@ internal sealed class Slot : Observable
             Changed(nameof(StateSince));
             Changed(nameof(ShowsPicture));
             if (spoutFeed != null) spoutFeed.PassesFrames = CarriesPhoneFrames;
+            // A slot in use drops out of the Android app's list until it's free again.
+            castServer?.SetAdvertised(!CarriesPhoneFrames);
         }
     }
     /// <summary>Why the slot failed, while <see cref="State"/> is Failed.</summary>
@@ -121,6 +124,11 @@ internal sealed class Slot : Observable
     private SlotRecorder? recorder;
     private readonly object recorderGate = new();
     private UdpReceiver? receiver;
+    /// <summary>Listens for Android phones (Mirror Wall Cast) while the slot runs.</summary>
+    private CastServer? castServer;
+    /// <summary>The Android phone that has the slot, if any. While one does, the slot's uxplay is
+    /// stopped so iPhones don't list it.</summary>
+    private CastConnection? castPhone;
     /// <summary>When the phone last paused its stream. A locked phone can still send a frame or two
     /// (its lock screen), so frames only count as a resume once they keep coming after this.</summary>
     private DateTime? pausedAt;
@@ -139,12 +147,20 @@ internal sealed class Slot : Observable
     private DateTime? processStartedAt;
     private readonly Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
 
-    // Touched only on the UDP thread.
+    // Touched only on the UDP thread or an Android phone's reading thread, under `streamGate`.
+    // (Only one of them carries video at a time: uxplay is stopped while an Android phone has the
+    // slot.)
+    private readonly object streamGate = new();
     private readonly Depacketizer depacketizer = new();
     private readonly StreamMeter meter = new();
     private int lostPacketsCounted;
     private double lastNotified;
     private (int, int)? lastDimensions;
+    /// <summary>The Android phone whose video goes to the screen; null until the slot takes one.</summary>
+    private CastConnection? streamingPhone;
+    /// <summary>The Android phone's codec, read from its keyframes.</summary>
+    private VideoCodec castStreamCodec = VideoCodec.H264;
+    private double lastLatencyReport;
     // Written on the UDP thread, read by the UI thread's callbacks; a stale read only delays one.
     private volatile bool receiving;
 
@@ -168,9 +184,12 @@ internal sealed class Slot : Observable
             Log.Clear();
             OpenLogFile();
         }
-        depacketizer.Reset();
-        meter.Reset();
-        lostPacketsCounted = 0;
+        lock (streamGate)
+        {
+            depacketizer.Reset();
+            meter.Reset();
+            lostPacketsCounted = 0;
+        }
 
         var newReceiver = new UdpReceiver(Config.RtpPort, Handle);
         try
@@ -203,6 +222,7 @@ internal sealed class Slot : Observable
         }
         process = newProcess;
         processStartedAt = DateTime.Now;
+        StartCastServer();
         StartWatchdog();
         Append("Started: uxplay " + string.Join(' ', arguments.Select(argument => argument.Contains(' ') ? $"\"{argument}\"" : argument)));
         FailureMessage = null;
@@ -219,6 +239,11 @@ internal sealed class Slot : Observable
         lastSignOfLifeAt = null;
         process?.Stop();
         process = null;
+        castServer?.Stop();
+        castServer = null;
+        castPhone = null;
+        // Once this returns, no more of the Android phone's video reaches the renderer.
+        lock (streamGate) streamingPhone = null;
         receiving = false;
         receiver?.Stop();
         receiver = null;
@@ -277,22 +302,22 @@ internal sealed class Slot : Observable
             }
             else
             {
-                Config.ObsFeed = null;
                 return false;
             }
-            Config.ObsFeed = true;
         }
         else
         {
             Renderer.OnShow = null;
             spoutFeed?.Stop();
             spoutFeed = null;
-            Config.ObsFeed = null;
         }
         Changed(nameof(SendsToObs));
         Changed(nameof(ObsFeedName));
         return true;
     }
+
+    /// <summary>Remembers this slot's own OBS feed choice; null follows the setting for all slots.</summary>
+    public void RememberObsFeed(bool? choice) => Config.ObsFeed = choice;
 
     /// <summary>True while the slot is sending its picture to OBS.</summary>
     public bool SendsToObs => spoutFeed != null;
@@ -391,10 +416,43 @@ internal sealed class Slot : Observable
     private void Handle(byte[] datagram, int count)
     {
         if (RtpPacket.Parse(datagram.AsSpan(0, count)) is not { } packet) return;
-        var frames = depacketizer.Push(packet);
-        double arrivedAt = Clock.Now;
-        meter.Packet(packet.Payload.Length, depacketizer.LostPackets - lostPacketsCounted, arrivedAt);
-        lostPacketsCounted = depacketizer.LostPackets;
+        lock (streamGate)
+        {
+            var frames = depacketizer.Push(packet);
+            double arrivedAt = Clock.Now;
+            meter.Packet(packet.Payload.Length, depacketizer.LostPackets - lostPacketsCounted, arrivedAt);
+            lostPacketsCounted = depacketizer.LostPackets;
+            Deliver(frames, arrivedAt);
+        }
+    }
+
+    /// <summary>An Android phone's reading thread: one picture from the phone.</summary>
+    private void HandleCastVideo(CastConnection phone, long captureMicros, byte[] accessUnit)
+    {
+        var nalUnits = CastProtocol.AnnexBNalUnits(accessUnit);
+        if (nalUnits.Count == 0) return;
+        lock (streamGate)
+        {
+            if (phone != streamingPhone) return;
+            if (CastProtocol.Codec(nalUnits) is VideoCodec codec) castStreamCodec = codec;
+            var frame = new VideoFrame(nalUnits, CastProtocol.RtpTimestamp(captureMicros), castStreamCodec);
+            double arrivedAt = Clock.Now;
+            meter.Packet(accessUnit.Length, 0, arrivedAt);
+            Deliver(new[] { frame }, arrivedAt);
+            // Arrival minus capture time, on clocks with an unknown offset: only its rise above the
+            // best so far means anything, which is what Lag vs best shows.
+            if (arrivedAt - lastLatencyReport >= 1)
+            {
+                lastLatencyReport = arrivedAt;
+                double latency = arrivedAt - captureMicros / 1e6;
+                dispatcher.BeginInvoke(() => Stats.RecordLatency(latency));
+            }
+        }
+    }
+
+    /// <summary>Under `streamGate`: decodes frames from either kind of phone and keeps the tile up to date.</summary>
+    private void Deliver(IReadOnlyList<VideoFrame> frames, double arrivedAt)
+    {
         bool rendered = false;
         foreach (var frame in frames)
         {
@@ -418,7 +476,7 @@ internal sealed class Slot : Observable
             string? codec = Renderer.CodecDescription;
             dispatcher.BeginInvoke(() =>
             {
-                if (process == null) return;
+                if (!receiving) return;
                 Stats.Stream = snapshot;
                 Stats.Codec = codec;
             });
@@ -435,7 +493,7 @@ internal sealed class Slot : Observable
 
         dispatcher.BeginInvoke(() =>
         {
-            if (process == null || !receiving) return;
+            if (!receiving) return;
             LastFrameAt = DateTime.Now;
             HasPicture = true;
             if (dimensions is var (width, height))
@@ -449,6 +507,121 @@ internal sealed class Slot : Observable
             if (State is not (SlotState.Live or SlotState.Disconnected) && (State != SlotState.Paused || pauseSettled))
                 State = SlotState.Live;
         });
+    }
+
+    // MARK: Android phones (Mirror Wall Cast)
+
+    private void StartCastServer()
+    {
+        var server = new CastServer(Config.CastPort, Name, CastPhoneConnected);
+        server.SetAdvertised(!CarriesPhoneFrames);
+        try
+        {
+            server.Start();
+            castServer = server;
+        }
+        catch (SocketException error)
+        {
+            Append($"Android phones can't connect to this slot: couldn't listen on port {Config.CastPort} ({error.Message})");
+        }
+    }
+
+    /// <summary>The server's thread: wires up a new connection. Nothing is decided until the phone
+    /// says hello.</summary>
+    private void CastPhoneConnected(CastConnection phone)
+    {
+        phone.OnMessage = message =>
+        {
+            if (message is CastMessage.Video video) HandleCastVideo(phone, video.CaptureMicros, video.AccessUnit);
+            else dispatcher.BeginInvoke(() => CastMessageArrived(message, phone));
+        };
+        phone.OnClose = () => dispatcher.BeginInvoke(() => CastPhoneLeft(phone));
+    }
+
+    private void CastMessageArrived(CastMessage message, CastConnection phone)
+    {
+        if (message is CastMessage.Hello hello)
+        {
+            CastPhoneSaidHello(hello.Info, phone);
+            return;
+        }
+        if (phone != castPhone) return;
+        switch (message)
+        {
+            case CastMessage.Paused:
+                Apply(new UxPlayEvent.StreamPaused());
+                break;
+            case CastMessage.Resumed:
+                Apply(new UxPlayEvent.StreamStarted());
+                break;
+            case CastMessage.Heartbeat:
+                Apply(new UxPlayEvent.Heartbeat());
+                // A still screen sends no pictures; don't leave the last second's numbers up.
+                if (LastFrameAt is DateTime last && (DateTime.Now - last).TotalSeconds > 1.5 &&
+                    Stats.Stream is { } stream && stream.FramesPerSecond != 0)
+                {
+                    Stats.Stream = stream with { FramesPerSecond = 0, BitsPerSecond = 0 };
+                }
+                phone.Send(new CastMessage.Ping((ulong)Stopwatch.GetTimestamp()));
+                break;
+            case CastMessage.Pong pong:
+                long now = Stopwatch.GetTimestamp();
+                if (now > (long)pong.Value) Stats.RoundTrip = (now - (long)pong.Value) / (double)Stopwatch.Frequency;
+                break;
+            case CastMessage.Bye:
+                Append($"{PhoneName ?? "The Android phone"} stopped sharing");
+                break;
+        }
+    }
+
+    private void CastPhoneSaidHello(CastHello hello, CastConnection phone)
+    {
+        if (castServer == null || castPhone != null)
+        {
+            phone.Refuse($"{Name} is showing another phone.");
+            return;
+        }
+        if (State is SlotState.Connecting or SlotState.Live or SlotState.Paused)
+        {
+            phone.Refuse($"{Name} is showing {PhoneName ?? "another phone"}.");
+            return;
+        }
+        if (AllowedDevices is { } allowed && !allowed.Contains(hello.DeviceId))
+        {
+            OnPhoneSeen?.Invoke(new KnownPhone(hello.DeviceId, hello.Name, hello.Model, DateTime.Now));
+            Append($"Turned away {hello.Name} ({hello.Model}): not on the allow-list");
+            phone.Refuse($"This phone isn't allowed on {Name}. It can be allowed in Mirror Wall's Settings.");
+            return;
+        }
+        castPhone = phone;
+        Append($"Android phone connecting: {hello.Name} ({hello.Model}) from {phone.RemoteDescription}");
+        // Take the slot off iPhones' Screen Mirroring list while the Android phone has it. The
+        // generation bump keeps the stopping uxplay's exit, and any pending restart, from touching
+        // the slot.
+        generation++;
+        process?.Stop();
+        process = null;
+        lock (streamGate)
+        {
+            depacketizer.Reset();
+            castStreamCodec = VideoCodec.H264;
+            streamingPhone = phone;
+        }
+        Apply(new UxPlayEvent.ClientConnecting(hello.Name, hello.Model, hello.DeviceId));
+        lastSignOfLifeAt = DateTime.Now;
+        phone.Accept(new CastWelcome(Name, MaxFrameRate, SharpPicture));
+    }
+
+    /// <summary>The Android phone hung up, or the connection broke. Ends like an iPhone
+    /// disconnecting: Disconnected, then a fresh uxplay so iPhones can see the slot again.</summary>
+    private void CastPhoneLeft(CastConnection phone)
+    {
+        if (phone != castPhone) return;
+        castPhone = null;
+        Append($"{PhoneName ?? "The Android phone"} disconnected");
+        ConnectedSince = null;
+        if (State is not (SlotState.Waiting or SlotState.Disconnected)) PhoneDropped();
+        else RestartReceiverSoon();
     }
 
     // MARK: UI thread

@@ -11,3 +11,5 @@ windows/receiver/out/
 windows/**/bin/
 windows/**/obj/
 windows/dist/
+android/.gradle/
+android/local.properties

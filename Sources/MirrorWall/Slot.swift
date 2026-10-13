@@ -27,6 +27,8 @@ final class Slot: ObservableObject, Identifiable {
         didSet {
             if state != oldValue { stateSince = Date() }
             syphonFeed?.passesFrames = carriesPhoneFrames
+            // A slot in use drops out of the Android app's list until it's free again.
+            castServer?.setAdvertised(!carriesPhoneFrames)
         }
     }
     /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
@@ -84,6 +86,11 @@ final class Slot: ObservableObject, Identifiable {
     private var recorder: SlotRecorder?
     private let recorderLock = NSLock()
     private var receiver: UDPReceiver?
+    /// Listens for Android phones (Mirror Wall Cast) while the slot runs.
+    private var castServer: CastServer?
+    /// The Android phone that has the slot, if any. While one does, the slot's uxplay is stopped
+    /// so iPhones don't list it.
+    private var castPhone: CastConnection?
     /// When the phone last paused its stream. A locked phone can still send a frame or two (its lock
     /// screen), so frames only count as a resume once they keep coming after this.
     private var pausedAt: Date?
@@ -101,12 +108,17 @@ final class Slot: ObservableObject, Identifiable {
     /// from one that can't run at all (show the error).
     private var processStartedAt: Date?
 
-    // Touched only on the UDP thread.
+    // Touched only on the UDP thread or the cast queue, under `streamLock`. (Only one of them
+    // carries video at a time: uxplay is stopped while an Android phone has the slot.)
+    private let streamLock = NSLock()
     private let depacketizer = H264Depacketizer()
     private let meter = StreamMeter()
     private var lostPacketsCounted = 0
     private var lastNotified: CFAbsoluteTime = 0
     private var lastDimensions: CMVideoDimensions?
+    /// The Android phone's codec, read from its keyframes.
+    private var castStreamCodec: VideoCodec = .h264
+    private var lastLatencyReport: Double = 0
 
     init(config: SlotConfig) {
         self.config = config
@@ -163,6 +175,7 @@ final class Slot: ObservableObject, Identifiable {
         }
         self.process = process
         processStartedAt = Date()
+        startCastServer()
         startWatchdog()
         append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture).joined(separator: " "))")
         state = .waiting
@@ -177,6 +190,9 @@ final class Slot: ObservableObject, Identifiable {
         lastSignOfLifeAt = nil
         process?.stop()
         process = nil
+        castServer?.stop()
+        castServer = nil
+        castPhone = nil
         receiver?.stop()
         receiver = nil
         renderer.reset()
@@ -216,17 +232,19 @@ final class Slot: ObservableObject, Identifiable {
                 renderer.onShow = { [weak feed] image in feed?.publishFrame(image) }
                 if let image = renderer.currentImage { feed.publishFrame(image) }
             } else {
-                config.obsFeed = nil
                 return false
             }
-            config.obsFeed = true
         } else {
             renderer.onShow = nil
             syphonFeed?.stop()
             syphonFeed = nil
-            config.obsFeed = nil
         }
         return true
+    }
+
+    /// Remembers this slot's own OBS feed choice; nil follows the setting for all slots.
+    func rememberOBSFeed(_ choice: Bool?) {
+        config.obsFeed = choice
     }
 
     /// True while the slot is sending its picture to OBS through Syphon.
@@ -313,10 +331,36 @@ final class Slot: ObservableObject, Identifiable {
 
     private func handle(_ datagram: [UInt8]) {
         guard let packet = RTPPacket(datagram) else { return }
-        let frames = depacketizer.push(packet)
-        let arrivedAt = Self.uptime()
-        meter.packet(bytes: packet.payload.count, lost: depacketizer.lostPackets - lostPacketsCounted, at: arrivedAt)
-        lostPacketsCounted = depacketizer.lostPackets
+        streamLock.withLock {
+            let frames = depacketizer.push(packet)
+            let arrivedAt = Self.uptime()
+            meter.packet(bytes: packet.payload.count, lost: depacketizer.lostPackets - lostPacketsCounted, at: arrivedAt)
+            lostPacketsCounted = depacketizer.lostPackets
+            deliver(frames, arrivedAt: arrivedAt)
+        }
+    }
+
+    /// Cast queue: one picture from the Android phone.
+    private func handleCastVideo(captureMicros: Int64, accessUnit: [UInt8]) {
+        let nalUnits = annexBNALUnits(accessUnit)
+        streamLock.withLock {
+            if let codec = castCodec(of: nalUnits) { castStreamCodec = codec }
+            let frame = H264Frame(nalUnits: nalUnits, timestamp: castRTPTimestamp(captureMicros: captureMicros), codec: castStreamCodec)
+            let arrivedAt = Self.uptime()
+            meter.packet(bytes: accessUnit.count, lost: 0, at: arrivedAt)
+            deliver([frame], arrivedAt: arrivedAt)
+            // Arrival minus capture time, on clocks with an unknown offset: only its rise above
+            // the best so far means anything, which is what Lag vs best shows.
+            if arrivedAt - lastLatencyReport >= 1 {
+                lastLatencyReport = arrivedAt
+                let latency = arrivedAt - Double(captureMicros) / 1e6
+                DispatchQueue.main.async { [weak self] in self?.stats.recordLatency(latency) }
+            }
+        }
+    }
+
+    /// Under `streamLock`: decodes frames from either kind of phone and keeps the tile up to date.
+    private func deliver(_ frames: [H264Frame], arrivedAt: Double) {
         var rendered = false
         for frame in frames {
             let shown = renderer.render(frame, arrival: arrivedAt)
@@ -326,7 +370,7 @@ final class Slot: ObservableObject, Identifiable {
         if let snapshot = meter.snapshotIfDue(at: arrivedAt) {
             let codec = renderer.codecDescription
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.process != nil else { return }
+                guard let self, self.receiver != nil else { return }
                 self.stats.stream = snapshot
                 self.stats.codec = codec
             }
@@ -342,7 +386,7 @@ final class Slot: ObservableObject, Identifiable {
         lastDimensions = dimensions
 
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.process != nil else { return }
+            guard let self, self.receiver != nil else { return }
             self.lastFrameAt = Date()
             if !self.hasPicture { self.hasPicture = true }
             if let dimensions {
@@ -355,6 +399,111 @@ final class Slot: ObservableObject, Identifiable {
             if self.state != .live && self.state != .disconnected && (self.state != .paused || pauseSettled) {
                 self.state = .live
             }
+        }
+    }
+
+    // MARK: - Android phones (Mirror Wall Cast)
+
+    private func startCastServer() {
+        let server = CastServer(port: config.castPort, name: config.name) { [weak self] phone in
+            self?.castPhoneConnected(phone)
+        }
+        do {
+            server.setAdvertised(!carriesPhoneFrames)
+            try server.start()
+            castServer = server
+        } catch {
+            append("Android phones can't connect to this slot: couldn't listen on port \(config.castPort) (\(error))")
+        }
+    }
+
+    /// Cast queue: wires up a new connection. Nothing is decided until the phone says hello.
+    private func castPhoneConnected(_ phone: CastConnection) {
+        phone.onMessage = { [weak self, weak phone] message in
+            guard let self, let phone else { return }
+            switch message {
+            case .video(let captureMicros, let accessUnit):
+                if phone.isAccepted { self.handleCastVideo(captureMicros: captureMicros, accessUnit: accessUnit) }
+            default:
+                DispatchQueue.main.async { self.castMessage(message, from: phone) }
+            }
+        }
+        phone.onClose = { [weak self, weak phone] in
+            DispatchQueue.main.async {
+                guard let self, let phone else { return }
+                self.castPhoneLeft(phone)
+            }
+        }
+    }
+
+    private func castMessage(_ message: CastMessage, from phone: CastConnection) {
+        if case .hello(let hello) = message {
+            castHello(hello, from: phone)
+            return
+        }
+        guard phone === castPhone else { return }
+        switch message {
+        case .paused: apply(.streamPaused)
+        case .resumed: apply(.streamStarted)
+        case .heartbeat:
+            apply(.heartbeat)
+            // A still screen sends no pictures; don't leave the last second's numbers up.
+            if let lastFrameAt, Date().timeIntervalSince(lastFrameAt) > 1.5, stats.stream?.framesPerSecond != 0 {
+                stats.stream?.framesPerSecond = 0
+                stats.stream?.bitsPerSecond = 0
+            }
+            phone.send(.ping(DispatchTime.now().uptimeNanoseconds))
+        case .pong(let sentAt):
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now > sentAt { stats.roundTrip = Double(now - sentAt) / 1e9 }
+        case .bye: append("\(phoneName ?? "The Android phone") stopped sharing")
+        default: break
+        }
+    }
+
+    private func castHello(_ hello: CastHello, from phone: CastConnection) {
+        guard castServer != nil, castPhone == nil else {
+            phone.refuse("\(name) is showing another phone.")
+            return
+        }
+        if state == .connecting || state == .live || state == .paused {
+            phone.refuse("\(name) is showing \(phoneName ?? "another phone").")
+            return
+        }
+        if let allowedDevices, !allowedDevices.contains(hello.deviceID) {
+            onPhoneSeen?(KnownPhone(deviceID: hello.deviceID, name: hello.name, model: hello.model, lastSeen: Date()))
+            append("Turned away \(hello.name) (\(hello.model)): not on the allow-list")
+            phone.refuse("This phone isn't allowed on \(name). It can be allowed in Mirror Wall's Settings.")
+            return
+        }
+        castPhone = phone
+        append("Android phone connecting: \(hello.name) (\(hello.model)) from \(phone.remoteDescription)")
+        // Take the slot off iPhones' Screen Mirroring list while the Android phone has it. The
+        // generation bump keeps the stopping uxplay's exit, and any pending restart, from
+        // touching the slot.
+        generation += 1
+        process?.stop()
+        process = nil
+        streamLock.withLock {
+            depacketizer.reset()
+            castStreamCodec = .h264
+        }
+        apply(.clientConnecting(name: hello.name, model: hello.model, deviceID: hello.deviceID))
+        lastSignOfLifeAt = Date()
+        phone.accept(CastWelcome(slot: name, maxFrameRate: maxFrameRate, sharpPicture: sharpPicture))
+    }
+
+    /// The Android phone hung up, or the connection broke. Ends like an iPhone disconnecting:
+    /// Disconnected, then a fresh uxplay so iPhones can see the slot again.
+    private func castPhoneLeft(_ phone: CastConnection) {
+        guard phone === castPhone else { return }
+        castPhone = nil
+        append("\(phoneName ?? "The Android phone") disconnected")
+        connectedSince = nil
+        if state != .waiting && state != .disconnected {
+            phoneDropped()
+        } else {
+            restartReceiverSoon()
         }
     }
 

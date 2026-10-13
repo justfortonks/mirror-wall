@@ -16,8 +16,9 @@ namespace MirrorWall;
 /// alive after a phone sleeps and wakes. With <see cref="SmoothMotion"/>, each picture instead
 /// waits a moment and is shown at the pace the phone captured it (see <see cref="PlayoutClock"/>).
 ///
-/// <see cref="Render"/> and <see cref="Reset"/> run on the slot's UDP thread or after it has
-/// stopped; <see cref="Bitmap"/> lives on the UI thread.
+/// <see cref="Render"/> and <see cref="Reset"/> run on the slot's UDP thread (or an Android
+/// phone's reading thread), one at a time under the slot's stream lock, or after it has stopped;
+/// <see cref="Bitmap"/> lives on the UI thread.
 /// </summary>
 internal sealed class SlotRenderer : Observable
 {

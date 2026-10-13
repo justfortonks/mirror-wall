@@ -58,6 +58,10 @@ internal sealed class SlotStore : Observable
     public bool AllowListEnabled => settings.AllowListEnabled;
     public IReadOnlyCollection<string> AllowedDeviceIds => settings.AllowedDevices;
     public StandbyPicture DefaultStandby => settings.DefaultStandby;
+    /// <summary>Every slot sends its picture to OBS unless turned off in its own menu. Off by default.</summary>
+    public bool ObsFeedForAllSlots => settings.ObsFeedForAllSlots;
+    /// <summary>Reopens the slots' own windows that were open when Mirror Wall last quit. Off by default.</summary>
+    public bool ReopensOwnWindows => settings.ReopenOwnWindows;
 
     public bool ShowStats
     {
@@ -418,9 +422,10 @@ internal sealed class SlotStore : Observable
         if (popOutWindows.TryGetValue(slot.Id, out var window)) window.Close();
     }
 
-    /// <summary>Reopens the windows that were open when the app last quit.</summary>
+    /// <summary>Reopens the windows that were open when the app last quit, if that's turned on.</summary>
     public void RestoreOwnWindows()
     {
+        if (!settings.ReopenOwnWindows) return;
         var ids = settings.PoppedOut.ToHashSet();
         foreach (var slot in Slots.Where(slot => ids.Contains(slot.Id)).ToList()) OpenOwnWindow(slot);
     }
@@ -452,7 +457,7 @@ internal sealed class SlotStore : Observable
         {
             if (titles.TryGetValue(id, out var title) && window.Title != title) window.Title = title;
         }
-        foreach (var slot in Slots.Where(slot => slot.Config.ObsFeed == true))
+        foreach (var slot in Slots.Where(WantsObsFeed))
         {
             if (titles.TryGetValue(slot.Id, out var title) && slot.ObsFeedName != title)
             {
@@ -462,12 +467,42 @@ internal sealed class SlotStore : Observable
         }
     }
 
-    /// <summary>Turns a slot's OBS feed (Spout) on or off. Remembered per slot.</summary>
+    /// <summary>Whether a slot should send to OBS: its own choice, or the setting for all slots.</summary>
+    private bool WantsObsFeed(Slot slot) => slot.Config.ObsFeed ?? settings.ObsFeedForAllSlots;
+
+    /// <summary>Turns a slot's OBS feed (Spout) on or off. Remembered per slot, as a choice of its
+    /// own only when it differs from the setting for all slots.</summary>
     public void SetObsFeed(Slot slot, bool on)
     {
-        slot.SetObsFeed(on, WindowTitles.GetValueOrDefault(slot.Id, $"MacMirror-{slot.Name}"));
+        bool started = slot.SetObsFeed(on, WindowTitles.GetValueOrDefault(slot.Id, $"MacMirror-{slot.Name}"));
+        slot.RememberObsFeed(started && on != settings.ObsFeedForAllSlots ? (bool?)on : null);
         Save();
         SendStandbyToObs(slot);
+    }
+
+    /// <summary>Turns every slot's OBS feed on or off, including slots added later. A slot's own
+    /// menu can still change it afterwards.</summary>
+    public void SetObsFeedForAllSlots(bool on)
+    {
+        if (on == settings.ObsFeedForAllSlots) return;
+        settings.ObsFeedForAllSlots = on;
+        var titles = WindowTitles;
+        foreach (var slot in Slots)
+        {
+            slot.RememberObsFeed(null);
+            slot.SetObsFeed(on, titles.GetValueOrDefault(slot.Id, $"MacMirror-{slot.Name}"));
+            SendStandbyToObs(slot);
+        }
+        Save();
+        Changed(nameof(ObsFeedForAllSlots));
+    }
+
+    public void SetReopensOwnWindows(bool on)
+    {
+        if (on == settings.ReopenOwnWindows) return;
+        settings.ReopenOwnWindows = on;
+        settings.Save();
+        Changed(nameof(ReopensOwnWindows));
     }
 
     /// <summary>

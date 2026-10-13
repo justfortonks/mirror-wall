@@ -17,6 +17,11 @@ internal sealed class Settings
     public string? UxPlayPath { get; set; }
     /// <summary>Slots whose own windows were open when the app last quit.</summary>
     public List<int> PoppedOut { get; set; } = new();
+    /// <summary>Reopen those windows when the app starts. Off by default.</summary>
+    public bool ReopenOwnWindows { get; set; }
+    /// <summary>Every slot sends its picture to OBS through Spout unless its own menu says
+    /// otherwise (<see cref="SlotConfig.ObsFeed"/>). Off by default.</summary>
+    public bool ObsFeedForAllSlots { get; set; }
     /// <summary>Where each slot's own window was, by slot number.</summary>
     public Dictionary<int, double[]> PopOutPositions { get; set; } = new();
     /// <summary>Each slot's own Custom size: its window's longer side, by slot number.</summary>

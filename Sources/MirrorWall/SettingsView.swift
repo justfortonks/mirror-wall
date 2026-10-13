@@ -73,6 +73,23 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Send every slot to OBS (Syphon)", isOn: Binding(
+                    get: { store.obsFeedForAllSlots },
+                    set: { store.setOBSFeedForAllSlots($0) }
+                ))
+                Toggle("Reopen slots' own windows when Mirror Wall starts", isOn: Binding(
+                    get: { store.reopensOwnWindows },
+                    set: { store.setReopensOwnWindows($0) }
+                ))
+            } header: {
+                Text("OBS and own windows")
+            } footer: {
+                Text("Sending to OBS applies to every slot, including ones you add later; a slot's ⋯ menu can still turn its own feed off or on. Own windows that were open when Mirror Wall quit stay closed unless the second switch is on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 folderRow("Recordings", .recordings, chosen: recordingsPath)
                 folderRow("Screenshots", .screenshots, chosen: screenshotsPath)
             } header: {
@@ -91,7 +108,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 480)
-        .frame(minHeight: 560)
+        .frame(minHeight: 640)
     }
 
     private func folderRow(_ title: String, _ kind: SaveFolders.Kind, chosen: String) -> some View {

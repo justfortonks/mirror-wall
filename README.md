@@ -114,6 +114,7 @@ access, allow it.
 ## Using it
 
 - Double-click a tile (or use its ⋯ menu) to show only that phone; do it again to go back.
+- Right-click an empty part of the wall to add a slot (or use the + in the toolbar).
 - **Own window (for OBS):** the arrow button in the top right corner of a tile's picture (it points back in while the window is open),
   or the ⋯ menu's **Open in Own Window**, puts that phone in a window of
   its own that shows only the picture, sized to the phone's shape. The tile keeps showing it too.
@@ -129,11 +130,12 @@ access, allow it.
   and keeps that title after the phone disconnects, so an OBS Window Capture source finds it
   again. If two phones have the same name, the slot number is added (`MacMirror-iPhone-2`); giving
   each phone its own name in Settings › General › About avoids that. The window's buttons appear
-  when the pointer is over it. Open windows, and where they were, come back the next time the app
-  starts. OBS captures the window even behind other windows. It can't capture a minimized
+  when the pointer is over it. Open windows stay closed when the app next starts, unless
+  Settings › Reopen slots' own windows is on; then they come back where they were. OBS captures the window even behind other windows. It can't capture a minimized
   window, so these windows have no minimize button; leave them behind other windows instead.
 - **Send to OBS (Syphon):** a tile's ⋯ menu can also send that slot's picture straight to OBS,
-  remembered per slot. In OBS add a **Syphon Client** source and pick `[Mirror Wall] MacMirror-<phone
+  remembered per slot. Settings › Send every slot to OBS turns it on for every slot, including
+  ones added later; a slot's menu can still turn its own off. In OBS add a **Syphon Client** source and pick `[Mirror Wall] MacMirror-<phone
   name>` (the same name as the slot's own window). It gets every frame directly at the stream's
   full size, with no window needing to be open, even with Mirror Wall minimized. While the phone
   is away it shows the slot's standby picture, sized like the phone's picture. The tile shows a small broadcast icon while it's on. Window capture works as before; use
@@ -216,6 +218,34 @@ access, allow it.
   pipeline from a receiver's second disconnect on, which in this mode crashed it; the app now
   runs it with `-nc no` so it rebuilds every time.)
 - DRM-protected video (Netflix, Apple TV app, etc.) shows black. That's AirPlay, not a bug.
+
+## Android phones
+
+Android phones (Android 10 or newer) share their screens with the **Mirror Wall Cast** app in
+`android/`, which speaks a small protocol of its own ([docs/mirror-wall-cast.md](docs/mirror-wall-cast.md))
+rather than AirPlay. Open the app, tap a slot, and allow Android's "Start recording or casting?"
+prompt (Android asks every time). The phone gets a tile like an iPhone; iPhones and Android
+phones can share at once in different slots. A slot busy with one phone turns the other away.
+
+- Builds come from Actions › Android as `MirrorWallCast`: an APK signed with the repository's test
+  key (`android/test-signing.keystore`), so each build installs over the last. Once the
+  `ANDROID_KEYSTORE_*` secrets hold your own key, builds are signed with it instead and an AAB
+  comes too, for Intune (managed Google Play private app). Switching keys means uninstalling once.
+- The phone and the Mac must be on the same network with multicast allowed for the slot list;
+  otherwise type the Mac's address in the app (port 7350 for slot 1, 7450 for slot 2, ...).
+- Apps that protect their screens (banking, DRM video) show black, and Android 15 hides
+  notification contents while sharing. That's Android, by design.
+- Staying alive: sharing runs in a foreground service that keeps the processor and Wi-Fi awake
+  and carries on when the app is swiped away. Before the first share the app asks to run without
+  battery limits (Android's "Let app always run in background?"); Intune can allow that for every
+  phone instead (on Zebra phones, through Zebra's OEMConfig app). If Android ends the app anyway,
+  sharing has to be started again, as Android only allows screen capture after the prompt.
+- Log: Troubleshooting › Show Log / Share Log in the app. It records connections, what the slot
+  asked for, encoder changes, the screen turning off and on, and why sharing stopped (up to
+  about 1 MB, kept on the phone).
+- Any version of the app works with any Mirror Wall that has Android support, older or newer;
+  the rules that keep it that way are in [docs/mirror-wall-cast.md](docs/mirror-wall-cast.md#compatibility).
+- Mirror Wall for Windows takes Android phones too, the same way (see [windows/README.md](windows/README.md)).
 
 ## Not done yet
 

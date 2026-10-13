@@ -69,6 +69,13 @@ internal sealed class MainWindow : Window
 
         scroller.Content = grid;
         scroller.SizeChanged += (_, _) => FitToWindow();
+        // Fills the window, so right-clicking anywhere between or below the tiles offers a new
+        // slot (the background makes the empty parts clickable). Tiles keep their own menus.
+        scroller.Background = Brushes.Transparent;
+        scroller.ContextMenu = Menus.Context(() => new object[]
+        {
+            Menus.Item("Add Slot", store.AddSlot, enabled: store.CanAddSlot),
+        });
         var root = new DockPanel();
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);
@@ -293,7 +300,7 @@ internal static class AboutWindow
     public static void Show(Window owner)
     {
         MessageBox.Show(owner,
-            $"Mirror Wall {Version}\n\nShows iPhones mirrored over Wi-Fi (AirPlay), a tile per phone, with windows and Spout feeds for OBS.\n\nThe receiver is UxPlay (GPL-3.0), with GStreamer and FFmpeg (LGPL). Spout2 is BSD-licensed.",
+            $"Mirror Wall {Version}\n\nShows iPhones (AirPlay) and Android phones (Mirror Wall Cast) mirrored over Wi-Fi, a tile per phone, with windows and Spout feeds for OBS.\n\nThe receiver is UxPlay (GPL-3.0), with GStreamer and FFmpeg (LGPL). Spout2 is BSD-licensed.",
             "About Mirror Wall", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

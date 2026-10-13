@@ -16,7 +16,8 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     public var lastPhoneModel: String?
     /// What the slot shows while no phone is mirroring; nil to use the one set for all slots.
     public var standby: StandbyPicture?
-    /// Whether the slot also sends its picture to OBS through Syphon. Off (nil) by default.
+    /// Whether the slot also sends its picture to OBS through Syphon (Spout on Windows); nil
+    /// follows the setting for all slots, which is off by default.
     public var obsFeed: Bool?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
@@ -93,6 +94,12 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// First of the three TCP/UDP ports uxplay uses (base, base+1, base+2): 7300, 7400, ...
     public var airplayBasePort: UInt16 {
         7200 + UInt16(id) * 100
+    }
+
+    /// TCP port Android phones (Mirror Wall Cast) connect to: 7350, 7450, ... Clear of uxplay's
+    /// three ports.
+    public var castPort: UInt16 {
+        airplayBasePort + 50
     }
 
     /// Localhost UDP port uxplay forwards the decrypted H.264 RTP stream to: 5600, 5602, ...

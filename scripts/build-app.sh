@@ -48,11 +48,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Mirror Wall listens for iPhones on your network so they can mirror their screens to this Mac.</string>
+    <string>Mirror Wall listens for iPhones and Android phones on your network so they can mirror their screens to this Mac.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_airplay._tcp</string>
         <string>_raop._tcp</string>
+        <string>_mirrorwall._tcp</string>
     </array>
 </dict>
 </plist>
