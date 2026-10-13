@@ -1,6 +1,7 @@
 package com.justfortonks.mirrorwall.cast
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionConfig
@@ -35,6 +36,7 @@ class MainActivity : Activity() {
     private lateinit var emptyHint: TextView
     private lateinit var nameField: EditText
     private lateinit var addressField: EditText
+    private lateinit var backgroundRow: LinearLayout
 
     private val slots = sortedMapOf<String, Slot>(String.CASE_INSENSITIVE_ORDER)
     private var nsd: NsdManager? = null
@@ -44,6 +46,8 @@ class MainActivity : Activity() {
     private var resolving = false
     /** Where sharing goes once Android allows it. */
     private var pending: Slot? = null
+    /** Asked this time the app opened to run in the background, so it isn't asked at every share. */
+    private var askedBackground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +61,7 @@ class MainActivity : Activity() {
         super.onStart()
         CastStatus.listener = { showStatus() }
         showStatus()
+        showBackground()
         startDiscovery()
     }
 
@@ -71,6 +76,18 @@ class MainActivity : Activity() {
     private fun share(slot: Slot) {
         Phone.setName(this, nameField.text.toString())
         pending = slot
+        // Battery saving can end sharing on an idle phone; ask once before the first share.
+        if (!askedBackground && !Background.isUnrestricted(this)) {
+            askedBackground = true
+            AppLog.write("Asking to run in the background")
+            @Suppress("DEPRECATION")
+            startActivityForResult(Background.requestIntent(this), 3)
+            return
+        }
+        askToCapture()
+    }
+
+    private fun askToCapture() {
         val manager = getSystemService(MediaProjectionManager::class.java)
         // Always the whole screen, not a single app: a wall of phones should show what each shows.
         val intent = if (Build.VERSION.SDK_INT >= 34) {
@@ -86,9 +103,16 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 3) {
+            AppLog.write("Run in the background: ${if (Background.isUnrestricted(this)) "allowed" else "not allowed"}")
+            showBackground()
+            if (pending != null) askToCapture()
+            return
+        }
         val slot = pending ?: return
         pending = null
         if (requestCode != 1 || resultCode != RESULT_OK || data == null) {
+            AppLog.write("Screen sharing not allowed on the phone")
             CastStatus.set(false, "Sharing needs Android's permission each time.")
             return
         }
@@ -184,6 +208,41 @@ class MainActivity : Activity() {
         })
     }
 
+    // MARK: Background and log
+
+    private fun showBackground() {
+        backgroundRow.visibility = if (Background.isUnrestricted(this)) View.GONE else View.VISIBLE
+    }
+
+    private fun shareLog() {
+        AppLog.write("Sharing the log")
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_SUBJECT, "Mirror Wall Cast log from ${Phone.name(this)}")
+            .putExtra(Intent.EXTRA_STREAM, LogProvider.URI)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, "Share the log"))
+    }
+
+    private fun showLog() {
+        val text = TextView(this).apply {
+            text = AppLog.tail(300).ifEmpty { "Nothing logged yet." }
+            textSize = 11f
+            setTextIsSelectable(true)
+            typeface = android.graphics.Typeface.MONOSPACE
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        val scroll = ScrollView(this).apply { addView(text) }
+        AlertDialog.Builder(this)
+            .setTitle("Log")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Share") { _, _ -> shareLog() }
+            .show()
+        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
     // MARK: Views
 
     private fun showStatus() {
@@ -226,6 +285,23 @@ class MainActivity : Activity() {
         }
         column.addView(stopButton)
 
+        backgroundRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, pad / 2, 0, 0)
+            addView(TextView(this@MainActivity).apply {
+                text = "Battery saving can stop sharing while the phone is idle."
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "Allow running in the background"
+                isAllCaps = false
+                setOnClickListener {
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(Background.requestIntent(this@MainActivity), 3)
+                }
+            })
+        }
+        column.addView(backgroundRow)
+
         column.addView(heading("Mirror Wall slots on this network"))
         emptyHint = TextView(this).apply {
             text = "Looking… Mirror Wall must be open on a Mac or PC on the same Wi-Fi."
@@ -263,6 +339,20 @@ class MainActivity : Activity() {
             setPadding(0, pad, 0, 0)
             setOnCheckedChangeListener { _, on -> Phone.setKeepsScreenOn(this@MainActivity, on) }
         })
+
+        column.addView(heading("Troubleshooting"))
+        val logRow = LinearLayout(this)
+        logRow.addView(Button(this).apply {
+            text = "Show Log"
+            isAllCaps = false
+            setOnClickListener { showLog() }
+        })
+        logRow.addView(Button(this).apply {
+            text = "Share Log"
+            isAllCaps = false
+            setOnClickListener { shareLog() }
+        })
+        column.addView(logRow)
 
         column.addView(TextView(this).apply {
             text = "Version ${packageManager.getPackageInfo(packageName, 0).versionName}"

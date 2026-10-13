@@ -573,6 +573,31 @@ final class CastProtocolTests: XCTestCase {
         XCTAssertThrowsError(try CastReader().push([0x02, 0x7F, 0, 0, 0]))
     }
 
+    /// Phones and Mirror Walls of any version have to understand each other (see "Compatibility" in
+    /// docs/mirror-wall-cast.md). These are messages exactly as 0.90 and 0.91 sent them, plus a
+    /// newer phone's hello with a field and a version this Mirror Wall doesn't know.
+    func testUnderstandsOlderAndNewerPeers() throws {
+        func payloadMessage(_ type: CastMessageType, _ json: String) -> [UInt8] {
+            let payload = Array(json.utf8)
+            return [type.rawValue] + withUnsafeBytes(of: UInt32(payload.count).bigEndian, Array.init) + payload
+        }
+        let reader = CastReader()
+        XCTAssertEqual(
+            try reader.push(payloadMessage(.hello, #"{"protocol":1,"name":"HC50","model":"Zebra Technologies HC50","deviceID":"android-1"}"#)),
+            [.hello(CastHello(protocol: 1, name: "HC50", model: "Zebra Technologies HC50", deviceID: "android-1"))]
+        )
+        XCTAssertEqual(
+            try reader.push(payloadMessage(.hello, #"{"protocol":9,"name":"HC50","model":"Zebra","deviceID":"android-2","battery":80}"#)),
+            [.hello(CastHello(protocol: 9, name: "HC50", model: "Zebra", deviceID: "android-2"))]
+        )
+        XCTAssertEqual(
+            try reader.push(payloadMessage(.welcome, #"{"slot":"Mirror Wall 1","maxFrameRate":30,"sharpPicture":false}"#)),
+            [.welcome(CastWelcome(slot: "Mirror Wall 1", maxFrameRate: 30, sharpPicture: false, protocol: nil))]
+        )
+        let welcome = String(decoding: CastMessage.welcome(CastWelcome(slot: "S", maxFrameRate: 30)).encoded().dropFirst(5), as: UTF8.self)
+        XCTAssertTrue(welcome.contains(#""protocol":\#(castProtocolVersion)"#), welcome)
+    }
+
     func testSplitsAnnexB() {
         let stream: [UInt8] = [0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5]
         XCTAssertEqual(annexBNALUnits(stream), [[0x67, 1, 2], [0x68, 3], [0x65, 4, 5]])

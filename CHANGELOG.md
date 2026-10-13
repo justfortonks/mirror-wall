@@ -5,6 +5,20 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 13, 2026: Settings for OBS and own windows
+
+- Settings › Send every slot to OBS turns the OBS feed on for every slot, including slots added
+  later. A slot's ⋯ menu can still turn its own feed off.
+- Slots' own windows no longer reopen when Mirror Wall starts. Settings › Reopen slots' own
+  windows brings that back.
+- Right-click an empty part of the wall to add a slot.
+- Busy slots drop off the Mirror Wall Cast app's list until they're free.
+- Mirror Wall Cast keeps the phone's processor and Wi-Fi awake while sharing, keeps sharing when
+  the app is swiped away, asks to run without battery limits, and keeps a log (Show Log and
+  Share Log in the app).
+- Every version of Mirror Wall Cast works with every version of Mirror Wall that supports
+  Android phones, older or newer.
+
 ## October 12, 2026: Android phones
 
 - Android phones can share their screens to Mirror Wall on a Mac with the new Mirror Wall Cast
@@ -15,8 +29,6 @@ if it hasn't been released yet.
   turning Sharper Picture on), and send H.265 at full screen resolution when Sharper Picture is
   on, if the phone can.
 - Mirror Wall Cast keeps the phone's screen on while sharing (a switch in the app turns this off).
-- Mirror Wall Cast only lists free slots: a slot drops off the list while any phone is showing in
-  it and comes back when it's free.
 
 ## October 12, 2026: Mirror Wall for Windows
 

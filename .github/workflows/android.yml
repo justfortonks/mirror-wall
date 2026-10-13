@@ -44,7 +44,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           export MIRROR_WALL_BUILD=$(git rev-list --count HEAD)
-          tasks="assembleRelease"
+          tasks="testReleaseUnitTest assembleRelease"
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
             export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"

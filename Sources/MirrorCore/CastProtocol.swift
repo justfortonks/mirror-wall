@@ -21,6 +21,10 @@ public enum CastMessageType: UInt8 {
     case ping = 0x84
 }
 
+/// The newest Mirror Wall Cast version this app speaks. See "Compatibility" in
+/// docs/mirror-wall-cast.md before changing anything a phone or an older Mirror Wall relies on.
+public let castProtocolVersion = 1
+
 /// The phone's introduction.
 public struct CastHello: Codable, Equatable {
     public var `protocol`: Int
@@ -41,6 +45,9 @@ public struct CastHello: Codable, Equatable {
 
 /// The Mac's answer to a hello.
 public struct CastWelcome: Codable, Equatable {
+    /// The newest protocol version this Mirror Wall speaks. Absent from versions before 0.93, which
+    /// speak version 1. Each side uses the lower of the two versions.
+    public var `protocol`: Int?
     /// The slot's name.
     public var slot: String
     /// The most frames a second the phone should send.
@@ -48,7 +55,8 @@ public struct CastWelcome: Codable, Equatable {
     /// Sharper Picture is on: send H.265 at up to 2160 pixels tall if the phone can.
     public var sharpPicture: Bool?
 
-    public init(slot: String, maxFrameRate: Int, sharpPicture: Bool? = nil) {
+    public init(slot: String, maxFrameRate: Int, sharpPicture: Bool? = nil, protocol: Int? = castProtocolVersion) {
+        self.protocol = `protocol`
         self.slot = slot
         self.maxFrameRate = maxFrameRate
         self.sharpPicture = sharpPicture
