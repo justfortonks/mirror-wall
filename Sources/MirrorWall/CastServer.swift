@@ -15,6 +15,19 @@ final class CastServer {
     private var listener: NWListener?
     private var connections: [CastConnection] = []
     private let onConnection: (CastConnection) -> Void
+    private var advertised = true
+
+    /// Whether the slot is listed on the network. A listing withdrawn while a phone is connected
+    /// doesn't affect that phone, which already has the address. Safe from any queue.
+    func setAdvertised(_ on: Bool) {
+        queue.async { [self] in
+            guard on != advertised else { return }
+            advertised = on
+            listener?.service = on ? service : nil
+        }
+    }
+
+    private var service: NWListener.Service { NWListener.Service(name: name, type: Self.serviceType) }
 
     init(port: UInt16, name: String, onConnection: @escaping (CastConnection) -> Void) {
         self.port = port
@@ -30,12 +43,14 @@ final class CastServer {
             options.noDelay = true
         }
         let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
-        listener.service = NWListener.Service(name: name, type: Self.serviceType)
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
+        queue.sync {
+            listener.service = advertised ? service : nil
+            self.listener = listener
+        }
         listener.start(queue: queue)
-        self.listener = listener
     }
 
     /// Stops listening and drops any phone that's connected.
