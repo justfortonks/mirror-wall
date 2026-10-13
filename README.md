@@ -225,8 +225,10 @@ rather than AirPlay. Open the app, tap a slot, and allow Android's "Start record
 prompt (Android asks every time). The phone gets a tile like an iPhone; iPhones and Android
 phones can share at once in different slots. A slot busy with one phone turns the other away.
 
-- Builds come from Actions › Android: `MirrorWallCast-debug` for testing, plus a signed APK and
-  AAB for Intune (managed Google Play private app) once the signing-key secrets are set.
+- Builds come from Actions › Android as `MirrorWallCast`: an APK signed with the repository's test
+  key (`android/test-signing.keystore`), so each build installs over the last. Once the
+  `ANDROID_KEYSTORE_*` secrets hold your own key, builds are signed with it instead and an AAB
+  comes too, for Intune (managed Google Play private app). Switching keys means uninstalling once.
 - The phone and the Mac must be on the same network with multicast allowed for the slot list;
   otherwise type the Mac's address in the app (port 7350 for slot 1, 7450 for slot 2, ...).
 - Apps that protect their screens (banking, DRM video) show black, and Android 15 hides

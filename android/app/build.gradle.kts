@@ -6,8 +6,10 @@ plugins {
 // Builds are numbered like the Mac app's: CI passes the repository's commit count.
 val buildNumber = (System.getenv("MIRROR_WALL_BUILD") ?: "1").toInt()
 
-// Release builds are signed with the key in these variables (CI reads them from repository
-// secrets); without them only the debug build is made.
+// Builds are signed with the key in these variables when they're set (CI reads them from
+// repository secrets: the company's own key, for Intune / managed Google Play). Otherwise they're
+// signed with test-signing.keystore, a test key kept in the repository so each test build installs
+// over the last one. It is public, so it proves nothing about who made a build.
 val keystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
 
 android {
@@ -23,20 +25,28 @@ android {
     }
 
     signingConfigs {
-        if (keystorePath != null) {
-            create("release") {
+        create("mirrorWall") {
+            if (keystorePath != null) {
                 storeFile = file(keystorePath)
                 storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("ANDROID_KEY_ALIAS")
                 keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            } else {
+                storeFile = rootProject.file("test-signing.keystore")
+                storePassword = "mirrorwall-test"
+                keyAlias = "mirrorwallcast"
+                keyPassword = "mirrorwall-test"
             }
         }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("mirrorWall")
+        }
         release {
             isMinifyEnabled = false
-            if (keystorePath != null) signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("mirrorWall")
         }
     }
 
