@@ -39,7 +39,8 @@ Unknown types are skipped, so either side can add messages later.
 The phone sends hello and waits for the answer before sending video. A slot that's showing a
 phone (of either kind) answers busy. While an Android phone has a slot, the slot's uxplay is
 stopped, so iPhones don't list it; when the phone leaves, the slot shows Disconnected and starts
-a fresh uxplay, as after an iPhone.
+a fresh uxplay, as after an iPhone. A slot showing a phone also withdraws its `_mirrorwall._tcp`
+listing, so the app only lists free slots; the connected phone keeps its connection.
 
 When the connection drops without a bye or busy (the slot restarted, for example to apply Sharper
 Picture), the phone keeps its screen capture and reconnects to the same slot for up to a minute.

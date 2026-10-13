@@ -15,6 +15,8 @@ if it hasn't been released yet.
   turning Sharper Picture on), and send H.265 at full screen resolution when Sharper Picture is
   on, if the phone can.
 - Mirror Wall Cast keeps the phone's screen on while sharing (a switch in the app turns this off).
+- Mirror Wall Cast only lists free slots: a slot drops off the list while any phone is showing in
+  it and comes back when it's free.
 
 ## October 12, 2026: Mirror Wall for Windows
 

@@ -27,6 +27,8 @@ final class Slot: ObservableObject, Identifiable {
         didSet {
             if state != oldValue { stateSince = Date() }
             syphonFeed?.passesFrames = carriesPhoneFrames
+            // A slot in use drops out of the Android app's list until it's free again.
+            castServer?.setAdvertised(!carriesPhoneFrames)
         }
     }
     /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
@@ -405,6 +407,7 @@ final class Slot: ObservableObject, Identifiable {
             self?.castPhoneConnected(phone)
         }
         do {
+            server.setAdvertised(!carriesPhoneFrames)
             try server.start()
             castServer = server
         } catch {
