@@ -64,6 +64,14 @@ struct ContentView: View {
                     }
                 }
                 .padding()
+                // Fills the window, so right-clicking anywhere between or below the tiles offers a
+                // new slot. Tiles keep their own menus.
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+                .contentShape(Rectangle())
+                .contextMenu {
+                    Button("Add Slot") { store.addSlot() }
+                        .disabled(!store.canAddSlot)
+                }
             }
         }
     }

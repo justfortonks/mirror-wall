@@ -22,7 +22,8 @@ public sealed record SlotConfig
     public string? LastPhoneModel { get; set; }
     /// <summary>What the slot shows while no phone is mirroring; null to use the one set for all slots.</summary>
     public StandbyPicture? Standby { get; set; }
-    /// <summary>Whether the slot also sends its picture to OBS through Spout. Off (null) by default.</summary>
+    /// <summary>Whether the slot also sends its picture to OBS through Spout; null follows the
+    /// setting for all slots, which is off by default.</summary>
     public bool? ObsFeed { get; set; }
 
     [JsonConstructor]
@@ -103,6 +104,11 @@ public sealed record SlotConfig
     /// <summary>First of the three TCP/UDP ports uxplay uses (base, base+1, base+2): 7300, 7400, ...</summary>
     [JsonIgnore]
     public int AirplayBasePort => 7200 + Id * 100;
+
+    /// <summary>TCP port Android phones (Mirror Wall Cast) connect to: 7350, 7450, ... Clear of
+    /// uxplay's three ports.</summary>
+    [JsonIgnore]
+    public int CastPort => AirplayBasePort + 50;
 
     /// <summary>Localhost UDP port uxplay forwards the decrypted video's RTP stream to: 5600, 5602, ...</summary>
     [JsonIgnore]

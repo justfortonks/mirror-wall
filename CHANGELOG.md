@@ -5,6 +5,33 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 13, 2026: Settings for OBS and own windows
+
+- Settings › Send every slot to OBS turns the OBS feed on for every slot, including slots added
+  later. A slot's ⋯ menu can still turn its own feed off.
+- Slots' own windows no longer reopen when Mirror Wall starts. Settings › Reopen slots' own
+  windows brings that back.
+- Right-click an empty part of the wall to add a slot.
+- Busy slots drop off the Mirror Wall Cast app's list until they're free.
+- Mirror Wall Cast keeps the phone's processor and Wi-Fi awake while sharing, keeps sharing when
+  the app is swiped away, asks to run without battery limits, and keeps a log (Show Log and
+  Share Log in the app).
+- Every version of Mirror Wall Cast works with every version of Mirror Wall that supports
+  Android phones, older or newer.
+- Mirror Wall for Windows takes Android phones too, and has the same new settings, the
+  right-click to add a slot, and busy slots hidden from the Mirror Wall Cast list.
+
+## October 12, 2026: Android phones
+
+- Android phones can share their screens to Mirror Wall on a Mac with the new Mirror Wall Cast
+  app: open it, tap a slot, allow sharing. An Android phone gets a tile like an iPhone, with its
+  own window for OBS, recording, screenshots and Stats for Nerds, and iPhones and Android phones
+  can share at the same time in different slots.
+- Android phones reconnect by themselves when Mirror Wall restarts their slot (for example after
+  turning Sharper Picture on), and send H.265 at full screen resolution when Sharper Picture is
+  on, if the phone can.
+- Mirror Wall Cast keeps the phone's screen on while sharing (a switch in the app turns this off).
+
 ## October 12, 2026: Mirror Wall for Windows
 
 - Mirror Wall now runs on Windows 10 and 11 too: the same tile wall, each slot's own window for
