@@ -135,6 +135,8 @@ internal sealed class MainWindow : Window
         menu.Items.Add(Menus.Dynamic("_Window", () => WindowItems()));
         menu.Items.Add(Menus.Dynamic("_Help", () => new object[]
         {
+            Menus.Item("Check for Update…", () => Updater.Check(this)),
+            new Separator(),
             Menus.Item("About Mirror Wall", () => AboutWindow.Show(this)),
         }));
         return menu;

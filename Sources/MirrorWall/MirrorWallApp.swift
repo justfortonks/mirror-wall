@@ -15,6 +15,7 @@ struct MirrorWallApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Mirror Wall") { AboutPanel.show() }
+                Button("Check for Update…") { Updater.check() }
             }
             CommandGroup(after: .newItem) {
                 Button("Add Slot") { appDelegate.store.addSlot() }
@@ -89,6 +90,7 @@ struct MenuBarMenu: View {
             NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }
+        Button("Check for Update…") { Updater.check() }
         Divider()
         Button("Quit Mirror Wall") { NSApp.terminate(nil) }
     }
