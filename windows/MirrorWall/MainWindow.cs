@@ -10,7 +10,8 @@ namespace MirrorWall;
 
 /// <summary>
 /// The wall: a tile per slot, in as many columns as fit, with the menu bar above. Double-click a
-/// tile (or use its ⋯ menu) to show only that slot. Closing this window quits Mirror Wall.
+/// tile (or use its ⋯ menu) to show only that slot. Closing this window quits Mirror Wall, or
+/// only hides it while the notification area icon is shown.
 /// </summary>
 internal sealed class MainWindow : Window
 {
@@ -85,9 +86,17 @@ internal sealed class MainWindow : Window
         foreach (var slot in store.Slots) AddTile(slot);
         store.Slots.CollectionChanged += SlotsChanged;
         store.PropertyChanged += StoreChanged;
-        Closing += (_, _) =>
+        Closing += (_, e) =>
         {
             SaveBounds();
+            if (store.ShowsTrayIcon && !App.Current.Quitting)
+            {
+                // Mirror Wall keeps running, and mirroring, behind its icon.
+                e.Cancel = true;
+                Hide();
+                App.Current.Tray?.TellAboutHiding();
+                return;
+            }
             store.BeginExit();
         };
         Update();
@@ -110,7 +119,7 @@ internal sealed class MainWindow : Window
             new Separator(),
             Menus.Item("Settings…", () => SettingsWindow.Show(this, store)),
             new Separator(),
-            Menus.Item("Exit", Close),
+            Menus.Item("Exit", App.Current.Quit),
         }));
         menu.Items.Add(Menus.Dynamic("_View", () => new object[]
         {

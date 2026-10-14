@@ -214,3 +214,51 @@ public class PhoneModelTests
         Assert.Equal(800, PhoneModels.TrueToLifeLongSide(800, null, 498, 1080));
     }
 }
+
+public class PhoneBezelTests
+{
+    [Theory]
+    [InlineData("iPhone14,6", BezelStyle.HomeButton)]
+    [InlineData("iPhone12,8", BezelStyle.HomeButton)]
+    [InlineData("iPhone10,4", BezelStyle.HomeButton)]
+    [InlineData("iPhone10,6", BezelStyle.Notch)]
+    [InlineData("iPhone14,5", BezelStyle.Notch)]
+    [InlineData("iPhone14,7", BezelStyle.Notch)]
+    [InlineData("iPhone17,5", BezelStyle.Notch)]
+    [InlineData("iPhone15,2", BezelStyle.DynamicIsland)]
+    [InlineData("iPhone18,2", BezelStyle.DynamicIsland)]
+    [InlineData("iPhone99,1", BezelStyle.DynamicIsland)]
+    [InlineData("Zebra HC50", BezelStyle.Plain)]
+    [InlineData("iPhone", BezelStyle.Plain)]
+    [InlineData(null, BezelStyle.Plain)]
+    public void PicksAStyleFromTheModel(string? model, BezelStyle style) => Assert.Equal(style, BezelGeometry.StyleFor(model));
+
+    [Fact]
+    public void FrameTurnsWithThePicture()
+    {
+        var portrait = new BezelGeometry(BezelStyle.HomeButton, 750, 1334);
+        Assert.False(portrait.Landscape);
+        Assert.Equal(0.215, portrait.Top);
+        Assert.Equal(0.06, portrait.Left);
+        var landscape = new BezelGeometry(BezelStyle.HomeButton, 1334, 750);
+        Assert.True(landscape.Landscape);
+        Assert.Equal(portrait.Top, landscape.Left);
+        Assert.Equal(portrait.Bottom, landscape.Right);
+        Assert.Equal(portrait.Left, landscape.Top);
+
+        var size = portrait.OuterSize(750, 1334);
+        Assert.Equal(1.12, size.Width, 9);
+        Assert.Equal(1334.0 / 750 + 0.43, size.Height, 9);
+        var sideways = landscape.OuterSize(1334, 750);
+        Assert.Equal(size.Height, sideways.Width, 9);
+        Assert.Equal(size.Width, sideways.Height, 9);
+    }
+
+    [Fact]
+    public void SlotRemembersItsOwnBezelChoice()
+    {
+        var config = new SlotConfig(1, "x") { Bezel = true };
+        Assert.Equal(config, System.Text.Json.JsonSerializer.Deserialize<SlotConfig>(System.Text.Json.JsonSerializer.Serialize(config)));
+        Assert.Null(System.Text.Json.JsonSerializer.Deserialize<SlotConfig>("""{"Id":2,"Name":"Desk"}""")!.Bezel);
+    }
+}

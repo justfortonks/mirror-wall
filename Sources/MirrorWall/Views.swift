@@ -115,28 +115,9 @@ struct SlotTile: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZStack {
-                if !showsPicture, case .image(let fileName) = store.standby(for: slot) {
-                    // Shown as the slot's own window shows it; the footer still gives the status.
-                    StandbyImage(fileName: fileName)
-                }
-                VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
-                if !showsPicture {
-                    if !hasStandbyImage { placeholder }
-                } else if slot.state == .paused {
-                    pausedBanner
-                }
-                if showStats {
-                    StatsOverlay(slot: slot, stats: slot.stats)
-                }
-            }
-            .overlay(alignment: .topTrailing) { popOutButton }
-            .aspectRatio(aspectRatio, contentMode: .fit)
-            .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
-            .onTapGesture(count: 2, perform: toggleFocus)
-            .frame(maxHeight: maxVideoHeight ?? .infinity)
+            framedPicture
+                .onTapGesture(count: 2, perform: toggleFocus)
+                .frame(maxHeight: maxVideoHeight ?? .infinity)
 
             footer
         }
@@ -152,9 +133,41 @@ struct SlotTile: View {
         }
     }
 
-    private var aspectRatio: CGFloat {
-        if let size = slot.videoSize, size.height > 0 { return size.width / size.height }
-        return 9.0 / 19.5 // a portrait iPhone until the first picture arrives
+    /// The picture and what goes over it, in a phone frame when the slot has one.
+    @ViewBuilder
+    private var framedPicture: some View {
+        let picture = ZStack {
+            if !showsPicture, case .image(let fileName) = store.standby(for: slot) {
+                // Shown as the slot's own window shows it; the footer still gives the status.
+                StandbyImage(fileName: fileName)
+            }
+            VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
+            if !showsPicture {
+                if !hasStandbyImage { placeholder }
+            } else if slot.state == .paused {
+                pausedBanner
+            }
+            if showStats {
+                StatsOverlay(slot: slot, stats: slot.stats)
+            }
+        }
+        .overlay(alignment: .topTrailing) { popOutButton }
+        if slot.showsBezel {
+            PhoneBezel(geometry: slot.bezel(for: pictureShape), picture: pictureShape) {
+                picture.background(Color.black)
+            }
+        } else {
+            picture
+                .aspectRatio(pictureShape.width / pictureShape.height, contentMode: .fit)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
+        }
+    }
+
+    private var pictureShape: CGSize {
+        if let size = slot.videoSize, size.width > 0, size.height > 0 { return size }
+        return CGSize(width: 9, height: 19.5) // a portrait iPhone until the first picture arrives
     }
 
     /// The last picture stays up while live or paused; a disconnected phone's stale frame is hidden.
@@ -252,7 +265,9 @@ struct SlotTile: View {
                         .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
                 }
                 .buttonStyle(.borderless)
-                .help(slot.recordingSince == nil ? "Start recording to \(SaveFolders.recordings.lastPathComponent)" : "Stop recording")
+                .help(slot.recordingSince == nil
+                    ? (showsPicture ? "Start recording to \(SaveFolders.recordings.lastPathComponent)" : "Record to \(SaveFolders.recordings.lastPathComponent) when a phone connects")
+                    : "Stop recording")
                 Button {
                     slot.takeScreenshot()
                 } label: {
@@ -299,6 +314,9 @@ struct SlotTile: View {
         }
     }
 
+    /// The slot's own menu, in groups: viewing, capturing, what the picture looks like and
+    /// where it goes, the slot itself. App-wide items (the recordings and screenshots folders,
+    /// Stats for Nerds) live in the menu bar's File and View menus.
     @ViewBuilder
     private var menuItems: some View {
         Button(isFocused ? "Back to All Slots" : "Show Only This Slot", action: toggleFocus)
@@ -307,30 +325,35 @@ struct SlotTile: View {
         } else {
             Button("Open in Own Window") { store.openOwnWindow(slot) }
         }
+        Divider()
+        Button("Take Screenshot") { slot.takeScreenshot() }
+            .disabled(!showsPicture)
+        if slot.recordingSince == nil {
+            // With no phone yet, recording starts when one connects.
+            Button(showsPicture ? "Start Recording" : "Record When a Phone Connects") { slot.startRecording() }
+        } else {
+            Button("Stop Recording") { slot.stopRecording() }
+        }
+        Divider()
         if SyphonFeed.isAvailable {
             Toggle("Send to OBS (Syphon)", isOn: Binding(
                 get: { slot.sendsToOBS },
                 set: { store.setOBSFeed(slot, on: $0) }
             ))
         }
-        Button("Rename…") {
-            newName = slot.name
-            renaming = true
+        Menu("Phone Bezel") {
+            Toggle("On the Wall and Own Window", isOn: Binding(
+                get: { slot.showsBezel },
+                set: { store.setBezel(slot, on: $0) }
+            ))
+            if SyphonFeed.isAvailable {
+                Toggle("In the OBS Feed", isOn: Binding(
+                    get: { slot.framesOBSFeed },
+                    set: { store.setFramesOBSFeed(slot, on: $0) }
+                ))
+                .disabled(!slot.sendsToOBS)
+            }
         }
-        Button("Restart") { store.restart(slot) }
-        Button("Show Log") { showingLog = true }
-        Toggle("Stats for Nerds", isOn: $showStats)
-        Divider()
-        if slot.recordingSince == nil {
-            Button("Start Recording") { slot.startRecording() }
-        } else {
-            Button("Stop Recording") { slot.stopRecording() }
-        }
-        Button("Show Recordings in Finder") { store.showRecordings() }
-        Divider()
-        Button("Take Screenshot") { slot.takeScreenshot() }
-            .disabled(!showsPicture)
-        Button("Show Screenshots in Finder") { Screenshots.showInFinder() }
         Menu("Standby Picture") {
             let current = StandbyChoice(slot.config.standby)
             standbyItem("Same as All Slots (Settings)", .allSlots, current: current) { store.setStandby(slot, nil) }
@@ -341,6 +364,15 @@ struct SlotTile: View {
                 // Once the menu has closed: a file chooser opened from inside it is unreliable.
                 DispatchQueue.main.async { store.chooseStandbyImage(for: slot) }
             }
+        }
+        Divider()
+        Button("Rename…") {
+            newName = slot.name
+            renaming = true
+        }
+        Menu("Troubleshooting") {
+            Button("Show Log") { showingLog = true }
+            Button("Restart Receiver") { store.restart(slot) }
         }
         Divider()
         Button("Remove Slot", role: .destructive) { store.remove(slot) }

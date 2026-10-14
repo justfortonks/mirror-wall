@@ -6,6 +6,9 @@ namespace MirrorWall;
 public partial class App : Application
 {
     internal SlotStore? Store { get; private set; }
+    internal TrayIcon? Tray { get; private set; }
+    /// <summary>Set by <see cref="Quit"/>, so closing the wall then really quits.</summary>
+    internal bool Quitting { get; private set; }
 
     internal static new App Current => (App)Application.Current;
 
@@ -18,6 +21,7 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) => WriteCrashLog(args.ExceptionObject);
         Native.RunAtFullSpeed();
         Store = new SlotStore();
+        Tray = new TrayIcon(Store);
         var window = new MainWindow(Store);
         MainWindow = window;
         window.Show();
@@ -26,8 +30,25 @@ public partial class App : Application
         window.Activate();
     }
 
+    /// <summary>Quits Mirror Wall, even while the notification area icon would otherwise keep it
+    /// running with the wall closed.</summary>
+    internal void Quit()
+    {
+        Quitting = true;
+        if (MainWindow is { } wall) wall.Close();
+        else Shutdown();
+    }
+
+    /// <summary>Signing out or shutting down closes the wall for real.</summary>
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        Quitting = true;
+        base.OnSessionEnding(e);
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        Tray?.Dispose();
         Store?.PrepareForExit();
         base.OnExit(e);
     }

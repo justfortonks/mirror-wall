@@ -67,13 +67,26 @@ internal static class Menus
             enabled: store.PopOutSize == PopOutSize.Custom, isChecked: store.PopOutSizeLocked);
     }
 
-    /// <summary>A slot's ⋯ menu (also its right-click menu).</summary>
+    /// <summary>A slot's ⋯ menu (also its right-click menu), in groups: viewing, capturing, what
+    /// the picture looks like and where it goes, the slot itself. App-wide items (the recordings
+    /// and screenshots folders, Stats for Nerds) live in the File and View menus.</summary>
     public static IEnumerable<object> SlotItems(Slot slot, SlotStore store, bool isFocused, Action toggleFocus, Window owner)
     {
         yield return Item(isFocused ? "Back to All Slots" : "Show Only This Slot", toggleFocus);
         yield return store.IsPoppedOut(slot)
             ? Item("Close Own Window", () => store.CloseOwnWindow(slot))
             : Item("Open in Own Window", () => store.OpenOwnWindow(slot));
+        yield return new Separator();
+        yield return Item("Take Screenshot", slot.TakeScreenshot, enabled: slot.ShowsPicture);
+        yield return slot.RecordingSince == null
+            // With no phone yet, recording starts when one connects.
+            ? Item(slot.ShowsPicture ? "Start Recording" : "Record When a Phone Connects", slot.StartRecording)
+            : Item("Stop Recording", () => slot.StopRecording());
+        yield return new Separator();
+        var bezel = new List<object>
+        {
+            Item("On the Wall and Own Window", () => store.SetBezel(slot, !slot.ShowsBezel), isChecked: slot.ShowsBezel),
+        };
         if (SpoutFeed.IsAvailable)
         {
             yield return Item("Send to OBS (Spout)", () =>
@@ -82,19 +95,10 @@ internal static class Menus
                 store.SetObsFeed(slot, on);
                 if (on) ObsSpoutPlugin.CheckWhenFeedTurnedOn(owner);
             }, isChecked: slot.SendsToObs);
+            bezel.Add(Item("In the OBS Feed", () => store.SetFramesObsFeed(slot, !slot.FramesObsFeed),
+                enabled: slot.SendsToObs, isChecked: slot.FramesObsFeed));
         }
-        yield return Item("Rename…", () => RenameDialog.Show(owner, slot, store));
-        yield return Item("Restart", () => store.Restart(slot));
-        yield return Item("Show Log", () => LogWindow.Show(owner, slot));
-        yield return Item("Stats for Nerds", () => store.ShowStats = !store.ShowStats, isChecked: store.ShowStats);
-        yield return new Separator();
-        yield return slot.RecordingSince == null
-            ? Item("Start Recording", slot.StartRecording)
-            : Item("Stop Recording", () => slot.StopRecording());
-        yield return Item("Show Recordings Folder", () => Native.ShowFolder(SaveFolders.Recordings));
-        yield return new Separator();
-        yield return Item("Take Screenshot", slot.TakeScreenshot, enabled: slot.ShowsPicture);
-        yield return Item("Show Screenshots Folder", () => Native.ShowFolder(SaveFolders.Screenshots));
+        yield return Submenu("Phone Bezel", bezel);
         var own = slot.Config.Standby;
         yield return Submenu("Standby Picture", new object[]
         {
@@ -103,6 +107,13 @@ internal static class Menus
             Item("Blank", () => store.SetStandby(slot, StandbyPicture.Blank), isChecked: own?.Kind == StandbyKind.Blank),
             // Always offered, so a slot with an image can switch to another one.
             Item("Image…", () => store.ChooseStandbyImage(slot), isChecked: own?.Kind == StandbyKind.Image),
+        });
+        yield return new Separator();
+        yield return Item("Rename…", () => RenameDialog.Show(owner, slot, store));
+        yield return Submenu("Troubleshooting", new object[]
+        {
+            Item("Show Log", () => LogWindow.Show(owner, slot)),
+            Item("Restart Receiver", () => store.Restart(slot)),
         });
         yield return new Separator();
         yield return Item("Remove Slot", () => store.Remove(slot));

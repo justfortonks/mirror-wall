@@ -19,6 +19,12 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// Whether the slot also sends its picture to OBS through Syphon (Spout on Windows); nil
     /// follows the setting for all slots, which is off by default.
     public var obsFeed: Bool?
+    /// Whether the slot's picture has a phone frame around it on the wall and in its own window;
+    /// nil follows the setting for all slots, which is off by default.
+    public var bezel: Bool?
+    /// Whether the slot's OBS feed has the phone frame around the picture, with see-through
+    /// corners; nil (off) by default.
+    public var feedBezel: Bool?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
         precondition(id >= 1 && id <= 99, "slot id out of range")

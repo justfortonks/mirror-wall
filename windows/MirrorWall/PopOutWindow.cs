@@ -26,6 +26,10 @@ internal sealed class PopOutWindow : Window
     private readonly Image picture = new() { Stretch = Stretch.Uniform };
     private readonly Grid standby = new();
     private readonly Button closeButton = new();
+    /// <summary>The picture or standby picture, alone or in a phone bezel.</summary>
+    private readonly Grid screen = new() { Background = Brushes.Black };
+    private readonly ContentControl screenHolder = new();
+    private readonly PhoneBezelFrame bezelFrame = new();
     private bool userResizing;
 
     public PopOutWindow(Slot slot, SlotStore store, string title)
@@ -51,9 +55,10 @@ internal sealed class PopOutWindow : Window
         closeButton.Visibility = Visibility.Collapsed;
         closeButton.Click += (_, _) => Close();
 
+        screen.Children.Add(standby);
+        screen.Children.Add(picture);
         var root = new Grid { Background = Brushes.Black };
-        root.Children.Add(standby);
-        root.Children.Add(picture);
+        root.Children.Add(screenHolder);
         root.Children.Add(closeButton);
         Content = root;
         // The button only shows under the pointer, so captures stay clean.
@@ -101,7 +106,7 @@ internal sealed class PopOutWindow : Window
     {
         Update();
         // A different phone may be a different size.
-        if (e.PropertyName is nameof(Slot.VideoSize) or nameof(Slot.PhoneName) or nameof(Slot.Config)) Fit();
+        if (e.PropertyName is nameof(Slot.VideoSize) or nameof(Slot.PhoneName) or nameof(Slot.Config) or nameof(Slot.ShowsBezel)) Fit();
     }
 
     private void StoreChanged(object? sender, PropertyChangedEventArgs e)
@@ -111,6 +116,22 @@ internal sealed class PopOutWindow : Window
 
     private void Update()
     {
+        if (slot.ShowsBezel)
+        {
+            bezelFrame.Update(slot.Bezel(PictureShape), PictureShape);
+            if (bezelFrame.Content != screen)
+            {
+                screenHolder.Content = null;
+                bezelFrame.Content = screen;
+                screenHolder.Content = bezelFrame;
+            }
+        }
+        else if (screenHolder.Content != screen)
+        {
+            screenHolder.Content = null;
+            bezelFrame.Content = null;
+            screenHolder.Content = screen;
+        }
         picture.Source = slot.Renderer.Bitmap;
         picture.Visibility = slot.ShowsPicture ? Visibility.Visible : Visibility.Hidden;
         standby.Children.Clear();
@@ -127,8 +148,21 @@ internal sealed class PopOutWindow : Window
     private Size PictureShape =>
         slot.VideoSize is { Width: > 0, Height: > 0 } size ? size : (slot.LastPictureSize ?? new Size(9, 19.5));
 
-    /// <summary>The window's longer side: the preset's, scaled to this phone's real screen size, or
-    /// this slot's remembered Custom size.</summary>
+    /// <summary>The window's shape: the picture's, or with a phone bezel, the bezel's around it.</summary>
+    private Size WindowShape
+    {
+        get
+        {
+            var shape = PictureShape;
+            if (!slot.ShowsBezel) return shape;
+            var outer = slot.Bezel(shape).OuterSize(shape.Width, shape.Height);
+            double unit = Math.Min(shape.Width, shape.Height);
+            return new Size(outer.Width * unit, outer.Height * unit);
+        }
+    }
+
+    /// <summary>The picture's longer side: the preset's, scaled to this phone's real screen size, or
+    /// this slot's remembered Custom size (which is the whole window's).</summary>
     private double LongSide(Size shape)
     {
         double? preset = store.PopOutSize switch
@@ -148,8 +182,11 @@ internal sealed class PopOutWindow : Window
     public void Fit()
     {
         UpdateResizable();
-        var shape = PictureShape;
-        double scale = LongSide(shape) / Math.Max(shape.Width, shape.Height);
+        var pictureShape = PictureShape;
+        var shape = WindowShape;
+        // A preset sizes the picture, and a bezel adds to it; a Custom size is the whole window's.
+        double measured = store.PopOutSize == PopOutSize.Custom ? Math.Max(shape.Width, shape.Height) : Math.Max(pictureShape.Width, pictureShape.Height);
+        double scale = LongSide(pictureShape) / measured;
         double width = Math.Round(shape.Width * scale), height = Math.Round(shape.Height * scale);
         if (Math.Abs(Width - width) < 0.5 && Math.Abs(Height - height) < 0.5) return;
         Width = width;
@@ -182,10 +219,10 @@ internal sealed class PopOutWindow : Window
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
 
-    /// <summary>Resizing by dragging keeps the picture's shape.</summary>
+    /// <summary>Resizing by dragging keeps the window's shape.</summary>
     private void KeepShape(IntPtr edge, IntPtr rectangle)
     {
-        var shape = PictureShape;
+        var shape = WindowShape;
         double ratio = shape.Width / shape.Height;
         var rect = System.Runtime.InteropServices.Marshal.PtrToStructure<RECT>(rectangle);
         int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
