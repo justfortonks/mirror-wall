@@ -17,6 +17,10 @@ on:
         description: Publish a release with the DMG and the Windows installer
         type: boolean
         default: true
+      beta:
+        description: Publish a test build (pick its branch above) as a pre-release for the Beta update channel
+        type: boolean
+        default: false
   push:
     tags: ["v*"]
   pull_request:
@@ -36,6 +40,9 @@ jobs:
   dmg:
     # The DMG runs on this macOS version or later (its libraries come from this Mac's Homebrew).
     runs-on: macos-26
+    env:
+      # A beta's number is this workflow's run number (scripts/build-app.sh).
+      MIRRORWALL_BETA: ${{ inputs.beta && github.run_number || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,14 +81,21 @@ jobs:
   windows:
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     uses: ./.github/workflows/windows.yml
+    with:
+      beta: ${{ inputs.beta && format('{0}', github.run_number) || '' }}
 
+  # Betas are for the Mac and Windows apps; Mirror Wall Cast keeps to regular releases.
   android:
-    if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+    if: startsWith(github.ref, 'refs/tags/') || (inputs.publish && !inputs.beta)
     uses: ./.github/workflows/android.yml
     secrets: inherit
 
   publish:
     needs: [dmg, windows, android]
+    # Android is skipped for a beta, which would otherwise skip this too.
+    if: >-
+      !cancelled() && needs.dmg.result == 'success' && needs.windows.result == 'success'
+      && (needs.android.result == 'success' || inputs.beta)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,7 +110,8 @@ jobs:
         with:
           name: MirrorWall-Setup
 
-      - uses: actions/download-artifact@v4
+      - if: ${{ !inputs.beta }}
+        uses: actions/download-artifact@v4
         with:
           name: MirrorWallCast
           path: android-build
@@ -104,15 +119,32 @@ jobs:
       - name: Publish a release
         env:
           GH_TOKEN: ${{ github.token }}
+          BETA: ${{ inputs.beta && github.run_number || '' }}
         run: |
+          BUILD=$(git rev-list --count HEAD)
+          if [[ -n "$BETA" ]]; then
+            # A test build from a branch: a pre-release, which the download links and the Stable
+            # update channel skip, and only Check for Update set to Beta offers.
+            TAG="v0.$BUILD-beta.$BETA"
+            PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-beta*' HEAD 2>/dev/null || true)
+            { echo "## What's new"; echo; scripts/release-notes.py "$PREVIOUS"
+              echo "## Install"; echo
+              echo "A test build of Mirror Wall from the \`$GITHUB_REF_NAME\` branch, not a release."
+              echo "Install it from Mirror Wall with Settings › General › Updates set to Beta, then Check for Update."
+              echo "To go back, set it to Stable, then Check for Update › Go Back."
+            } > notes.md
+            gh release create "$TAG" MirrorWall.dmg MirrorWall-Setup.exe \
+              --prerelease --target "$GITHUB_SHA" --title "Mirror Wall 0.$BUILD beta $BETA" --notes-file notes.md
+            exit 0
+          fi
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="$GITHUB_REF_NAME"
           else
-            TAG="v0.$(git rev-list --count HEAD)"
+            TAG="v0.$BUILD"
           fi
           # A fixed name, so the newest release's APK is always at …/latest/download/MirrorWallCast.apk.
           cp android-build/MirrorWallCast-*.apk MirrorWallCast.apk
-          PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-beta*' HEAD^ 2>/dev/null || true)
           { echo "## What's new"; echo; scripts/release-notes.py "$PREVIOUS"; } > notes.md
           cat >> notes.md <<'NOTES'
           ## Install

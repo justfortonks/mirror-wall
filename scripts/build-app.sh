@@ -28,6 +28,10 @@ COMMIT=$(git rev-parse --short HEAD)
 COMMIT_FULL=$(git rev-parse HEAD)
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then COMMIT="$COMMIT with local changes"; fi
 BUILT=$(date "+%Y-%m-%d %H:%M")
+# A beta (a test build published as a pre-release by the Release workflow) also carries its beta
+# number, so Check for Update can tell 0.112 beta 7 from beta 8 and from the 0.112 release.
+BETA="${MIRRORWALL_BETA:-}"
+VERSION="0.$BUILD${BETA:+ beta $BETA}"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -39,12 +43,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>MirrorWall</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.$BUILD</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$BUILD</string>
     <key>MirrorWallCommit</key><string>$COMMIT</string>
     <key>MirrorWallCommitFull</key><string>$COMMIT_FULL</string>
     <key>MirrorWallBuilt</key><string>$BUILT</string>
-    <key>LSMinimumSystemVersion</key><string>14.0</string>
+${BETA:+    <key>MirrorWallBeta</key><string>$BETA</string>
+}    <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSLocalNetworkUsageDescription</key>

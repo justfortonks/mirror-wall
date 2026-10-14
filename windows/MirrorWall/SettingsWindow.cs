@@ -81,6 +81,19 @@ internal sealed class SettingsWindow : Window
         content.Children.Add(flash);
         Note("It keeps flashing until you click Mirror Wall. Windows doesn't flash it while Mirror Wall is the app in front.");
 
+        Header("Updates");
+        var channel = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+        channel.Items.Add("Releases (Stable)");
+        channel.Items.Add("Releases and test builds (Beta)");
+        channel.SelectedIndex = Settings.Current.BetaUpdates ? 1 : 0;
+        channel.SelectionChanged += (_, _) =>
+        {
+            Settings.Current.BetaUpdates = channel.SelectedIndex == 1;
+            Settings.Current.Save();
+        };
+        content.Children.Add(channel);
+        Note("What Help › Check for Update offers. Beta also offers test builds, whichever is newest. To go back, choose Stable, then Check for Update and go back to the release. Mirror Wall only checks when you ask.");
+
         Tab("Wall");
         Header("Standby picture");
         var choices = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };

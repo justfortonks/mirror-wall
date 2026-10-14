@@ -10,6 +10,7 @@ struct SettingsView: View {
     // Read so the rows update when a folder is chosen; SaveFolders reads the same keys.
     @AppStorage(SaveFolders.Kind.recordings.key) private var recordingsPath = ""
     @AppStorage(SaveFolders.Kind.screenshots.key) private var screenshotsPath = ""
+    @AppStorage(Updater.channelKey) private var updateChannel = UpdateChannel.stable.rawValue
 
     var body: some View {
         TabView {
@@ -41,6 +42,19 @@ struct SettingsView: View {
                     Text("Alerts")
                 } footer: {
                     Text("It keeps bouncing until you click Mirror Wall. macOS doesn't bounce it while Mirror Wall is the app in front.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Picker("Check for Update offers", selection: $updateChannel) {
+                        Text("Releases (Stable)").tag(UpdateChannel.stable.rawValue)
+                        Text("Releases and test builds (Beta)").tag(UpdateChannel.beta.rawValue)
+                    }
+                } header: {
+                    Text("Updates")
+                } footer: {
+                    Text("Beta also offers test builds, whichever is newest. To go back, choose Stable, then Check for Update › Go Back. Mirror Wall only checks when you choose Mirror Wall › Check for Update.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

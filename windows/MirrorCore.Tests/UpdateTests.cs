@@ -30,11 +30,39 @@ public class LatestReleaseTests
     [Fact]
     public void Tags()
     {
-        Assert.Equal(109, LatestRelease.BuildFromTag("v0.109"));
-        Assert.Equal(7, LatestRelease.BuildFromTag("0.7"));
-        Assert.Null(LatestRelease.BuildFromTag("v1.2.3"));
-        Assert.Null(LatestRelease.BuildFromTag("nightly"));
+        Assert.Equal(new BuildNumber(109), BuildNumber.FromTag("v0.109"));
+        Assert.Equal(new BuildNumber(7), BuildNumber.FromTag("0.7"));
+        Assert.Equal(new BuildNumber(112, 7), BuildNumber.FromTag("v0.112-beta.7"));
+        Assert.Equal(new BuildNumber(112, 7), BuildNumber.FromTag("0.112-beta.7"));
+        Assert.Equal("0.112 beta 7", BuildNumber.FromTag("v0.112-beta.7")?.Version);
+        Assert.Null(BuildNumber.FromTag("v1.2.3"));
+        Assert.Null(BuildNumber.FromTag("v0.112-rc.1"));
+        Assert.Null(BuildNumber.FromTag("nightly"));
+        Assert.Null(BuildNumber.FromTag(""));
         Assert.Null(LatestRelease.Parse("{}", "MirrorWall-Setup.exe"));
         Assert.Null(LatestRelease.Parse("not json", "MirrorWall-Setup.exe"));
+    }
+
+    [Fact]
+    public void BetasSortBeforeTheirRelease()
+    {
+        Assert.True(new BuildNumber(112, 7) < new BuildNumber(112));
+        Assert.True(new BuildNumber(112, 7) < new BuildNumber(112, 8));
+        Assert.True(new BuildNumber(111) < new BuildNumber(112, 1));
+        Assert.True(new BuildNumber(112) >= new BuildNumber(112));
+    }
+
+    [Fact]
+    public void TheBetaChannelPicksTheHighestNumber()
+    {
+        static string Release(string tag, bool draft = false, string asset = "MirrorWall-Setup.exe") =>
+            $$"""{"tag_name": "{{tag}}", "draft": {{(draft ? "true" : "false")}}, "body": "", "assets": [{"name": "{{asset}}", "browser_download_url": "https://example.com/{{tag}}/{{asset}}"}]}""";
+        string list = "[" + string.Join(",", Release("v0.111"), Release("v0.113-beta.9", draft: true), Release("v0.112-beta.7"),
+            Release("v0.112-beta.8", asset: "MirrorWall.dmg"), Release("v0.110")) + "]";
+        var newest = LatestRelease.Parse(list, "MirrorWall-Setup.exe", UpdateChannel.Beta);
+        Assert.NotNull(newest);
+        Assert.Equal(new BuildNumber(112, 7), newest.Number);
+        Assert.Equal("https://example.com/v0.112-beta.7/MirrorWall-Setup.exe", newest.DownloadUrl?.AbsoluteUri);
+        Assert.Null(LatestRelease.Parse(list, "MirrorWall-Setup.exe", UpdateChannel.Stable)); // Stable reads a single release
     }
 }

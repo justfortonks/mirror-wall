@@ -10,6 +10,12 @@ import MirrorCore
 @MainActor
 enum Updater {
     private static var busy = false
+    /// Settings › General › Updates: Stable or Beta.
+    static let channelKey = "updateChannel"
+
+    static var channel: UpdateChannel {
+        UserDefaults.standard.string(forKey: channelKey).flatMap(UpdateChannel.init) ?? .stable
+    }
 
     static func check() {
         guard !busy else { return }
@@ -17,11 +23,12 @@ enum Updater {
         Task {
             defer { busy = false }
             do {
-                var request = URLRequest(url: LatestRelease.apiURL)
+                let channel = Self.channel
+                var request = URLRequest(url: LatestRelease.url(for: channel))
                 request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
                 request.setValue("Mirror Wall", forHTTPHeaderField: "User-Agent")
                 let (data, _) = try await URLSession.shared.data(for: request)
-                guard let release = LatestRelease(json: data, asset: "MirrorWall.dmg") else {
+                guard let release = LatestRelease(json: data, asset: "MirrorWall.dmg", channel: channel) else {
                     throw UpdateError("GitHub didn't list a release Mirror Wall could read.")
                 }
                 await offer(release)
@@ -31,26 +38,33 @@ enum Updater {
         }
     }
 
-    private static var currentBuild: Int? {
-        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
+    /// This copy's number, from its Info.plist (scripts/build-app.sh); nil when run from the
+    /// source folder.
+    static var current: BuildNumber? {
+        let info = Bundle.main.infoDictionary ?? [:]
+        guard Bundle.main.bundleURL.pathExtension == "app",
+              let build = (info["CFBundleVersion"] as? String).flatMap(Int.init) else { return nil }
+        return BuildNumber(build: build, beta: (info["MirrorWallBeta"] as? String).flatMap(Int.init))
     }
 
     private static func offer(_ release: LatestRelease) async {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        let installable = currentBuild != nil && release.downloadURL != nil
-        if let current = currentBuild, current >= release.build {
+        let installable = current != nil && release.downloadURL != nil
+        let newest = channel == .beta ? "the newest release or beta" : "the newest release"
+        if let current = Self.current, current >= release.number {
             alert.messageText = "Mirror Wall is up to date"
-            alert.informativeText = current == release.build
-                ? "You have \(release.version), the newest release."
-                : "You have 0.\(current), newer than the newest release (\(release.version))."
+            alert.informativeText = current == release.number
+                ? "You have \(release.version), \(newest)."
+                : "You have \(current.version), newer than \(newest) (\(release.version))."
             alert.addButton(withTitle: "OK")
-            // Puts a fresh copy of the release back, e.g. after trying a test build.
-            if installable { alert.addButton(withTitle: "Install \(release.version) Anyway") }
+            // Only when this copy is newer, e.g. a beta: goes back to the release.
+            let canGoBack = installable && current > release.number
+            if canGoBack { alert.addButton(withTitle: "Go Back to \(release.version)") }
             guard alert.runModal() == .alertSecondButtonReturn else { return }
         } else {
             alert.messageText = "Mirror Wall \(release.version) is available"
-            let have = currentBuild.map { "You have 0.\($0)." } ?? "This copy runs from the source folder, so it can't replace itself."
+            let have = current.map { "You have \($0.version)." } ?? "This copy runs from the source folder, so it can't replace itself."
             let notes = release.notes.isEmpty ? "" : "\n\n\(release.notes)"
             alert.informativeText = have + notes + (installable ? "\n\nMirror Wall will close, update and open again. Phones reconnect by themselves." : "")
             alert.addButton(withTitle: installable ? "Install and Reopen" : "Open Download Page")
