@@ -263,7 +263,9 @@ internal sealed class SlotTile : UserControl
 
         recordButton.Content = slot.RecordingSince == null ? Glyphs.Record : Glyphs.Stop;
         recordButton.Foreground = slot.RecordingSince == null ? (Brush)GetValue(ForegroundProperty) : Brushes.Red;
-        recordButton.ToolTip = slot.RecordingSince == null ? $"Start recording to {System.IO.Path.GetFileName(SaveFolders.Recordings)}" : "Stop recording";
+        recordButton.ToolTip = slot.RecordingSince != null ? "Stop recording"
+            : slot.ShowsPicture ? $"Start recording to {System.IO.Path.GetFileName(SaveFolders.Recordings)}"
+            : $"Record to {System.IO.Path.GetFileName(SaveFolders.Recordings)} when a phone connects";
         screenshotButton.IsEnabled = showsPicture;
         screenshotButton.ToolTip = $"Save a screenshot to {System.IO.Path.GetFileName(SaveFolders.Screenshots)}";
         phoneText.Text = slot.State == SlotState.Disconnected ? "" : slot.PhoneName ?? "";

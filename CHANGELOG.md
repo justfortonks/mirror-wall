@@ -21,7 +21,8 @@ if it hasn't been released yet.
   are set separately. Recordings and screenshots stay unframed. Off by default.
 - A slot's ⋯ menu is regrouped: its window, then screenshot and recording, then OBS, bezel and
   standby picture, then rename, Troubleshooting (log, restart) and remove. The recordings and
-  screenshots folders and Stats for Nerds are in the File and View menus.
+  screenshots folders and Stats for Nerds are in the File and View menus. While a slot waits for
+  a phone, Start Recording reads Record When a Phone Connects, which is what it does.
 - Settings is split into tabs: General (staying awake, the menu bar or tray icon, save folders,
   alerts), Wall (standby picture, bezels), OBS, and Phones (who can mirror).
 
