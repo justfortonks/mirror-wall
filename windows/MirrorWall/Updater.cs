@@ -76,13 +76,13 @@ internal static class Updater
             string have = current == release.Number
                 ? $"You have {release.Version}, {newest}."
                 : $"You have {current.Version}, newer than {newest} ({release.Version}).";
-            if (!installable)
+            // Only when this copy is newer, e.g. a beta: offers to go back to the release.
+            if (!installable || current == release.Number)
             {
-                Message(owner, have, MessageBoxButton.OK);
+                Message(owner, $"Mirror Wall is up to date. {have}", MessageBoxButton.OK);
                 return false;
             }
-            // Puts a fresh copy of the release back, e.g. after trying a test build.
-            return Message(owner, $"Mirror Wall is up to date. {have}\n\nInstall {release.Version} anyway?", MessageBoxButton.YesNo, MessageBoxResult.No) == MessageBoxResult.Yes;
+            return Message(owner, $"Mirror Wall is up to date. {have}\n\nGo back to {release.Version}?", MessageBoxButton.YesNo, MessageBoxResult.No) == MessageBoxResult.Yes;
         }
 
         string notes = release.Notes.Length > 0 ? $"\n\n{release.Notes}" : "";

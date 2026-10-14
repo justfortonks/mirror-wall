@@ -58,8 +58,9 @@ enum Updater {
                 ? "You have \(release.version), \(newest)."
                 : "You have \(current.version), newer than \(newest) (\(release.version))."
             alert.addButton(withTitle: "OK")
-            // Puts a fresh copy of the release back, e.g. after trying a test build.
-            if installable { alert.addButton(withTitle: "Install \(release.version) Anyway") }
+            // Only when this copy is newer, e.g. a beta: goes back to the release.
+            let canGoBack = installable && current > release.number
+            if canGoBack { alert.addButton(withTitle: "Go Back to \(release.version)") }
             guard alert.runModal() == .alertSecondButtonReturn else { return }
         } else {
             alert.messageText = "Mirror Wall \(release.version) is available"
