@@ -5,6 +5,11 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 14, 2026: Android app on the releases page
+
+- Each release now includes Mirror Wall Cast for Android (MirrorWallCast.apk) alongside the Mac
+  and Windows downloads, and the README links to it, so it no longer needs a GitHub sign-in.
+
 ## October 14, 2026: Stays awake, menu bar / tray icon, phone bezels
 
 - Mirror Wall keeps the computer and its screen awake while a phone is mirroring or a slot is

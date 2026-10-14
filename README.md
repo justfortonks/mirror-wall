@@ -10,6 +10,7 @@ iPhones connect through built-in AirPlay Screen Mirroring. Android phones use th
 |---|---|---|
 | macOS | [MirrorWall.dmg](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg) | Apple Silicon, macOS 26 or later |
 | Windows | [MirrorWall-Setup.exe](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe) | Windows 10 version 1809 or later, or Windows 11; x64 build |
+| Android (Mirror Wall Cast) | [MirrorWallCast.apk](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk) | Android 10 or later |
 
 These requirements apply to the packaged releases.
 
@@ -34,13 +35,13 @@ Nothing needs to be installed on the iPhone.
 
 Requires Android 10 or later.
 
-1. Install the Mirror Wall Cast APK from a successful [Android workflow run](https://github.com/justfortonks/mirror-wall/actions/workflows/android.yml), under the **MirrorWallCast** artifact.
+1. Install [MirrorWallCast.apk](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk) from the latest release (allow installing from your browser or file manager when asked), or deploy it with your device management.
 2. Open the app and choose an available slot.
 3. Approve Android’s screen-sharing prompt.
 
 If no slots appear, enter the computer’s address manually. Slot 1 uses port `7350`, slot 2 uses `7450`, and each following slot adds `100`.
 
-Android builds use a public test signing key unless a separate signing key is configured. The APK is currently distributed through GitHub Actions, separately from the desktop releases. Downloading an Actions artifact requires signing in to GitHub, and each build's artifact expires after 90 days, so use a recent run.
+Android builds use a public test signing key unless a separate signing key is configured, so each new version installs over the last one. Test builds between releases are under the **MirrorWallCast** artifact of an [Android workflow run](https://github.com/justfortonks/mirror-wall/actions/workflows/android.yml) (needs a GitHub sign-in; artifacts expire after 90 days).
 
 iPhones and Android phones can share the wall at the same time, with one phone per slot.
 
@@ -87,7 +88,7 @@ Build and test configuration:
 
 Add an entry to [CHANGELOG.md](CHANGELOG.md) for any change people will notice; the About box and each release's notes come from it.
 
-To publish a release, open **Actions → Release → Run workflow** with **Publish** ticked. It builds the Mac DMG and the Windows installer on GitHub's machines and publishes them as release `v0.<build number>`, with the exact UxPlay source attached.
+To publish a release, open **Actions → Release → Run workflow** with **Publish** ticked. It builds the Mac DMG, the Windows installer and the Android APK on GitHub's machines and publishes them as release `v0.<build number>`, with the exact UxPlay source attached.
 
 ## License
 
