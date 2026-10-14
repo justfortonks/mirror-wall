@@ -1,9 +1,11 @@
 # Builds MirrorWall.dmg on a GitHub Mac (UxPlay with this repository's patches, Syphon, the app)
-# and, when publishing, the Windows installer (windows.yml). Run it from the Actions tab
-# (Release › Run workflow) with "Publish" ticked to make a release with the DMG, the installer
-# and the UxPlay source attached; the newest release's downloads are always at
-# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg and
-# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe
+# and, when publishing, the Windows installer (windows.yml) and the Android app (android.yml).
+# Run it from the Actions tab (Release › Run workflow) with "Publish" ticked to make a release
+# with the DMG, the installer, the APK and the UxPlay source attached; the newest release's
+# downloads are always at
+# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg,
+# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe and
+# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk
 # Pull requests that change the Mac app or its packaging build the DMG too (kept as a workflow
 # artifact only). Release notes start with the CHANGELOG.md entries new since the last release.
 name: Release
@@ -73,8 +75,13 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     uses: ./.github/workflows/windows.yml
 
+  android:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
   publish:
-    needs: [dmg, windows]
+    needs: [dmg, windows, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,6 +96,11 @@ jobs:
         with:
           name: MirrorWall-Setup
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: MirrorWallCast
+          path: android-build
+
       - name: Publish a release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -98,6 +110,8 @@ jobs:
           else
             TAG="v0.$(git rev-list --count HEAD)"
           fi
+          # A fixed name, so the newest release's APK is always at …/latest/download/MirrorWallCast.apk.
+          cp android-build/MirrorWallCast-*.apk MirrorWallCast.apk
           PREVIOUS=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
           { echo "## What's new"; echo; scripts/release-notes.py "$PREVIOUS"; } > notes.md
           cat >> notes.md <<'NOTES'
@@ -115,9 +129,15 @@ jobs:
 
           **Download [MirrorWall-Setup.exe](https://github.com/${{ github.repository }}/releases/download/TAG/MirrorWall-Setup.exe)** and run it.
 
-          The installer isn't signed, so Windows SmartScreen may say it protected your PC: click **More info**, then **Run anyway**. It asks for administrator rights to add a firewall rule so iPhones can reach Mirror Wall. The PC's network must be set to **Private** (Settings › Network & internet › your network › Network profile type).
+          The installer isn't signed, so Windows SmartScreen may say it protected your PC: click **More info**, then **Run anyway**. It asks for administrator rights to add firewall rules so phones can reach Mirror Wall, on Private and Public networks.
 
           Needs 64-bit Windows 10 (1809) or Windows 11. Then on each iPhone (same network): Control Center › Screen Mirroring › pick "Mirror Wall 1" or another slot.
+
+          ### Android
+
+          **Download [MirrorWallCast.apk](https://github.com/${{ github.repository }}/releases/download/TAG/MirrorWallCast.apk)** on the phone and install it (allow installing from your browser or file manager when asked), or deploy it with your device management (for example an Intune line-of-business app).
+
+          Mirror Wall Cast shares an Android phone's screen to a Mirror Wall slot. Needs Android 10 or later, on the same network as the Mac or PC. Open it, pick a slot and approve Android's screen-sharing prompt. It's signed with the project's public test key, so each new version installs over the last one.
 
           ### Licence
 
@@ -125,8 +145,8 @@ jobs:
           NOTES
           sed -i "s/TAG/$TAG/g" notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" MirrorWall.dmg MirrorWall-Setup.exe build/UxPlay-source-*.tar.gz --clobber
+            gh release upload "$TAG" MirrorWall.dmg MirrorWall-Setup.exe MirrorWallCast.apk build/UxPlay-source-*.tar.gz --clobber
           else
-            gh release create "$TAG" MirrorWall.dmg MirrorWall-Setup.exe build/UxPlay-source-*.tar.gz \
+            gh release create "$TAG" MirrorWall.dmg MirrorWall-Setup.exe MirrorWallCast.apk build/UxPlay-source-*.tar.gz \
               --target "$GITHUB_SHA" --title "Mirror Wall ${TAG#v}" --notes-file notes.md
           fi
