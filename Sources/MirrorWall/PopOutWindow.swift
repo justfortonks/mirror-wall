@@ -103,7 +103,9 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
             .removeDuplicates()
             .sink { [weak self] size in
                 self?.videoSize = size
-                self?.fit()
+                // After the slot has stored the new size: resizing draws the window at once, and
+                // drawing it before then left its phone frame turned the old way.
+                DispatchQueue.main.async { self?.fit() }
             }
             .store(in: &cancellables)
         // The phone frame makes the window bigger than the picture.
