@@ -732,3 +732,34 @@ final class StageLayoutTests: XCTestCase {
         XCTAssertEqual(waiting.height, 1, accuracy: 1e-9)
     }
 }
+
+final class LatestReleaseTests: XCTestCase {
+    private let answer = #"""
+    {
+      "tag_name": "v0.109",
+      "html_url": "https://github.com/justfortonks/mirror-wall/releases/tag/v0.109",
+      "body": "## What's new\n\n### October 14, 2026: Android app\n\n- Each release now includes\n  Mirror Wall Cast.\n- Second.\n\n## Install\n\n### Mac\n\nDownload it.",
+      "assets": [
+        {"name": "MirrorWall-Setup.exe", "browser_download_url": "https://github.com/justfortonks/mirror-wall/releases/download/v0.109/MirrorWall-Setup.exe"},
+        {"name": "MirrorWall.dmg", "browser_download_url": "https://github.com/justfortonks/mirror-wall/releases/download/v0.109/MirrorWall.dmg"}
+      ]
+    }
+    """#
+
+    func testReadsGitHubsAnswer() throws {
+        let release = try XCTUnwrap(LatestRelease(json: Data(answer.utf8), asset: "MirrorWall.dmg"))
+        XCTAssertEqual(release.build, 109)
+        XCTAssertEqual(release.version, "0.109")
+        XCTAssertEqual(release.downloadURL?.lastPathComponent, "MirrorWall.dmg")
+        XCTAssertEqual(release.notes, "October 14, 2026: Android app\n\n• Each release now includes Mirror Wall Cast.\n• Second.")
+        XCTAssertNil(LatestRelease(json: Data(answer.utf8), asset: "Other.zip")?.downloadURL)
+    }
+
+    func testTags() {
+        XCTAssertEqual(LatestRelease.build(fromTag: "v0.109"), 109)
+        XCTAssertEqual(LatestRelease.build(fromTag: "0.7"), 7)
+        XCTAssertNil(LatestRelease.build(fromTag: "v1.2.3"))
+        XCTAssertNil(LatestRelease.build(fromTag: "nightly"))
+        XCTAssertNil(LatestRelease(json: Data("{}".utf8), asset: "MirrorWall.dmg"))
+    }
+}

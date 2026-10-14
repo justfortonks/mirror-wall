@@ -71,6 +71,7 @@ internal sealed class TrayIcon : IDisposable
             MainWindow.ShowMain();
             if (Application.Current.MainWindow is Window wall) SettingsWindow.Show(wall, store);
         }));
+        menu.Items.Add("Check for Update…", null, (_, _) => Later(() => Updater.Check(Application.Current.MainWindow)));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit Mirror Wall", null, (_, _) => Later(App.Current.Quit));
     }
