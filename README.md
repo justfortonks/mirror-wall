@@ -51,7 +51,7 @@ iPhones and Android phones can share the wall at the same time, with one phone p
 - **Open a separate window:** Click the arrow on a tile or choose **Open in Own Window** from its **⋯** menu. Adjust sizing under **View → Pop-out Window Size**.
 - **Take a screenshot or record:** Use the camera and record buttons, or the tile’s menu. Files go to `Documents/MirrorWall/Screenshots` and `Documents/MirrorWall/Recordings` by default; change these in Settings.
 - **Customize a slot:** Rename it, choose a standby picture, restart its receiver, or view its log from the **⋯** menu.
-- **Phone bezels:** Draw a phone-shaped frame around every slot from Settings → **Phone bezels**, or around one slot from its **⋯** menu → **Phone Bezel**. Recordings, screenshots and OBS feeds stay unframed.
+- **Phone bezels:** Draw a phone-shaped frame around every slot from Settings → **Phone bezels**, or around one slot from its **⋯** menu → **Phone Bezel**. Recordings and screenshots stay unframed; a slot's **⋯** menu → **Phone Bezel in OBS Feed** sends OBS the framed phone, with see-through corners.
 - **Menu bar or tray icon:** Lists every slot and its status. While it's shown, closing the wall leaves Mirror Wall running; quit from the icon's menu. Turn it off in Settings.
 - **Staying awake:** The computer and its screen stay awake while a phone is mirroring or a slot is recording. Turn this off in Settings.
 - **Adjust the picture:** The View menu includes frame-rate limits, **Smoother Motion**, **Sharper Picture (H.265)**, and **Stats for Nerds**.

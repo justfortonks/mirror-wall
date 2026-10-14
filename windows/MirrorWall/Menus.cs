@@ -82,6 +82,8 @@ internal static class Menus
                 store.SetObsFeed(slot, on);
                 if (on) ObsSpoutPlugin.CheckWhenFeedTurnedOn(owner);
             }, isChecked: slot.SendsToObs);
+            yield return Item("Phone Bezel in OBS Feed", () => store.SetFramesObsFeed(slot, !slot.FramesObsFeed),
+                enabled: slot.SendsToObs, isChecked: slot.FramesObsFeed);
         }
         yield return Item("Rename…", () => RenameDialog.Show(owner, slot, store));
         yield return Item("Restart", () => store.Restart(slot));

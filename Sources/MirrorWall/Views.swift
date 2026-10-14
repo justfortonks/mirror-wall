@@ -325,6 +325,11 @@ struct SlotTile: View {
                 get: { slot.sendsToOBS },
                 set: { store.setOBSFeed(slot, on: $0) }
             ))
+            Toggle("Phone Bezel in OBS Feed", isOn: Binding(
+                get: { slot.framesOBSFeed },
+                set: { store.setFramesOBSFeed(slot, on: $0) }
+            ))
+            .disabled(!slot.sendsToOBS)
         }
         Button("Rename…") {
             newName = slot.name

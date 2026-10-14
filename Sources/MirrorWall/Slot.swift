@@ -229,6 +229,7 @@ final class Slot: ObservableObject, Identifiable {
             } else if let feed = SyphonFeed(name: name) {
                 syphonFeed = feed
                 feed.passesFrames = carriesPhoneFrames
+                updateFeedBezel()
                 renderer.onShow = { [weak feed] image in feed?.publishFrame(image) }
                 if let image = renderer.currentImage { feed.publishFrame(image) }
             } else {
@@ -258,6 +259,23 @@ final class Slot: ObservableObject, Identifiable {
     /// The frame for a picture of this size (the phone's shape), styled after the last phone.
     func bezel(for picture: CGSize) -> BezelGeometry {
         BezelGeometry(modelCode: config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height)
+    }
+
+    /// Whether the OBS feed has the phone frame around the picture, with see-through corners.
+    var framesOBSFeed: Bool { config.feedBezel ?? false }
+
+    /// Puts the phone frame around the OBS feed's picture, or takes it off. The store re-sends
+    /// the standby picture.
+    func setFramesOBSFeed(_ on: Bool) {
+        objectWillChange.send()
+        config.feedBezel = on ? true : nil
+        updateFeedBezel()
+        if showsPicture, let image = renderer.currentImage { syphonFeed?.publishFrame(image) }
+    }
+
+    /// The feed's frame follows the last phone's model.
+    private func updateFeedBezel() {
+        syphonFeed?.bezelStyle = framesOBSFeed ? BezelStyle(modelCode: config.lastPhoneModel) : nil
     }
 
     /// True while the slot is sending its picture to OBS through Syphon.
@@ -553,6 +571,7 @@ final class Slot: ObservableObject, Identifiable {
                 objectWillChange.send()
                 config.lastPhoneName = name
                 if !model.isEmpty { config.lastPhoneModel = model }
+                updateFeedBezel()
                 onConfigChanged?()
             }
             state = .connecting
