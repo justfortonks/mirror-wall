@@ -4,6 +4,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- Only for the notification area icon (TrayIcon.cs). -->
+    <UseWindowsForms>true</UseWindowsForms>
     <!-- Lets the app build (not run) on a Mac or Linux too, for checking changes. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
@@ -19,6 +21,12 @@
     <!-- ThemeMode (Windows 11 look, light or dark like Windows) is marked experimental. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Windows Forms' names would clash with WPF's; TrayIcon.cs names them in full. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="FFmpeg.AutoGen" Version="9.0.1.1" />

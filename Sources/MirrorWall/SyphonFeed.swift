@@ -1,8 +1,10 @@
 import CoreGraphics
 import CoreVideo
 import Foundation
+import MirrorCore
 
 #if canImport(Syphon)
+import CoreImage
 import Metal
 import Syphon
 import VideoToolbox
@@ -25,12 +27,32 @@ final class SyphonFeed {
     private var pool: CVPixelBufferPool?
     private var poolSize = (width: 0, height: 0)
     private let queue = DispatchQueue(label: "Mirror Wall Syphon", qos: .userInteractive)
+    // Framing, used on `queue` only.
+    private lazy var ciContext = CIContext(mtlDevice: device, options: [.workingColorSpace: NSNull(), .cacheIntermediates: false])
+    private var overlay: PhoneBezelDrawing.Overlay?
+    private var overlayFor: OverlayKey?
+    private var framedPool: CVPixelBufferPool?
+    private var framedPoolSize = (width: 0, height: 0)
+
+    private struct OverlayKey: Equatable {
+        let style: BezelStyle
+        let width: Int
+        let height: Int
+    }
 
     private let lock = NSLock()
     // Guarded by `lock`.
     private var waiting: CVImageBuffer?
     private var busy = false
     private var framesOn = true
+    private var frameStyle: BezelStyle?
+
+    /// The phone frame drawn around each picture, with see-through corners; nil for the bare
+    /// picture. Applies from the next picture sent.
+    var bezelStyle: BezelStyle? {
+        get { lock.lock(); defer { lock.unlock() }; return frameStyle }
+        set { lock.lock(); frameStyle = newValue; lock.unlock() }
+    }
 
     /// Whether the phone's frames get through. Turned off the moment the phone leaves, so its
     /// last few frames, still being decoded or held for Smoother Motion, can't land on top of
@@ -88,15 +110,20 @@ final class SyphonFeed {
                 return
             }
             waiting = nil
+            let style = frameStyle
             lock.unlock()
-            send(image)
+            send(image, style: style)
         }
     }
 
-    private func send(_ image: CVImageBuffer) {
+    private func send(_ image: CVImageBuffer, style: BezelStyle?) {
         // Sent even with no OBS source listening: the server keeps the latest frame, so a source
         // added later shows the current picture at once, even if the phone's screen is still.
-        guard let bgra = convert(image), let textureCache else { return }
+        guard var bgra = convert(image), let textureCache else { return }
+        if let style {
+            guard let framed = framed(bgra, style: style) else { return }
+            bgra = framed
+        }
         let width = CVPixelBufferGetWidth(bgra)
         let height = CVPixelBufferGetHeight(bgra)
         var cvTexture: CVMetalTexture?
@@ -115,7 +142,32 @@ final class SyphonFeed {
         guard let transfer else { return nil }
         let width = CVPixelBufferGetWidth(image)
         let height = CVPixelBufferGetHeight(image)
-        if pool == nil || poolSize != (width, height) {
+        guard let output = Self.makeBuffer(from: &pool, size: &poolSize, width: width, height: height),
+              VTPixelTransferSessionTransferImage(transfer, from: image, to: output) == noErr else { return nil }
+        return output
+    }
+
+    /// The picture inside its phone frame, on the GPU, with see-through corners.
+    private func framed(_ picture: CVPixelBuffer, style: BezelStyle) -> CVPixelBuffer? {
+        let key = OverlayKey(style: style, width: CVPixelBufferGetWidth(picture), height: CVPixelBufferGetHeight(picture))
+        if overlayFor != key {
+            overlay = PhoneBezelDrawing.overlay(style: style, width: key.width, height: key.height)
+            overlayFor = key
+        }
+        guard let overlay,
+              let output = Self.makeBuffer(from: &framedPool, size: &framedPoolSize, width: overlay.image.width, height: overlay.image.height)
+        else { return nil }
+        // Core Image counts y from the bottom.
+        let screen = CIImage(cvPixelBuffer: picture)
+            .transformed(by: CGAffineTransform(translationX: CGFloat(overlay.left), y: CGFloat(overlay.bottom)))
+        let phone = CIImage(cgImage: overlay.image).composited(over: screen)
+        ciContext.render(phone, to: output, bounds: CGRect(x: 0, y: 0, width: overlay.image.width, height: overlay.image.height), colorSpace: nil)
+        return output
+    }
+
+    /// A BGRA buffer Metal can read, from a pool kept for that size.
+    private static func makeBuffer(from pool: inout CVPixelBufferPool?, size: inout (width: Int, height: Int), width: Int, height: Int) -> CVPixelBuffer? {
+        if pool == nil || size != (width, height) {
             let attributes: [CFString: Any] = [
                 kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
                 kCVPixelBufferWidthKey: width,
@@ -125,12 +177,11 @@ final class SyphonFeed {
             ]
             pool = nil
             CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &pool)
-            poolSize = (width, height)
+            size = (width, height)
         }
         guard let pool else { return nil }
         var output: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &output)
-        guard let output, VTPixelTransferSessionTransferImage(transfer, from: image, to: output) == noErr else { return nil }
         return output
     }
 }
@@ -144,6 +195,7 @@ final class SyphonFeed {
     init?(name: String) { return nil }
     var name = ""
     var passesFrames = true
+    var bezelStyle: BezelStyle?
     func publish(_ image: CVImageBuffer) {}
     func publishFrame(_ image: CVImageBuffer) {}
     func stop() {}

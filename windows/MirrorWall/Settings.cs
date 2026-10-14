@@ -22,6 +22,13 @@ internal sealed class Settings
     /// <summary>Every slot sends its picture to OBS through Spout unless its own menu says
     /// otherwise (<see cref="SlotConfig.ObsFeed"/>). Off by default.</summary>
     public bool ObsFeedForAllSlots { get; set; }
+    /// <summary>Every slot shows a phone frame around its picture unless its own menu says otherwise
+    /// (<see cref="SlotConfig.Bezel"/>). Off by default.</summary>
+    public bool BezelsForAllSlots { get; set; }
+    /// <summary>Keep the PC and its screen awake while a phone is mirroring or a slot is recording.</summary>
+    public bool KeepAwake { get; set; } = true;
+    /// <summary>Show an icon in the notification area, and keep running when the wall is closed.</summary>
+    public bool TrayIcon { get; set; } = true;
     /// <summary>Where each slot's own window was, by slot number.</summary>
     public Dictionary<int, double[]> PopOutPositions { get; set; } = new();
     /// <summary>Each slot's own Custom size: its window's longer side, by slot number.</summary>

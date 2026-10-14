@@ -23,6 +23,8 @@ internal sealed class SlotTile : UserControl
 
     private readonly AspectBox pictureBox = new();
     private readonly Border frame = new() { Background = Brushes.Black, CornerRadius = new CornerRadius(12), ClipToBounds = true };
+    /// <summary>Holds <see cref="frame"/> while the slot shows a phone bezel.</summary>
+    private readonly PhoneBezelFrame bezelFrame = new();
     private readonly Image picture = new() { Stretch = Stretch.Uniform };
     private readonly Grid standby = new();
     private readonly StackPanel placeholder = new() { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(14) };
@@ -90,7 +92,7 @@ internal sealed class SlotTile : UserControl
         layers.Children.Add(stats);
         layers.Children.Add(popOutButton);
         frame.Child = layers;
-        frame.SizeChanged += (_, _) => frame.Clip = new RectangleGeometry(new Rect(frame.RenderSize), 12, 12);
+        frame.SizeChanged += (_, _) => ClipFrame();
         frame.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ClickCount == 2) toggleFocus(slot);
@@ -195,7 +197,29 @@ internal sealed class SlotTile : UserControl
         var standbyPicture = store.StandbyFor(slot);
         bool hasStandbyImage = standbyPicture.Kind == StandbyKind.Image;
 
-        pictureBox.Ratio = slot.VideoSize is { Height: > 0 } size ? size.Width / size.Height : 9.0 / 19.5;
+        var shape = slot.VideoSize is { Width: > 0, Height: > 0 } size ? size : new Size(9, 19.5);
+        if (slot.ShowsBezel)
+        {
+            bezelFrame.Update(slot.Bezel(shape), shape);
+            if (pictureBox.Child != bezelFrame)
+            {
+                pictureBox.Child = null;
+                bezelFrame.Content = frame;
+                pictureBox.Child = bezelFrame;
+                ClipFrame();
+            }
+            pictureBox.Ratio = bezelFrame.Ratio;
+        }
+        else
+        {
+            if (pictureBox.Child != frame)
+            {
+                bezelFrame.Content = null;
+                pictureBox.Child = frame;
+                ClipFrame();
+            }
+            pictureBox.Ratio = shape.Width / shape.Height;
+        }
         UpdateMaxWidth();
         picture.Source = slot.Renderer.Bitmap;
         picture.Visibility = showsPicture ? Visibility.Visible : Visibility.Hidden;
@@ -239,11 +263,21 @@ internal sealed class SlotTile : UserControl
 
         recordButton.Content = slot.RecordingSince == null ? Glyphs.Record : Glyphs.Stop;
         recordButton.Foreground = slot.RecordingSince == null ? (Brush)GetValue(ForegroundProperty) : Brushes.Red;
-        recordButton.ToolTip = slot.RecordingSince == null ? $"Start recording to {System.IO.Path.GetFileName(SaveFolders.Recordings)}" : "Stop recording";
+        recordButton.ToolTip = slot.RecordingSince != null ? "Stop recording"
+            : slot.ShowsPicture ? $"Start recording to {System.IO.Path.GetFileName(SaveFolders.Recordings)}"
+            : $"Record to {System.IO.Path.GetFileName(SaveFolders.Recordings)} when a phone connects";
         screenshotButton.IsEnabled = showsPicture;
         screenshotButton.ToolTip = $"Save a screenshot to {System.IO.Path.GetFileName(SaveFolders.Screenshots)}";
         phoneText.Text = slot.State == SlotState.Disconnected ? "" : slot.PhoneName ?? "";
         UpdateTimes();
+    }
+
+    /// <summary>Rounds the picture's corners on the bare wall; in a bezel, the bezel rounds them.</summary>
+    private void ClipFrame()
+    {
+        double radius = slot.ShowsBezel ? 0 : 12;
+        frame.CornerRadius = new CornerRadius(radius);
+        frame.Clip = new RectangleGeometry(new Rect(frame.RenderSize), radius, radius);
     }
 
     private void UpdateTimes()

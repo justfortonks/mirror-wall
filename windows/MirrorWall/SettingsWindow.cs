@@ -6,13 +6,15 @@ using MirrorWall.Core;
 
 namespace MirrorWall;
 
-/// <summary>File › Settings: who can mirror, the standby picture, OBS and own windows, where files
-/// are saved, and alerts.</summary>
+/// <summary>File › Settings, in tabs: General (staying awake, the tray icon, save folders, alerts),
+/// Wall (standby picture, bezels), OBS, and Phones (who can mirror).</summary>
 internal sealed class SettingsWindow : Window
 {
     private static SettingsWindow? open;
     private readonly SlotStore store;
-    private readonly StackPanel content = new() { Margin = new Thickness(20) };
+    private readonly TabControl tabs = new() { Margin = new Thickness(8) };
+    /// <summary>The tab being built.</summary>
+    private StackPanel content = new();
 
     public static void Show(Window owner, SlotStore store)
     {
@@ -31,12 +33,12 @@ internal sealed class SettingsWindow : Window
         this.store = store;
         Title = "Mirror Wall Settings";
         Width = 520;
-        Height = 760;
+        Height = 560;
         MinWidth = 420;
         MinHeight = 400;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = content };
+        Content = tabs;
         store.PropertyChanged += StoreChanged;
         Closed += (_, _) => store.PropertyChanged -= StoreChanged;
         Build();
@@ -46,7 +48,8 @@ internal sealed class SettingsWindow : Window
     {
         if (e.PropertyName is nameof(SlotStore.KnownPhones) or nameof(SlotStore.AllowListEnabled)
             or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect)
-            or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows))
+            or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows)
+            or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.KeepsAwake) or nameof(SlotStore.ShowsTrayIcon))
         {
             Build();
         }
@@ -55,16 +58,30 @@ internal sealed class SettingsWindow : Window
     /// <summary>Rebuilt whenever a setting changes, so every row matches.</summary>
     private void Build()
     {
-        content.Children.Clear();
+        int selected = tabs.SelectedIndex;
+        tabs.Items.Clear();
 
-        Header("Who can mirror");
-        var onlyTicked = new CheckBox { Content = "Only allow the phones ticked below", IsChecked = store.AllowListEnabled };
-        onlyTicked.Click += (_, _) => store.SetAllowListEnabled(onlyTicked.IsChecked == true);
-        content.Children.Add(onlyTicked);
-        if (store.KnownPhones.Count == 0) Note("Phones appear here once they've mirrored to this PC.", 0.7);
-        foreach (var phone in store.KnownPhones) content.Children.Add(PhoneRow(phone));
-        Note("Off: any iPhone on your network can mirror to a slot. Changing this restarts the slots, so phones mirroring now will need to reconnect. If a ticked phone can't connect, turn this off, mirror once, and turn it back on.");
+        Tab("General");
+        Header("While mirroring");
+        var awake = new CheckBox { Content = "Keep the PC and its screen awake while a phone is mirroring", IsChecked = store.KeepsAwake };
+        awake.Click += (_, _) => store.SetKeepsAwake(awake.IsChecked == true);
+        content.Children.Add(awake);
+        var tray = new CheckBox { Content = "Show Mirror Wall in the notification area", IsChecked = store.ShowsTrayIcon, Margin = new Thickness(0, 8, 0, 0) };
+        tray.Click += (_, _) => store.SetShowsTrayIcon(tray.IsChecked == true);
+        content.Children.Add(tray);
+        Note("Awake also covers recording, and ends once no phone is mirroring. Choosing Sleep or closing a laptop's lid still works. With the icon, closing the wall's window leaves Mirror Wall running, so phones keep mirroring to their own windows and OBS; exit from the icon's menu or File › Exit.");
 
+        Header("Save to");
+        content.Children.Add(FolderRow("Recordings", Settings.Current.RecordingsFolder, SaveFolders.DefaultRecordings, path => Settings.Current.RecordingsFolder = path));
+        content.Children.Add(FolderRow("Screenshots", Settings.Current.ScreenshotsFolder, SaveFolders.DefaultScreenshots, path => Settings.Current.ScreenshotsFolder = path));
+
+        Header("Alerts");
+        var flash = new CheckBox { Content = "Flash the taskbar button when a phone disconnects", IsChecked = store.FlashOnDisconnect };
+        flash.Click += (_, _) => store.FlashOnDisconnect = flash.IsChecked == true;
+        content.Children.Add(flash);
+        Note("It keeps flashing until you click Mirror Wall. Windows doesn't flash it while Mirror Wall is the app in front.");
+
+        Tab("Wall");
         Header("Standby picture");
         var choices = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
         choices.Items.Add("Waiting message");
@@ -95,6 +112,13 @@ internal sealed class SettingsWindow : Window
         }
         Note("What every slot, and its own window, shows while no phone is mirroring. A slot can have its own from its ⋯ menu. Images are scaled to fit, with black bars if the shape differs.");
 
+        Header("Phone bezels");
+        var bezels = new CheckBox { Content = "Show a phone frame around every slot", IsChecked = store.BezelsForAllSlots };
+        bezels.Click += (_, _) => store.SetBezelsForAllSlots(bezels.IsChecked == true);
+        content.Children.Add(bezels);
+        Note("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings and screenshots stay unframed; the OBS (Spout) feed does too unless a slot's ⋯ menu › Phone Bezel › In the OBS Feed is on.");
+
+        Tab("OBS");
         Header("OBS and own windows");
         var everySlot = new CheckBox
         {
@@ -115,15 +139,28 @@ internal sealed class SettingsWindow : Window
         content.Children.Add(reopen);
         Note("Sending to OBS applies to every slot, including ones you add later; a slot's ⋯ menu can still turn its own feed off or on. Own windows that were open when Mirror Wall quit stay closed unless the second switch is on.");
 
-        Header("Save to");
-        content.Children.Add(FolderRow("Recordings", Settings.Current.RecordingsFolder, SaveFolders.DefaultRecordings, path => Settings.Current.RecordingsFolder = path));
-        content.Children.Add(FolderRow("Screenshots", Settings.Current.ScreenshotsFolder, SaveFolders.DefaultScreenshots, path => Settings.Current.ScreenshotsFolder = path));
+        Tab("Phones");
+        Header("Who can mirror");
+        var onlyTicked = new CheckBox { Content = "Only allow the phones ticked below", IsChecked = store.AllowListEnabled };
+        onlyTicked.Click += (_, _) => store.SetAllowListEnabled(onlyTicked.IsChecked == true);
+        content.Children.Add(onlyTicked);
+        if (store.KnownPhones.Count == 0) Note("Phones appear here once they've mirrored to this PC.", 0.7);
+        foreach (var phone in store.KnownPhones) content.Children.Add(PhoneRow(phone));
+        Note("Off: any iPhone on your network can mirror to a slot. Changing this restarts the slots, so phones mirroring now will need to reconnect. If a ticked phone can't connect, turn this off, mirror once, and turn it back on.");
 
-        Header("Alerts");
-        var flash = new CheckBox { Content = "Flash the taskbar button when a phone disconnects", IsChecked = store.FlashOnDisconnect };
-        flash.Click += (_, _) => store.FlashOnDisconnect = flash.IsChecked == true;
-        content.Children.Add(flash);
-        Note("It keeps flashing until you click Mirror Wall. Windows doesn't flash it while Mirror Wall is the app in front.");
+        tabs.SelectedIndex = Math.Max(0, selected);
+    }
+
+    /// <summary>Starts a tab; the headers, rows and notes that follow go in it.</summary>
+    private void Tab(string title)
+    {
+        content = new StackPanel { Margin = new Thickness(16) };
+        tabs.Items.Add(new TabItem
+        {
+            Header = title,
+            Padding = new Thickness(12, 4, 12, 4),
+            Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = content },
+        });
     }
 
     private UIElement PhoneRow(KnownPhone phone)

@@ -103,8 +103,16 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
             .removeDuplicates()
             .sink { [weak self] size in
                 self?.videoSize = size
-                self?.fit()
+                // After the slot has stored the new size: resizing draws the window at once, and
+                // drawing it before then left its phone frame turned the old way.
+                DispatchQueue.main.async { self?.fit() }
             }
+            .store(in: &cancellables)
+        // The phone frame makes the window bigger than the picture.
+        slot.$showsBezel
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.fit() } }
             .store(in: &cancellables)
         // A different phone may be a different size.
         slot.$phoneName
@@ -164,13 +172,22 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
     /// Gives the window the picture's shape (portrait or landscape, a portrait iPhone until the
     /// first picture arrives) at the chosen size, keeping its top-left corner where it is. The
     /// picture fills the whole frame (the title bar is see-through), so the frame itself takes
-    /// the picture's shape.
+    /// the picture's shape. With a phone bezel, the picture keeps its size and the window grows
+    /// by the bezel around it (a Custom size is the whole window's).
     private func fit() {
         let picture = videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
-        // Resizing by dragging keeps the picture's shape.
-        window.aspectRatio = picture
-        let scale = longSide(for: picture) / max(picture.width, picture.height)
-        let newSize = NSSize(width: (picture.width * scale).rounded(), height: (picture.height * scale).rounded())
+        var shape = picture
+        var pictureLongSide = max(picture.width, picture.height)
+        if let slot, slot.showsBezel {
+            let outer = slot.bezel(for: picture).outerSize(pictureWidth: picture.width, pictureHeight: picture.height)
+            let unit = min(picture.width, picture.height)
+            shape = CGSize(width: outer.width * unit, height: outer.height * unit)
+            if size == .custom { pictureLongSide = max(shape.width, shape.height) }
+        }
+        // Resizing by dragging keeps the shape.
+        window.aspectRatio = shape
+        let scale = longSide(for: picture) / pictureLongSide
+        let newSize = NSSize(width: (shape.width * scale).rounded(), height: (shape.height * scale).rounded())
         var frame = window.frame
         guard frame.size != newSize else { return }
         frame.origin.y += frame.height - newSize.height
@@ -187,11 +204,15 @@ struct PopOutView: View {
     let onHover: (Bool) -> Void
 
     var body: some View {
-        ZStack {
-            Color.black
-            VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture)
-            if !slot.showsPicture {
-                StandbyContent(standby: store.standby(for: slot), slot: slot)
+        Group {
+            if slot.showsBezel {
+                let shape = slot.videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
+                ZStack {
+                    Color.black
+                    PhoneBezel(geometry: slot.bezel(for: shape), picture: shape) { picture }
+                }
+            } else {
+                picture
             }
         }
         .ignoresSafeArea()
@@ -202,6 +223,16 @@ struct PopOutView: View {
                 PopOutSizeItems(store: store)
             }
             Button("Close This Window", action: onClose)
+        }
+    }
+
+    private var picture: some View {
+        ZStack {
+            Color.black
+            VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture)
+            if !slot.showsPicture {
+                StandbyContent(standby: store.standby(for: slot), slot: slot)
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import SwiftUI
 @main
 struct MirrorWallApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @AppStorage(SlotStore.menuBarIconKey) private var showsMenuBarIcon = true
 
     var body: some Scene {
         Window("Mirror Wall", id: "main") {
@@ -42,6 +43,88 @@ struct MirrorWallApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appDelegate.store)
+        }
+
+        MenuBarExtra(isInserted: $showsMenuBarIcon) {
+            MenuBarMenu(store: appDelegate.store)
+        } label: {
+            MenuBarLabel(store: appDelegate.store)
+        }
+    }
+}
+
+/// The menu bar icon: filled while a phone is mirroring or a slot is recording.
+struct MenuBarLabel: View {
+    @ObservedObject var store: SlotStore
+
+    var body: some View {
+        Image(systemName: store.anySlotInUse ? "rectangle.grid.2x2.fill" : "rectangle.grid.2x2")
+            .accessibilityLabel("Mirror Wall")
+    }
+}
+
+/// The menu bar icon's menu: every slot and how it's doing, and ways back to the wall. With the
+/// icon there, closing the wall's window leaves Mirror Wall running, so phones keep mirroring
+/// to their own windows and OBS.
+struct MenuBarMenu: View {
+    @ObservedObject var store: SlotStore
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        ForEach(store.slots) { slot in
+            MenuBarSlotItem(slot: slot, store: store)
+        }
+        Divider()
+        Button("Show Mirror Wall Window") {
+            MainWindow.open = openWindow
+            MainWindow.show()
+        }
+        if store.isAnyRecording {
+            Button("Stop All Recordings") { store.stopAllRecordings() }
+        } else {
+            Button("Record All Slots") { store.startAllRecordings() }
+        }
+        Button("Settings…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
+        Divider()
+        Button("Quit Mirror Wall") { NSApp.terminate(nil) }
+    }
+}
+
+/// One slot in the menu bar icon's menu, e.g. "● Mirror Wall 1: Live, Tom's iPhone". Choosing it
+/// opens the slot's own window, or brings it forward.
+struct MenuBarSlotItem: View {
+    @ObservedObject var slot: Slot
+    let store: SlotStore
+
+    var body: some View {
+        Button("\(dot) \(slot.name): \(status)") { store.openOwnWindow(slot) }
+    }
+
+    private var dot: String {
+        switch slot.state {
+        case .live: return "🟢"
+        case .waiting, .connecting, .paused: return "🟡"
+        case .disconnected: return "🟠"
+        case .stopped: return "⚪️"
+        case .failed: return "🔴"
+        }
+    }
+
+    private var status: String {
+        let phone = slot.phoneName.map { ", \($0)" } ?? ""
+        let recording = slot.recordingSince == nil ? "" : ", recording"
+        switch slot.state {
+        case .stopped: return "Stopped"
+        case .failed: return "Error"
+        case .waiting: return "Waiting"
+        case .connecting: return "Connecting" + phone
+        case .disconnected: return "Disconnected"
+        case .paused: return "Screen off" + phone + recording
+        case .live: return "Live" + phone + recording
         }
     }
 }
@@ -155,8 +238,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    /// Closing the wall quits Mirror Wall, unless its menu bar icon is there to bring it back.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        !UserDefaults.standard.bool(forKey: SlotStore.menuBarIconKey)
     }
 }
 
