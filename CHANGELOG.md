@@ -17,8 +17,8 @@ if it hasn't been released yet.
   styled after the phone (home button, notch or Dynamic Island; a plain phone for Android).
   Settings › Phone bezels turns them on for every slot; a slot's ⋯ menu › Phone Bezel turns its
   own on or off. Recordings and screenshots stay unframed. Off by default.
-- A slot's ⋯ menu › Phone Bezel in OBS Feed sends OBS the phone inside its frame, with see-
-  through corners (on a Mac, tick "Allow Transparency" in the Syphon Client source). Off by
+- A slot's ⋯ menu › Phone Bezel in OBS Feed sends OBS the phone inside its frame, with
+  see-through corners (on a Mac, tick "Allow Transparency" in the Syphon Client source). Off by
   default, so the feed stays the bare picture.
 
 ## October 13, 2026: Settings for OBS and own windows
