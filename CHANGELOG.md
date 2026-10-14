@@ -5,6 +5,13 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 14, 2026: Beta updates
+
+- Settings › General › Updates chooses what Check for Update offers: releases only (Stable, the
+  default), or releases and test builds (Beta), whichever is newest. Test builds are published
+  as GitHub pre-releases numbered like "0.112 beta 7", shown in About, so two test builds are
+  never mistaken for each other. To go back, choose Stable and install the release anyway.
+
 ## October 14, 2026: Check for Update
 
 - Mirror Wall › Check for Update… (Help › Check for Update… on Windows, and in the menu bar or

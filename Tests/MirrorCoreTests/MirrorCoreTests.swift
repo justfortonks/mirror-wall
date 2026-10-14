@@ -686,10 +686,31 @@ final class LatestReleaseTests: XCTestCase {
     }
 
     func testTags() {
-        XCTAssertEqual(LatestRelease.build(fromTag: "v0.109"), 109)
-        XCTAssertEqual(LatestRelease.build(fromTag: "0.7"), 7)
-        XCTAssertNil(LatestRelease.build(fromTag: "v1.2.3"))
-        XCTAssertNil(LatestRelease.build(fromTag: "nightly"))
+        XCTAssertEqual(BuildNumber(tag: "v0.109"), BuildNumber(build: 109))
+        XCTAssertEqual(BuildNumber(tag: "0.7"), BuildNumber(build: 7))
+        XCTAssertEqual(BuildNumber(tag: "v0.112-beta.7"), BuildNumber(build: 112, beta: 7))
+        XCTAssertEqual(BuildNumber(tag: "v0.112-beta.7")?.version, "0.112 beta 7")
+        XCTAssertNil(BuildNumber(tag: "v1.2.3"))
+        XCTAssertNil(BuildNumber(tag: "v0.112-rc.1"))
+        XCTAssertNil(BuildNumber(tag: "nightly"))
+        XCTAssertNil(BuildNumber(tag: ""))
         XCTAssertNil(LatestRelease(json: Data("{}".utf8), asset: "MirrorWall.dmg"))
+    }
+
+    func testBetasSortBeforeTheirRelease() {
+        XCTAssertLessThan(BuildNumber(build: 112, beta: 7), BuildNumber(build: 112))
+        XCTAssertLessThan(BuildNumber(build: 112, beta: 7), BuildNumber(build: 112, beta: 8))
+        XCTAssertLessThan(BuildNumber(build: 111), BuildNumber(build: 112, beta: 1))
+    }
+
+    func testTheBetaChannelPicksTheHighestNumber() throws {
+        func release(_ tag: String, draft: Bool = false, asset: String = "MirrorWall.dmg") -> String {
+            #"{"tag_name": "\#(tag)", "draft": \#(draft), "body": "", "assets": [{"name": "\#(asset)", "browser_download_url": "https://example.com/\#(tag)/\#(asset)"}]}"#
+        }
+        let list = "[" + [release("v0.111"), release("v0.113-beta.9", draft: true), release("v0.112-beta.7"),
+                          release("v0.112-beta.8", asset: "MirrorWall-Setup.exe"), release("v0.110")].joined(separator: ",") + "]"
+        let newest = try XCTUnwrap(LatestRelease(json: Data(list.utf8), asset: "MirrorWall.dmg", channel: .beta))
+        XCTAssertEqual(newest.number, BuildNumber(build: 112, beta: 7))
+        XCTAssertEqual(newest.downloadURL?.absoluteString, "https://example.com/v0.112-beta.7/MirrorWall.dmg")
     }
 }
