@@ -448,6 +448,12 @@ internal sealed class SlotStore : Observable
         stageWindow.Activate();
     }
 
+    public void SetShowsOnStage(Slot slot, bool on)
+    {
+        slot.SetShowsOnStage(on);
+        Save();
+    }
+
     public void SetStageLayout(StageLayout layout)
     {
         if (layout == settings.StageLayout) return;

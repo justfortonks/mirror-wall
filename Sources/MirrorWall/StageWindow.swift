@@ -86,7 +86,7 @@ struct StageView: View {
     let onClose: () -> Void
 
     var body: some View {
-        let phones = store.slots.filter(\.showsPicture)
+        let phones = store.slots.filter { $0.showsPicture && $0.showsOnStage }
         GeometryReader { proxy in
             let frames = stageFrames(
                 sizes: phones.map(Self.size(of:)),
@@ -97,7 +97,7 @@ struct StageView: View {
             ZStack(alignment: .topLeading) {
                 Color.black
                 if phones.isEmpty {
-                    Text("Phones show up here while they're mirroring.")
+                    Text("Phones on stage show up here while they're mirroring.")
                         .font(.title3)
                         .foregroundStyle(.white.opacity(0.5))
                         .frame(width: proxy.size.width, height: proxy.size.height)
@@ -112,6 +112,10 @@ struct StageView: View {
         .ignoresSafeArea()
         .contextMenu {
             StageLayoutItems(store: store)
+            Divider()
+            Menu("Phones on Stage") {
+                StageSlotItems(store: store)
+            }
             Divider()
             Button("Show Mirror Wall Window") { MainWindow.show() }
             Button("Close Stage", action: onClose)
@@ -171,7 +175,30 @@ struct StageLayoutItems: View {
     }
 }
 
-/// View › Show Stage and View › Stage Layout.
+/// A tick for each slot, to choose which phones appear on the stage.
+struct StageSlotItems: View {
+    @ObservedObject var store: SlotStore
+
+    var body: some View {
+        ForEach(store.slots) { slot in
+            StageSlotToggle(slot: slot, store: store)
+        }
+    }
+}
+
+private struct StageSlotToggle: View {
+    @ObservedObject var slot: Slot
+    let store: SlotStore
+
+    var body: some View {
+        Toggle(slot.phoneName.map { "\(slot.name) (\($0))" } ?? slot.name, isOn: Binding(
+            get: { slot.showsOnStage },
+            set: { store.setShowsOnStage(slot, on: $0) }
+        ))
+    }
+}
+
+/// View › Show Stage, View › Stage Layout and View › Phones on Stage.
 struct StageCommands: Commands {
     @ObservedObject var store: SlotStore
 
@@ -181,6 +208,9 @@ struct StageCommands: Commands {
             Button("Show Stage") { store.showStage() }
             Menu("Stage Layout") {
                 StageLayoutItems(store: store)
+            }
+            Menu("Phones on Stage") {
+                StageSlotItems(store: store)
             }
         }
     }

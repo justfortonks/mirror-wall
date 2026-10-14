@@ -134,6 +134,7 @@ internal sealed class MainWindow : Window
             new Separator(),
             Menus.Item("Show Stage", store.ShowStage),
             Menus.Submenu("Stage Layout", Menus.StageLayoutItems(store)),
+            Menus.Submenu("Phones on Stage", Menus.StageSlotItems(store)),
         }));
         menu.Items.Add(Menus.Dynamic("_Window", () => WindowItems()));
         menu.Items.Add(Menus.Dynamic("_Help", () => new object[]

@@ -354,6 +354,15 @@ internal sealed class Slot : Observable
         if (spoutFeed != null) spoutFeed.Bezel = FramesObsFeed ? BezelGeometry.StyleFor(Config.LastPhoneModel) : null;
     }
 
+    /// <summary>Whether the phone appears in the Stage window while it's mirroring.</summary>
+    public bool ShowsOnStage => Config.OnStage ?? true;
+
+    public void SetShowsOnStage(bool on)
+    {
+        Config.OnStage = on ? null : false;
+        Changed(nameof(ShowsOnStage));
+    }
+
     /// <summary>True while the slot is sending its picture to OBS.</summary>
     public bool SendsToObs => spoutFeed != null;
     /// <summary>The name OBS lists the slot's feed under, while it's on.</summary>
