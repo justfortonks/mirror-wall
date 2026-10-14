@@ -37,6 +37,8 @@ final class SlotStore: ObservableObject {
     /// Keeps the Mac and its screen from going to sleep while a phone is mirroring or a slot is
     /// recording. On by default.
     @Published private(set) var keepsMacAwake: Bool
+    /// How the Stage window arranges the phones.
+    @Published private(set) var stageLayout: StageLayout
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
@@ -55,12 +57,14 @@ final class SlotStore: ObservableObject {
     private let reopensOwnWindowsKey = "reopenOwnWindows"
     private let bezelsForAllSlotsKey = "bezelsForAllSlots"
     private let keepsMacAwakeKey = "keepMacAwake"
+    private let stageLayoutKey = "stageLayout"
     static let bounceKey = "bounceOnDisconnect"
     /// Shows Mirror Wall's icon in the menu bar, and keeps the app running (and mirroring) when
     /// the wall's window is closed. On by default.
     static let menuBarIconKey = "showMenuBarIcon"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
+    private var stageWindow: StageWindow?
     /// Watches each slot's state, to send its standby picture to OBS when the phone leaves.
     private var standbyWatchers: [Int: AnyCancellable] = [:]
     /// Watches each slot's state and recording, to keep the Mac awake while any is in use.
@@ -97,6 +101,7 @@ final class SlotStore: ObservableObject {
         reopensOwnWindows = defaults.bool(forKey: reopensOwnWindowsKey)
         bezelsForAllSlots = defaults.bool(forKey: bezelsForAllSlotsKey)
         keepsMacAwake = defaults.bool(forKey: keepsMacAwakeKey)
+        stageLayout = defaults.string(forKey: stageLayoutKey).flatMap(StageLayout.init(rawValue:)) ?? .sideBySide
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
@@ -425,6 +430,23 @@ final class SlotStore: ObservableObject {
         poppedOutIDs.insert(id)
         window.show()
         savePoppedOut()
+    }
+
+    // MARK: - Stage
+
+    func showStage() {
+        if stageWindow == nil {
+            let window = StageWindow(store: self)
+            window.onClose = { [weak self] in self?.stageWindow = nil }
+            stageWindow = window
+        }
+        stageWindow?.show()
+    }
+
+    func setStageLayout(_ layout: StageLayout) {
+        guard layout != stageLayout else { return }
+        stageLayout = layout
+        defaults.set(layout.rawValue, forKey: stageLayoutKey)
     }
 
     func closeOwnWindow(_ slot: Slot) {

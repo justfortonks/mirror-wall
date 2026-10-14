@@ -67,6 +67,11 @@ internal static class Menus
             enabled: store.PopOutSize == PopOutSize.Custom, isChecked: store.PopOutSizeLocked);
     }
 
+    /// <summary>Ticked layout choices, for the View menu and the stage's own menu.</summary>
+    public static IEnumerable<object> StageLayoutItems(SlotStore store) =>
+        Enum.GetValues<StageLayout>().Select(layout =>
+            (object)Item(Stage.Title(layout), () => store.SetStageLayout(layout), isChecked: store.StageLayout == layout));
+
     /// <summary>A slot's ⋯ menu (also its right-click menu), in groups: viewing, capturing, what
     /// the picture looks like and where it goes, the slot itself. App-wide items (the recordings
     /// and screenshots folders, Stats for Nerds) live in the File and View menus.</summary>
