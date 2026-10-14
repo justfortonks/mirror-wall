@@ -118,6 +118,37 @@ jobs:
           & $iscc /Qp "/DAppVersion=$env:VERSION" windows/installer/MirrorWall.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
+      # Installs it on the runner to check the firewall rules come out as meant (a typo in a netsh
+      # line otherwise only shows up as phones that can't connect).
+      - name: Check the installer's firewall rules
+        shell: pwsh
+        run: |
+          $setup = Start-Process windows/dist/MirrorWall-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "The installer failed ($($setup.ExitCode))" }
+          $expected = @{
+            'Mirror Wall receiver'                 = 'Domain, Private'
+            'Mirror Wall Android phones'           = 'Domain, Private'
+            'Mirror Wall receiver (Public)'        = 'Public'
+            'Mirror Wall Android phones (Public)'  = 'Public'
+            'Mirror Wall phone discovery (Public)' = 'Public'
+          }
+          foreach ($name in $expected.Keys) {
+            $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+            if (-not $rule) { throw "No firewall rule '$name'" }
+            if ("$($rule.Profile)" -ne $expected[$name]) { throw "'$name' covers $($rule.Profile), not $($expected[$name])" }
+            if ($rule.Enabled -ne 'True' -or $rule.Action -ne 'Allow') { throw "'$name' isn't an enabled Allow rule" }
+            $address = ($rule | Get-NetFirewallAddressFilter).RemoteAddress
+            "$name`: $($rule.Profile), from $address"
+            if ($name -like '*(Public)' -and "$address" -ne 'LocalSubnet') { throw "'$name' isn't limited to the local subnet" }
+          }
+          $uninstaller = Get-ChildItem "${env:ProgramFiles}\Mirror Wall\unins*.exe" | Select-Object -First 1
+          # The uninstaller hands over to a copy of itself and returns at once; wait for the folder to go.
+          Start-Process $uninstaller.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          for ($i = 0; $i -lt 60 -and (Test-Path "${env:ProgramFiles}\Mirror Wall\MirrorWall.exe"); $i++) { Start-Sleep -Seconds 1 }
+          Start-Sleep -Seconds 2
+          $left = Get-NetFirewallRule -DisplayName 'Mirror Wall*' -ErrorAction SilentlyContinue
+          if ($left) { throw "The uninstaller left firewall rules: $($left.DisplayName -join ', ')" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: MirrorWall-Setup

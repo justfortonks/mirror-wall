@@ -15,7 +15,7 @@ These requirements apply to the packaged releases.
 
 **Mac:** Open the DMG and drag Mirror Wall to Applications. The app is ad-hoc signed and not notarized. If macOS blocks opening it, use System Settings → Privacy & Security → **Open Anyway**. Allow local-network access when prompted.
 
-**Windows:** Run the installer. It is unsigned, so SmartScreen may show a warning. Installation requires administrator access to add firewall rules. On a home network, use the **Private** network profile. See the [Windows guide](windows/README.md) for details.
+**Windows:** Run the installer. It is unsigned, so SmartScreen may show a warning. Installation requires administrator access to add firewall rules. It works on Private and Public networks. See the [Windows guide](windows/README.md) for details.
 
 ## Connect your phones
 
