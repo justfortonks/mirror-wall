@@ -54,7 +54,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Updates")
                 } footer: {
-                    Text("Beta also offers test builds, whichever is newest. To go back, choose Stable, then Check for Update › Install Anyway. Mirror Wall only checks when you choose Mirror Wall › Check for Update.")
+                    Text("Beta also offers test builds, whichever is newest. To go back, choose Stable, then Check for Update › Go Back. Mirror Wall only checks when you choose Mirror Wall › Check for Update.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

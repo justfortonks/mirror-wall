@@ -131,7 +131,7 @@ jobs:
               echo "## Install"; echo
               echo "A test build of Mirror Wall from the \`$GITHUB_REF_NAME\` branch, not a release."
               echo "Install it from Mirror Wall with Settings › General › Updates set to Beta, then Check for Update."
-              echo "To go back, set it to Stable, then Check for Update › Install Anyway."
+              echo "To go back, set it to Stable, then Check for Update › Go Back."
             } > notes.md
             gh release create "$TAG" MirrorWall.dmg MirrorWall-Setup.exe \
               --prerelease --target "$GITHUB_SHA" --title "Mirror Wall 0.$BUILD beta $BETA" --notes-file notes.md

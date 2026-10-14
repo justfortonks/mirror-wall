@@ -92,7 +92,7 @@ internal sealed class SettingsWindow : Window
             Settings.Current.Save();
         };
         content.Children.Add(channel);
-        Note("What Help › Check for Update offers. Beta also offers test builds, whichever is newest. To go back, choose Stable, then Check for Update and install the release anyway. Mirror Wall only checks when you ask.");
+        Note("What Help › Check for Update offers. Beta also offers test builds, whichever is newest. To go back, choose Stable, then Check for Update and go back to the release. Mirror Wall only checks when you ask.");
 
         Tab("Wall");
         Header("Standby picture");

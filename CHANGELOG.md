@@ -10,7 +10,8 @@ if it hasn't been released yet.
 - Settings › General › Updates chooses what Check for Update offers: releases only (Stable, the
   default), or releases and test builds (Beta), whichever is newest. Test builds are published
   as GitHub pre-releases numbered like "0.112 beta 7", shown in About, so two test builds are
-  never mistaken for each other. To go back, choose Stable and install the release anyway.
+  never mistaken for each other. To go back, choose Stable, then Check for Update › Go Back.
+- Check for Update no longer offers to reinstall the version you already have.
 
 ## October 14, 2026: Check for Update
 
