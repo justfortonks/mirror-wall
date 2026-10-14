@@ -98,7 +98,7 @@ struct SettingsView: View {
             } header: {
                 Text("Phone bezels")
             } footer: {
-                Text("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings and screenshots stay unframed; the OBS (Syphon) feed does too unless its ⋯ menu › Phone Bezel in OBS Feed is on.")
+                Text("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings and screenshots stay unframed; the OBS (Syphon) feed does too unless a slot's ⋯ menu › Phone Bezel › In the OBS Feed is on.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
