@@ -312,6 +312,9 @@ struct SlotTile: View {
         }
     }
 
+    /// The slot's own menu, in groups: viewing, capturing, what the picture looks like and
+    /// where it goes, the slot itself. App-wide items (the recordings and screenshots folders,
+    /// Stats for Nerds) live in the menu bar's File and View menus.
     @ViewBuilder
     private var menuItems: some View {
         Button(isFocused ? "Back to All Slots" : "Show Only This Slot", action: toggleFocus)
@@ -320,39 +323,34 @@ struct SlotTile: View {
         } else {
             Button("Open in Own Window") { store.openOwnWindow(slot) }
         }
-        if SyphonFeed.isAvailable {
-            Toggle("Send to OBS (Syphon)", isOn: Binding(
-                get: { slot.sendsToOBS },
-                set: { store.setOBSFeed(slot, on: $0) }
-            ))
-            Toggle("Phone Bezel in OBS Feed", isOn: Binding(
-                get: { slot.framesOBSFeed },
-                set: { store.setFramesOBSFeed(slot, on: $0) }
-            ))
-            .disabled(!slot.sendsToOBS)
-        }
-        Button("Rename…") {
-            newName = slot.name
-            renaming = true
-        }
-        Button("Restart") { store.restart(slot) }
-        Button("Show Log") { showingLog = true }
-        Toggle("Stats for Nerds", isOn: $showStats)
-        Toggle("Phone Bezel", isOn: Binding(
-            get: { slot.showsBezel },
-            set: { store.setBezel(slot, on: $0) }
-        ))
         Divider()
+        Button("Take Screenshot") { slot.takeScreenshot() }
+            .disabled(!showsPicture)
         if slot.recordingSince == nil {
             Button("Start Recording") { slot.startRecording() }
         } else {
             Button("Stop Recording") { slot.stopRecording() }
         }
-        Button("Show Recordings in Finder") { store.showRecordings() }
         Divider()
-        Button("Take Screenshot") { slot.takeScreenshot() }
-            .disabled(!showsPicture)
-        Button("Show Screenshots in Finder") { Screenshots.showInFinder() }
+        if SyphonFeed.isAvailable {
+            Toggle("Send to OBS (Syphon)", isOn: Binding(
+                get: { slot.sendsToOBS },
+                set: { store.setOBSFeed(slot, on: $0) }
+            ))
+        }
+        Menu("Phone Bezel") {
+            Toggle("On the Wall and Own Window", isOn: Binding(
+                get: { slot.showsBezel },
+                set: { store.setBezel(slot, on: $0) }
+            ))
+            if SyphonFeed.isAvailable {
+                Toggle("In the OBS Feed", isOn: Binding(
+                    get: { slot.framesOBSFeed },
+                    set: { store.setFramesOBSFeed(slot, on: $0) }
+                ))
+                .disabled(!slot.sendsToOBS)
+            }
+        }
         Menu("Standby Picture") {
             let current = StandbyChoice(slot.config.standby)
             standbyItem("Same as All Slots (Settings)", .allSlots, current: current) { store.setStandby(slot, nil) }
@@ -363,6 +361,15 @@ struct SlotTile: View {
                 // Once the menu has closed: a file chooser opened from inside it is unreliable.
                 DispatchQueue.main.async { store.chooseStandbyImage(for: slot) }
             }
+        }
+        Divider()
+        Button("Rename…") {
+            newName = slot.name
+            renaming = true
+        }
+        Menu("Troubleshooting") {
+            Button("Show Log") { showingLog = true }
+            Button("Restart Receiver") { store.restart(slot) }
         }
         Divider()
         Button("Remove Slot", role: .destructive) { store.remove(slot) }
