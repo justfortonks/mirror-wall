@@ -18,6 +18,8 @@ These requirements apply to the packaged releases.
 
 **Windows:** Run the installer. It is unsigned, so SmartScreen may show a warning. Installation requires administrator access to add firewall rules. It works on Private and Public networks. See the [Windows guide](windows/README.md) for details.
 
+**Updating:** Mirror Wall › Check for Update… on a Mac, or Help › Check for Update… on Windows (also in the menu bar or notification area icon's menu), downloads the newest release, installs it and reopens Mirror Wall. It only checks when you ask. A Mac doesn't need Open Anyway again for an update installed this way; Windows asks once to let the installer make changes.
+
 ## Connect your phones
 
 Keep the computer and phones on the same local network, with device-to-device communication allowed.
