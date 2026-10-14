@@ -301,7 +301,8 @@ internal static class AboutWindow
             var assembly = Assembly.GetExecutingAssembly();
             string full = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
             string[] parts = full.Split('+', 2);
-            string version = parts[0];
+            // "0.112 beta 7" for "0.112-beta.7".
+            string version = BuildNumber.FromTag(parts[0])?.Version ?? parts[0];
             if (parts.Length < 2) return version;
             string[] build = parts[1].Split('.', 2);
             return build.Length == 2 ? $"{version} ({build[0]}, {build[1]})" : $"{version} ({build[0]})";

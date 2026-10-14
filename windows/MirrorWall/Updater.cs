@@ -22,15 +22,18 @@ internal static class Updater
 {
     private static bool busy;
 
-    /// <summary>98 for build 0.98; null for a build made outside the workflow (version 0.0).</summary>
-    private static int? CurrentBuild
+    /// <summary>This copy's number, from the version the Windows workflow gives it
+    /// ("0.112-beta.7+commit.date"); null for a build made outside the workflow (version 0.0).</summary>
+    internal static BuildNumber? Current
     {
         get
         {
-            var version = Assembly.GetExecutingAssembly().GetName().Version;
-            return version is { Major: 0, Minor: > 0 } ? version.Minor : null;
+            string full = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+            return BuildNumber.FromTag(full.Split('+')[0]) is { Build: > 0 } number ? number : null;
         }
     }
+
+    private static UpdateChannel Channel => Settings.Current.BetaUpdates ? UpdateChannel.Beta : UpdateChannel.Stable;
 
     public static async void Check(Window? owner)
     {
@@ -42,7 +45,8 @@ internal static class Updater
             try
             {
                 using var client = Client();
-                release = LatestRelease.Parse(await client.GetStringAsync(LatestRelease.ApiUrl), "MirrorWall-Setup.exe");
+                var channel = Channel;
+                release = LatestRelease.Parse(await client.GetStringAsync(LatestRelease.UrlFor(channel)), "MirrorWall-Setup.exe", channel);
             }
             catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
             {
@@ -65,12 +69,13 @@ internal static class Updater
     /// <summary>Says what's available; true when the user chose to install it.</summary>
     private static bool Offer(Window? owner, LatestRelease release)
     {
-        bool installable = CurrentBuild != null && release.DownloadUrl != null;
-        if (CurrentBuild is int current && current >= release.Build)
+        bool installable = Current != null && release.DownloadUrl != null;
+        string newest = Channel == UpdateChannel.Beta ? "the newest release or beta" : "the newest release";
+        if (Current is BuildNumber current && current >= release.Number)
         {
-            string have = current == release.Build
-                ? $"You have {release.Version}, the newest release."
-                : $"You have 0.{current}, newer than the newest release ({release.Version}).";
+            string have = current == release.Number
+                ? $"You have {release.Version}, {newest}."
+                : $"You have {current.Version}, newer than {newest} ({release.Version}).";
             if (!installable)
             {
                 Message(owner, have, MessageBoxButton.OK);
@@ -88,7 +93,7 @@ internal static class Updater
             return false;
         }
         return Message(owner,
-            $"Mirror Wall {release.Version} is available. You have 0.{CurrentBuild}.{notes}\n\n" +
+            $"Mirror Wall {release.Version} is available. You have {Current?.Version}.{notes}\n\n" +
             "Install it now? Mirror Wall will close, Windows will ask to let the installer make changes, and Mirror Wall opens again when it's done. Phones reconnect by themselves.",
             MessageBoxButton.YesNo) == MessageBoxResult.Yes;
     }
