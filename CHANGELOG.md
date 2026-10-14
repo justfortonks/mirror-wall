@@ -5,6 +5,14 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 14, 2026: Check for Update
+
+- Mirror Wall › Check for Update… (Help › Check for Update… on Windows, and in the menu bar or
+  notification area icon's menu) looks for a newer release, shows what's new in it, and on
+  request downloads it, installs it in place of the running copy and reopens Mirror Wall. It
+  never checks by itself. A Mac doesn't ask for Open Anyway again for an update installed this
+  way; Windows asks once to let the installer make changes.
+
 ## October 14, 2026: Android app on the releases page
 
 - Each release now includes Mirror Wall Cast for Android (MirrorWallCast.apk) alongside the Mac
