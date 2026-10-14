@@ -10,6 +10,11 @@ on:
     paths: ['windows/**', 'patches/**', '.github/workflows/windows.yml']
   workflow_dispatch:
   workflow_call:
+    inputs:
+      beta:
+        description: The beta number, when building a test build for the Beta update channel
+        type: string
+        default: ""
 
 # A newer push replaces a run still going on the same branch.
 concurrency:
@@ -95,8 +100,10 @@ jobs:
           $commit = git rev-parse --short HEAD
           $date = git log -1 --format=%cs
           "VERSION=0.$count" >> $env:GITHUB_ENV
+          # A beta says so after the number (0.112-beta.7), for Check for Update and About.
+          $beta = if ("${{ inputs.beta }}") { "-beta.${{ inputs.beta }}" } else { "" }
           dotnet publish windows/MirrorWall -c Release -r win-x64 --self-contained `
-            -p:Version=0.$count -p:InformationalVersion="0.$count+$commit.$date" `
+            -p:Version=0.$count -p:InformationalVersion="0.$count$beta+$commit.$date" `
             -p:IncludeSourceRevisionInInformationalVersion=false -o windows/dist/MirrorWall
           Copy-Item "$env:RUNNER_TEMP\spout-build\Release\MirrorSpout.dll" windows/dist/MirrorWall/
           Copy-Item LICENSE windows/dist/MirrorWall/LICENSE.txt

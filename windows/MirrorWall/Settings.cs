@@ -51,6 +51,8 @@ internal sealed class Settings
     public string? ScreenshotsFolder { get; set; }
     /// <summary>Whether the first launch's check for OBS's Spout2 plugin has run.</summary>
     public bool CheckedObsSpoutPlugin { get; set; }
+    /// <summary>Check for Update also offers test builds (the Beta channel). Off by default.</summary>
+    public bool BetaUpdates { get; set; }
     /// <summary>The main window's place: left, top, width, height.</summary>
     public double[]? MainWindowBounds { get; set; }
 
