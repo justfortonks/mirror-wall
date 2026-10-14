@@ -19,6 +19,7 @@ internal sealed class SlotStore : Observable
 
     private readonly Settings settings = Settings.Current;
     private readonly Dictionary<int, PopOutWindow> popOutWindows = new();
+    private StageWindow? stageWindow;
     /// <summary>Set while quitting, so windows closing then are still reopened next launch.</summary>
     private bool terminating;
 
@@ -429,6 +430,30 @@ internal sealed class SlotStore : Observable
         window.Show();
         SavePoppedOut();
         Changed(nameof(IsPoppedOut));
+    }
+
+    // MARK: Stage
+
+    public StageLayout StageLayout => settings.StageLayout;
+
+    public void ShowStage()
+    {
+        if (stageWindow == null)
+        {
+            stageWindow = new StageWindow(this);
+            stageWindow.Closed += (_, _) => stageWindow = null;
+            stageWindow.Show();
+        }
+        if (stageWindow.WindowState == WindowState.Minimized) stageWindow.WindowState = WindowState.Normal;
+        stageWindow.Activate();
+    }
+
+    public void SetStageLayout(StageLayout layout)
+    {
+        if (layout == settings.StageLayout) return;
+        settings.StageLayout = layout;
+        settings.Save();
+        Changed(nameof(StageLayout));
     }
 
     public void CloseOwnWindow(Slot slot)

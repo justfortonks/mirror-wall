@@ -5,6 +5,15 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 14, 2026: Stage window
+
+- A new Stage window shows every phone that's mirroring in one clean window, at their true
+  relative sizes (an iPhone SE beside a Pro Max looks smaller, as it does in your hand), for
+  sharing a single window in Teams, Zoom or OBS. Open it from View › Show Stage or the menu bar
+  / tray icon. Choose Side by Side, Stacked or Grid from View › Stage Layout or by right-clicking
+  the stage. Phones with a bezel turned on show it on the stage too. OBS finds the window as
+  "MacMirror-Stage".
+
 ## October 14, 2026: Android app on the releases page
 
 - Each release now includes Mirror Wall Cast for Android (MirrorWallCast.apk) alongside the Mac

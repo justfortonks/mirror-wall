@@ -38,6 +38,7 @@ struct MirrorWallApp: App {
             FrameRateCommands(store: appDelegate.store)
             SmoothMotionCommands(store: appDelegate.store)
             PopOutSizeCommands(store: appDelegate.store)
+            StageCommands(store: appDelegate.store)
         }
 
         Settings {
@@ -80,6 +81,7 @@ struct MenuBarMenu: View {
             MainWindow.open = openWindow
             MainWindow.show()
         }
+        Button("Show Stage") { store.showStage() }
         if store.isAnyRecording {
             Button("Stop All Recordings") { store.stopAllRecordings() }
         } else {
