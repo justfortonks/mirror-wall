@@ -87,6 +87,7 @@ internal static class Menus
         yield return Item("Restart", () => store.Restart(slot));
         yield return Item("Show Log", () => LogWindow.Show(owner, slot));
         yield return Item("Stats for Nerds", () => store.ShowStats = !store.ShowStats, isChecked: store.ShowStats);
+        yield return Item("Phone Bezel", () => store.SetBezel(slot, !slot.ShowsBezel), isChecked: slot.ShowsBezel);
         yield return new Separator();
         yield return slot.RecordingSince == null
             ? Item("Start Recording", slot.StartRecording)

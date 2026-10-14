@@ -25,6 +25,9 @@ public sealed record SlotConfig
     /// <summary>Whether the slot also sends its picture to OBS through Spout; null follows the
     /// setting for all slots, which is off by default.</summary>
     public bool? ObsFeed { get; set; }
+    /// <summary>Whether the slot's picture has a phone frame around it on the wall and in its own
+    /// window; null follows the setting for all slots, which is off by default.</summary>
+    public bool? Bezel { get; set; }
 
     [JsonConstructor]
     public SlotConfig() { }

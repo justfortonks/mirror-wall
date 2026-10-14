@@ -32,6 +32,11 @@ final class SlotStore: ObservableObject {
     @Published private(set) var obsFeedForAllSlots: Bool
     /// Reopens the slots' own windows that were open when Mirror Wall last quit. Off by default.
     @Published private(set) var reopensOwnWindows: Bool
+    /// Every slot shows a phone frame around its picture unless turned off in its own menu. Off by default.
+    @Published private(set) var bezelsForAllSlots: Bool
+    /// Keeps the Mac and its screen from going to sleep while a phone is mirroring or a slot is
+    /// recording. On by default.
+    @Published private(set) var keepsMacAwake: Bool
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
@@ -48,18 +53,29 @@ final class SlotStore: ObservableObject {
     private let defaultStandbyKey = "defaultStandby"
     private let obsFeedForAllSlotsKey = "obsFeedForAllSlots"
     private let reopensOwnWindowsKey = "reopenOwnWindows"
+    private let bezelsForAllSlotsKey = "bezelsForAllSlots"
+    private let keepsMacAwakeKey = "keepMacAwake"
     static let bounceKey = "bounceOnDisconnect"
+    /// Shows Mirror Wall's icon in the menu bar, and keeps the app running (and mirroring) when
+    /// the wall's window is closed. On by default.
+    static let menuBarIconKey = "showMenuBarIcon"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
     /// Watches each slot's state, to send its standby picture to OBS when the phone leaves.
     private var standbyWatchers: [Int: AnyCancellable] = [:]
+    /// Watches each slot's state and recording, to keep the Mac awake while any is in use.
+    private var awakeWatchers: [Int: AnyCancellable] = [:]
+    /// True while a phone is connecting, mirroring or has its screen off, or a slot is recording.
+    @Published private(set) var anySlotInUse = false
+    /// Held while the Mac is being kept awake.
+    private var awakeActivity: NSObjectProtocol?
     /// Set while quitting, so windows closing then are still reopened next launch.
     private var terminating = false
 
     static let maxSlots = 8
 
     init() {
-        defaults.register(defaults: [Self.bounceKey: true, popOutSizeLockedKey: true])
+        defaults.register(defaults: [Self.bounceKey: true, popOutSizeLockedKey: true, keepsMacAwakeKey: true, Self.menuBarIconKey: true])
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
         var configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0, computerName: Self.computerName)) }
         // Slots still on a name earlier versions gave them take the current default, so two Macs'
@@ -79,6 +95,8 @@ final class SlotStore: ObservableObject {
         defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         obsFeedForAllSlots = defaults.bool(forKey: obsFeedForAllSlotsKey)
         reopensOwnWindows = defaults.bool(forKey: reopensOwnWindowsKey)
+        bezelsForAllSlots = defaults.bool(forKey: bezelsForAllSlotsKey)
+        keepsMacAwake = defaults.bool(forKey: keepsMacAwakeKey)
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
@@ -97,6 +115,7 @@ final class SlotStore: ObservableObject {
         slot.renderer.smoothMotion = smoothMotion
         slot.sharpPicture = sharpPicture
         slot.allowedDevices = allowedDevices
+        slot.showsBezel = slot.config.bezel ?? bezelsForAllSlots
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
                 self?.save()
@@ -117,6 +136,11 @@ final class SlotStore: ObservableObject {
                 MainActor.assumeIsolated {
                     if let self, let slot { self.sendStandbyToOBS(slot) }
                 }
+            }
+        awakeWatchers[slot.id] = slot.$state.combineLatest(slot.$recordingSince)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateKeepAwake() }
             }
     }
 
@@ -277,9 +301,11 @@ final class SlotStore: ObservableObject {
         slot.stop()
         StandbyPictures.discard(slot.config.standby)
         standbyWatchers[slot.id] = nil
+        awakeWatchers[slot.id] = nil
         slots.removeAll { $0 === slot }
         save()
         updateWindowTitles()
+        updateKeepAwake()
     }
 
     /// Changes the frame rate phones are asked for. Each receiver restarts to apply it, so phones
@@ -462,6 +488,62 @@ final class SlotStore: ObservableObject {
     func setReopensOwnWindows(_ on: Bool) {
         reopensOwnWindows = on
         defaults.set(on, forKey: reopensOwnWindowsKey)
+    }
+
+    // MARK: - Phone bezels
+
+    /// Turns a slot's phone frame on or off. Remembered per slot, unless it matches the setting
+    /// for all slots.
+    func setBezel(_ slot: Slot, on: Bool) {
+        slot.rememberBezel(on == bezelsForAllSlots ? nil : on)
+        slot.showsBezel = on
+        save()
+    }
+
+    /// Turns every slot's phone frame on or off, including slots added later. A slot's own menu
+    /// can still change it afterwards.
+    func setBezelsForAllSlots(_ on: Bool) {
+        guard on != bezelsForAllSlots else { return }
+        bezelsForAllSlots = on
+        defaults.set(on, forKey: bezelsForAllSlotsKey)
+        for slot in slots {
+            slot.rememberBezel(nil)
+            slot.showsBezel = on
+        }
+        save()
+    }
+
+    // MARK: - Keeping the Mac awake
+
+    func setKeepsMacAwake(_ on: Bool) {
+        guard on != keepsMacAwake else { return }
+        keepsMacAwake = on
+        defaults.set(on, forKey: keepsMacAwakeKey)
+        updateKeepAwake()
+    }
+
+    /// True while a phone is connecting, mirroring or has its screen off, or a slot is recording.
+    var isAnySlotInUse: Bool {
+        slots.contains { slot in
+            slot.recordingSince != nil || slot.state == .connecting || slot.state == .live || slot.state == .paused
+        }
+    }
+
+    /// Stops the Mac (and its screen) going to sleep on its own while a slot is in use, and lets
+    /// it again once none is. Closing the lid or choosing Sleep still works.
+    private func updateKeepAwake() {
+        let inUse = isAnySlotInUse
+        if inUse != anySlotInUse { anySlotInUse = inUse }
+        let wanted = keepsMacAwake && inUse
+        if wanted, awakeActivity == nil {
+            awakeActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.idleSystemSleepDisabled, .idleDisplaySleepDisabled],
+                reason: "A phone is mirroring to Mirror Wall"
+            )
+        } else if !wanted, let activity = awakeActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            awakeActivity = nil
+        }
     }
 
     /// While no phone is mirroring, sends the slot's standby picture down its OBS feed, drawn as

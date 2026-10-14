@@ -319,6 +319,17 @@ internal sealed class Slot : Observable
     /// <summary>Remembers this slot's own OBS feed choice; null follows the setting for all slots.</summary>
     public void RememberObsFeed(bool? choice) => Config.ObsFeed = choice;
 
+    private bool showsBezel;
+    /// <summary>Whether the picture has a phone frame around it, on the wall and in its own window.
+    /// Set by the store from the slot's own choice or the setting for all slots.</summary>
+    public bool ShowsBezel { get => showsBezel; set => Set(ref showsBezel, value); }
+
+    /// <summary>Remembers this slot's own bezel choice; null follows the setting for all slots.</summary>
+    public void RememberBezel(bool? choice) => Config.Bezel = choice;
+
+    /// <summary>The frame for a picture of this size (the phone's shape), styled after the last phone.</summary>
+    public BezelGeometry Bezel(Size picture) => new(Config.LastPhoneModel, picture.Width, picture.Height);
+
     /// <summary>True while the slot is sending its picture to OBS.</summary>
     public bool SendsToObs => spoutFeed != null;
     /// <summary>The name OBS lists the slot's feed under, while it's on.</summary>

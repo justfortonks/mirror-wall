@@ -5,6 +5,19 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 14, 2026: Stays awake, menu bar / tray icon, phone bezels
+
+- Mirror Wall keeps the computer and its screen awake while a phone is mirroring or a slot is
+  recording, and lets it sleep again once none is. Settings › While mirroring turns this off.
+- Mirror Wall has an icon in the menu bar (the notification area on Windows) listing every slot
+  and how it's doing. With it there, closing the wall's window leaves Mirror Wall running, so
+  phones keep mirroring to their own windows and OBS. Quit from the icon's menu. Settings turns
+  the icon off, and closing the wall then quits as before.
+- Phone bezels: a phone-shaped frame around a slot's picture, on the wall and in its own window,
+  styled after the phone (home button, notch or Dynamic Island; a plain phone for Android).
+  Settings › Phone bezels turns them on for every slot; a slot's ⋯ menu › Phone Bezel turns its
+  own on or off. Recordings, screenshots and the OBS feeds stay unframed. Off by default.
+
 ## October 13, 2026: Settings for OBS and own windows
 
 - Settings › Send every slot to OBS turns the OBS feed on for every slot, including slots added
