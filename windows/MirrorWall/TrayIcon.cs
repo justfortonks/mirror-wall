@@ -61,6 +61,7 @@ internal sealed class TrayIcon : IDisposable
         }
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Show Mirror Wall Window", null, (_, _) => Later(MainWindow.ShowMain));
+        menu.Items.Add("Show Stage", null, (_, _) => Later(store.ShowStage));
         if (store.IsAnyRecording)
             menu.Items.Add("Stop All Recordings", null, (_, _) => Later(store.StopAllRecordings));
         else

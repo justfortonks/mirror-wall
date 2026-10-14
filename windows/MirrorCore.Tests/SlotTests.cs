@@ -262,3 +262,80 @@ public class PhoneBezelTests
         Assert.Null(System.Text.Json.JsonSerializer.Deserialize<SlotConfig>("""{"Id":2,"Name":"Desk"}""")!.Bezel);
     }
 }
+
+public class StageLayoutTests
+{
+    private static readonly (double Width, double Height) Big = (1, 2), Small = (0.5, 1);
+
+    [Fact]
+    public void SideBySideKeepsRelativeSizesAndCenters()
+    {
+        var frames = Stage.Frames([Big, Small], StageLayout.SideBySide, 1000, 1000, spacing: 0);
+        Assert.Equal(2, frames.Length);
+        Assert.Equal(0, frames[0].Y, 6);
+        Assert.Equal(1000, frames[0].Height, 6);
+        Assert.Equal(frames[0].X, 1000 - (frames[1].X + frames[1].Width), 6);
+        Assert.Equal(frames[0].Height / 2, frames[1].Height, 6);
+        Assert.Equal(500, frames[1].Y + frames[1].Height / 2, 6);
+    }
+
+    [Fact]
+    public void StackedRunsTopToBottom()
+    {
+        var frames = Stage.Frames([Small, Small], StageLayout.Stacked, 1000, 1000);
+        Assert.True(frames[0].Y + frames[0].Height < frames[1].Y);
+        Assert.Equal(frames[0].X, frames[1].X, 6);
+        Assert.Equal(500, frames[0].X + frames[0].Width / 2, 6);
+    }
+
+    [Theory]
+    [InlineData(StageLayout.SideBySide)]
+    [InlineData(StageLayout.Stacked)]
+    [InlineData(StageLayout.Grid)]
+    public void GapsAndMarginsKeepPhonesApartAndInside(StageLayout layout)
+    {
+        var frames = Stage.Frames([Big, Small, Big, Small, Big], layout, 1280, 720);
+        for (int i = 0; i < frames.Length; i++)
+        {
+            var frame = frames[i];
+            Assert.True(frame.X > 0 && frame.Y > 0 && frame.X + frame.Width < 1280 && frame.Y + frame.Height < 720);
+            foreach (var other in frames.Skip(i + 1))
+            {
+                Assert.True(frame.X + frame.Width < other.X || other.X + other.Width < frame.X
+                    || frame.Y + frame.Height < other.Y || other.Y + other.Height < frame.Y);
+            }
+        }
+    }
+
+    [Fact]
+    public void GridCentersAShortLastRow()
+    {
+        var frames = Stage.Frames([Big, Big, Big], StageLayout.Grid, 1000, 1000);
+        Assert.Equal(frames[0].Y, frames[1].Y, 6);
+        Assert.True(frames[2].Y > frames[0].Y);
+        Assert.Equal(500, frames[2].X + frames[2].Width / 2, 6);
+    }
+
+    [Fact]
+    public void NoPhonesOrNoRoom()
+    {
+        Assert.Empty(Stage.Frames([], StageLayout.Grid, 100, 100));
+        Assert.Equal(new[] { new StageRect(0, 0, 0, 0) }, Stage.Frames([Big], StageLayout.Grid, 0, 100));
+    }
+
+    [Fact]
+    public void PhoneSizesAreTrueToLife()
+    {
+        var proMax = Stage.PhoneSize("iPhone18,2", 1320, 2868, bezel: false);
+        Assert.Equal(1, Math.Max(proMax.Width, proMax.Height), 2);
+        var se = Stage.PhoneSize("iPhone14,6", 750, 1334, bezel: false);
+        Assert.True(se.Height < 0.8);
+        Assert.Equal(750.0 / 1334, se.Width / se.Height, 6);
+        var framed = Stage.PhoneSize("iPhone14,6", 750, 1334, bezel: true);
+        Assert.True(framed.Height > se.Height && framed.Width > se.Width);
+        var sideways = Stage.PhoneSize("iPhone18,2", 2868, 1320, bezel: false);
+        Assert.True(sideways.Width > sideways.Height);
+        var waiting = Stage.PhoneSize(null, 0, 0, bezel: false);
+        Assert.Equal(1, waiting.Height, 6);
+    }
+}
