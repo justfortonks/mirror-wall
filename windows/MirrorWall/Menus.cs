@@ -67,6 +67,16 @@ internal static class Menus
             enabled: store.PopOutSize == PopOutSize.Custom, isChecked: store.PopOutSizeLocked);
     }
 
+    /// <summary>Ticked layout choices, for the View menu and the stage's own menu.</summary>
+    public static IEnumerable<object> StageLayoutItems(SlotStore store) =>
+        Enum.GetValues<StageLayout>().Select(layout =>
+            (object)Item(Stage.Title(layout), () => store.SetStageLayout(layout), isChecked: store.StageLayout == layout));
+
+    /// <summary>A tick for each slot, to choose which phones appear on the stage.</summary>
+    public static IEnumerable<object> StageSlotItems(SlotStore store) =>
+        store.Slots.Select(slot => (object)Item(slot.PhoneName is { } phone ? $"{slot.Name} ({phone})" : slot.Name,
+            () => store.SetShowsOnStage(slot, !slot.ShowsOnStage), isChecked: slot.ShowsOnStage)).ToList();
+
     /// <summary>A slot's ⋯ menu (also its right-click menu), in groups: viewing, capturing, what
     /// the picture looks like and where it goes, the slot itself. App-wide items (the recordings
     /// and screenshots folders, Stats for Nerds) live in the File and View menus.</summary>
@@ -76,6 +86,7 @@ internal static class Menus
         yield return store.IsPoppedOut(slot)
             ? Item("Close Own Window", () => store.CloseOwnWindow(slot))
             : Item("Open in Own Window", () => store.OpenOwnWindow(slot));
+        yield return Item("Show on Stage", () => store.SetShowsOnStage(slot, !slot.ShowsOnStage), isChecked: slot.ShowsOnStage);
         yield return new Separator();
         yield return Item("Take Screenshot", slot.TakeScreenshot, enabled: slot.ShowsPicture);
         yield return slot.RecordingSince == null

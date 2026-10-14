@@ -37,6 +37,8 @@ internal sealed class Settings
     public bool SmoothMotion { get; set; }
     public bool SharpPicture { get; set; }
     public PopOutSize PopOutSize { get; set; } = PopOutSize.Medium;
+    /// <summary>How the Stage window arranges the phones.</summary>
+    public StageLayout StageLayout { get; set; }
     public bool PopOutSizeLocked { get; set; } = true;
     public List<KnownPhone> KnownPhones { get; set; } = new();
     public bool AllowListEnabled { get; set; }

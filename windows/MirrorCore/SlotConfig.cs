@@ -31,6 +31,9 @@ public sealed record SlotConfig
     /// <summary>Whether the slot's OBS feed has the phone frame around the picture, with
     /// see-through corners; null (off) by default.</summary>
     public bool? FeedBezel { get; set; }
+    /// <summary>Whether the slot's phone appears in the Stage window while it's mirroring; null
+    /// (on) by default.</summary>
+    public bool? OnStage { get; set; }
 
     [JsonConstructor]
     public SlotConfig() { }

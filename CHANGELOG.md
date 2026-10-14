@@ -5,6 +5,18 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 14, 2026: Stage window
+
+- A new Stage window shows every phone that's mirroring in one clean window, at their true
+  relative sizes (an iPhone SE beside a Pro Max looks smaller, as it does in your hand), for
+  sharing a single window in Teams, Zoom or OBS. Open it from View › Show Stage or the menu bar
+  / tray icon. Choose Side by Side, Stacked or Grid from View › Stage Layout or by right-clicking
+  the stage. Phones with a bezel turned on show it on the stage too. OBS finds the window as
+  "MacMirror-Stage".
+- Choose which phones appear on the stage: untick Show on Stage in a slot's ⋯ menu, or use
+  Phones on Stage in the View menu or the stage's right-click menu. Every slot is on stage
+  unless you take it off.
+
 ## October 14, 2026: Check for Update
 
 - Mirror Wall › Check for Update… (Help › Check for Update… on Windows, and in the menu bar or
