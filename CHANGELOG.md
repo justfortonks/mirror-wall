@@ -8,20 +8,22 @@ if it hasn't been released yet.
 ## October 14, 2026: Stays awake, menu bar / tray icon, phone bezels
 
 - Mirror Wall keeps the computer and its screen awake while a phone is mirroring or a slot is
-  recording, and lets it sleep again once none is. Settings › While mirroring turns this off.
+  recording, and lets it sleep again once none is. Settings › General turns this off.
 - Mirror Wall has an icon in the menu bar (the notification area on Windows) listing every slot
   and how it's doing. With it there, closing the wall's window leaves Mirror Wall running, so
   phones keep mirroring to their own windows and OBS. Quit from the icon's menu. Settings turns
   the icon off, and closing the wall then quits as before.
 - Phone bezels: a phone-shaped frame around a slot's picture, on the wall and in its own window,
   styled after the phone (home button, notch or Dynamic Island; a plain phone for Android).
-  Settings › Phone bezels turns them on for every slot; a slot's ⋯ menu › Phone Bezel turns its
+  Settings › Wall turns them on for every slot; a slot's ⋯ menu › Phone Bezel turns its
   own on or off, and can also put the frame around the slot's OBS feed, with see-through corners
   (on a Mac, tick "Allow Transparency" in the Syphon Client source). The wall and the OBS feed
   are set separately. Recordings and screenshots stay unframed. Off by default.
 - A slot's ⋯ menu is regrouped: its window, then screenshot and recording, then OBS, bezel and
   standby picture, then rename, Troubleshooting (log, restart) and remove. The recordings and
   screenshots folders and Stats for Nerds are in the File and View menus.
+- Settings is split into tabs: General (staying awake, the menu bar or tray icon, save folders,
+  alerts), Wall (standby picture, bezels), OBS, and Phones (who can mirror).
 
 ## October 13, 2026: Settings for OBS and own windows
 
