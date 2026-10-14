@@ -31,7 +31,7 @@ internal sealed class SettingsWindow : Window
         this.store = store;
         Title = "Mirror Wall Settings";
         Width = 520;
-        Height = 760;
+        Height = 820;
         MinWidth = 420;
         MinHeight = 400;
         ShowInTaskbar = false;
@@ -46,7 +46,8 @@ internal sealed class SettingsWindow : Window
     {
         if (e.PropertyName is nameof(SlotStore.KnownPhones) or nameof(SlotStore.AllowListEnabled)
             or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect)
-            or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows))
+            or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows)
+            or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.KeepsAwake) or nameof(SlotStore.ShowsTrayIcon))
         {
             Build();
         }
@@ -114,6 +115,21 @@ internal sealed class SettingsWindow : Window
         reopen.Click += (_, _) => store.SetReopensOwnWindows(reopen.IsChecked == true);
         content.Children.Add(reopen);
         Note("Sending to OBS applies to every slot, including ones you add later; a slot's ⋯ menu can still turn its own feed off or on. Own windows that were open when Mirror Wall quit stay closed unless the second switch is on.");
+
+        Header("Phone bezels");
+        var bezels = new CheckBox { Content = "Show a phone frame around every slot", IsChecked = store.BezelsForAllSlots };
+        bezels.Click += (_, _) => store.SetBezelsForAllSlots(bezels.IsChecked == true);
+        content.Children.Add(bezels);
+        Note("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings, screenshots and the OBS (Spout) feed stay unframed.");
+
+        Header("While mirroring");
+        var awake = new CheckBox { Content = "Keep the PC and its screen awake while a phone is mirroring", IsChecked = store.KeepsAwake };
+        awake.Click += (_, _) => store.SetKeepsAwake(awake.IsChecked == true);
+        content.Children.Add(awake);
+        var tray = new CheckBox { Content = "Show Mirror Wall in the notification area", IsChecked = store.ShowsTrayIcon, Margin = new Thickness(0, 8, 0, 0) };
+        tray.Click += (_, _) => store.SetShowsTrayIcon(tray.IsChecked == true);
+        content.Children.Add(tray);
+        Note("Awake also covers recording, and ends once no phone is mirroring. Choosing Sleep or closing a laptop's lid still works. With the icon, closing the wall's window leaves Mirror Wall running, so phones keep mirroring to their own windows and OBS; exit from the icon's menu or File › Exit.");
 
         Header("Save to");
         content.Children.Add(FolderRow("Recordings", Settings.Current.RecordingsFolder, SaveFolders.DefaultRecordings, path => Settings.Current.RecordingsFolder = path));

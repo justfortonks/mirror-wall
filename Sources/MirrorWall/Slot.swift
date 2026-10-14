@@ -247,6 +247,19 @@ final class Slot: ObservableObject, Identifiable {
         config.obsFeed = choice
     }
 
+    /// Whether the picture has a phone frame around it, on the wall and in its own window. Set by
+    /// the store from the slot's own choice or the setting for all slots.
+    @Published var showsBezel = false
+
+    func rememberBezel(_ choice: Bool?) {
+        config.bezel = choice
+    }
+
+    /// The frame for a picture of this size (the phone's shape), styled after the last phone.
+    func bezel(for picture: CGSize) -> BezelGeometry {
+        BezelGeometry(modelCode: config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height)
+    }
+
     /// True while the slot is sending its picture to OBS through Syphon.
     var sendsToOBS: Bool { syphonFeed != nil }
     /// The name OBS lists the slot's feed under, while it's on.

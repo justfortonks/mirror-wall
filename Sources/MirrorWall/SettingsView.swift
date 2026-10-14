@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: SlotStore
     @AppStorage(SlotStore.bounceKey) private var bounceOnDisconnect = true
+    @AppStorage(SlotStore.menuBarIconKey) private var showsMenuBarIcon = true
     // Read so the rows update when a folder is chosen; SaveFolders reads the same keys.
     @AppStorage(SaveFolders.Kind.recordings.key) private var recordingsPath = ""
     @AppStorage(SaveFolders.Kind.screenshots.key) private var screenshotsPath = ""
@@ -90,6 +91,33 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Show a phone frame around every slot", isOn: Binding(
+                    get: { store.bezelsForAllSlots },
+                    set: { store.setBezelsForAllSlots($0) }
+                ))
+            } header: {
+                Text("Phone bezels")
+            } footer: {
+                Text("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings, screenshots and the OBS (Syphon) feed stay unframed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Keep the Mac and its screen awake while a phone is mirroring", isOn: Binding(
+                    get: { store.keepsMacAwake },
+                    set: { store.setKeepsMacAwake($0) }
+                ))
+                Toggle("Show Mirror Wall in the menu bar", isOn: $showsMenuBarIcon)
+            } header: {
+                Text("While mirroring")
+            } footer: {
+                Text("Awake also covers recording, and ends once no phone is mirroring. Closing the lid or choosing Sleep still works. With the menu bar icon, closing the wall's window leaves Mirror Wall running, so phones keep mirroring to their own windows and OBS; quit from the icon's menu or with ⌘Q.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 folderRow("Recordings", .recordings, chosen: recordingsPath)
                 folderRow("Screenshots", .screenshots, chosen: screenshotsPath)
             } header: {
@@ -108,7 +136,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 480)
-        .frame(minHeight: 640)
+        .frame(minHeight: 700)
     }
 
     private func folderRow(_ title: String, _ kind: SaveFolders.Kind, chosen: String) -> some View {

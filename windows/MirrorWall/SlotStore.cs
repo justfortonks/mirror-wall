@@ -62,6 +62,17 @@ internal sealed class SlotStore : Observable
     public bool ObsFeedForAllSlots => settings.ObsFeedForAllSlots;
     /// <summary>Reopens the slots' own windows that were open when Mirror Wall last quit. Off by default.</summary>
     public bool ReopensOwnWindows => settings.ReopenOwnWindows;
+    /// <summary>Every slot shows a phone frame around its picture unless turned off in its own menu. Off by default.</summary>
+    public bool BezelsForAllSlots => settings.BezelsForAllSlots;
+    /// <summary>Keeps the PC and its screen awake while a phone is mirroring or a slot is recording. On by default.</summary>
+    public bool KeepsAwake => settings.KeepAwake;
+    /// <summary>Shows Mirror Wall's icon in the notification area, and keeps the app running (and
+    /// mirroring) when the wall's window is closed. On by default.</summary>
+    public bool ShowsTrayIcon => settings.TrayIcon;
+
+    private bool anySlotInUse;
+    /// <summary>True while a phone is connecting, mirroring or has its screen off, or a slot is recording.</summary>
+    public bool AnySlotInUse { get => anySlotInUse; private set => Set(ref anySlotInUse, value); }
 
     public bool ShowStats
     {
@@ -93,6 +104,7 @@ internal sealed class SlotStore : Observable
         slot.Renderer.SmoothMotion = settings.SmoothMotion;
         slot.SharpPicture = settings.SharpPicture;
         slot.AllowedDevices = AllowedDevices;
+        slot.ShowsBezel = slot.Config.Bezel ?? settings.BezelsForAllSlots;
         slot.OnConfigChanged = () =>
         {
             Save();
@@ -106,6 +118,7 @@ internal sealed class SlotStore : Observable
     /// <summary>Sends the standby picture to OBS when the phone leaves.</summary>
     private void SlotChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName is nameof(Slot.State) or nameof(Slot.RecordingSince)) UpdateKeepAwake();
         if (sender is Slot slot && e.PropertyName is nameof(Slot.State) or nameof(Slot.HasPicture))
         {
             // After the change has settled, as the Mac app does.
@@ -246,6 +259,7 @@ internal sealed class SlotStore : Observable
         Save();
         UpdateWindowTitles();
         Changed(nameof(CanAddSlot));
+        UpdateKeepAwake();
     }
 
     public void Remove(Slot slot)
@@ -503,6 +517,59 @@ internal sealed class SlotStore : Observable
         settings.ReopenOwnWindows = on;
         settings.Save();
         Changed(nameof(ReopensOwnWindows));
+    }
+
+    // MARK: Phone bezels
+
+    /// <summary>Turns a slot's phone frame on or off. Remembered per slot, unless it matches the
+    /// setting for all slots.</summary>
+    public void SetBezel(Slot slot, bool on)
+    {
+        slot.RememberBezel(on == settings.BezelsForAllSlots ? null : on);
+        slot.ShowsBezel = on;
+        Save();
+    }
+
+    /// <summary>Turns every slot's phone frame on or off, including slots added later. A slot's own
+    /// menu can still change it afterwards.</summary>
+    public void SetBezelsForAllSlots(bool on)
+    {
+        if (on == settings.BezelsForAllSlots) return;
+        settings.BezelsForAllSlots = on;
+        foreach (var slot in Slots)
+        {
+            slot.RememberBezel(null);
+            slot.ShowsBezel = on;
+        }
+        Save();
+        Changed(nameof(BezelsForAllSlots));
+    }
+
+    // MARK: Keeping the PC awake, and the tray icon
+
+    public void SetKeepsAwake(bool on)
+    {
+        if (on == settings.KeepAwake) return;
+        settings.KeepAwake = on;
+        settings.Save();
+        Changed(nameof(KeepsAwake));
+        UpdateKeepAwake();
+    }
+
+    /// <summary>Stops the PC (and its screen) going to sleep on its own while a slot is in use, and
+    /// lets it again once none is. Choosing Sleep or closing a laptop's lid still works.</summary>
+    private void UpdateKeepAwake()
+    {
+        AnySlotInUse = Slots.Any(slot => slot.RecordingSince != null || slot.State is SlotState.Connecting or SlotState.Live or SlotState.Paused);
+        Native.KeepAwake(settings.KeepAwake && AnySlotInUse);
+    }
+
+    public void SetShowsTrayIcon(bool on)
+    {
+        if (on == settings.TrayIcon) return;
+        settings.TrayIcon = on;
+        settings.Save();
+        Changed(nameof(ShowsTrayIcon));
     }
 
     /// <summary>

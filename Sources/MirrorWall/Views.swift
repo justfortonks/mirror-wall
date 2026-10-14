@@ -115,28 +115,9 @@ struct SlotTile: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZStack {
-                if !showsPicture, case .image(let fileName) = store.standby(for: slot) {
-                    // Shown as the slot's own window shows it; the footer still gives the status.
-                    StandbyImage(fileName: fileName)
-                }
-                VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
-                if !showsPicture {
-                    if !hasStandbyImage { placeholder }
-                } else if slot.state == .paused {
-                    pausedBanner
-                }
-                if showStats {
-                    StatsOverlay(slot: slot, stats: slot.stats)
-                }
-            }
-            .overlay(alignment: .topTrailing) { popOutButton }
-            .aspectRatio(aspectRatio, contentMode: .fit)
-            .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
-            .onTapGesture(count: 2, perform: toggleFocus)
-            .frame(maxHeight: maxVideoHeight ?? .infinity)
+            framedPicture
+                .onTapGesture(count: 2, perform: toggleFocus)
+                .frame(maxHeight: maxVideoHeight ?? .infinity)
 
             footer
         }
@@ -152,9 +133,41 @@ struct SlotTile: View {
         }
     }
 
-    private var aspectRatio: CGFloat {
-        if let size = slot.videoSize, size.height > 0 { return size.width / size.height }
-        return 9.0 / 19.5 // a portrait iPhone until the first picture arrives
+    /// The picture and what goes over it, in a phone frame when the slot has one.
+    @ViewBuilder
+    private var framedPicture: some View {
+        let picture = ZStack {
+            if !showsPicture, case .image(let fileName) = store.standby(for: slot) {
+                // Shown as the slot's own window shows it; the footer still gives the status.
+                StandbyImage(fileName: fileName)
+            }
+            VideoLayerView(renderer: slot.renderer, isShowing: showsPicture)
+            if !showsPicture {
+                if !hasStandbyImage { placeholder }
+            } else if slot.state == .paused {
+                pausedBanner
+            }
+            if showStats {
+                StatsOverlay(slot: slot, stats: slot.stats)
+            }
+        }
+        .overlay(alignment: .topTrailing) { popOutButton }
+        if slot.showsBezel {
+            PhoneBezel(geometry: slot.bezel(for: pictureShape), picture: pictureShape) {
+                picture.background(Color.black)
+            }
+        } else {
+            picture
+                .aspectRatio(pictureShape.width / pictureShape.height, contentMode: .fit)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
+        }
+    }
+
+    private var pictureShape: CGSize {
+        if let size = slot.videoSize, size.width > 0, size.height > 0 { return size }
+        return CGSize(width: 9, height: 19.5) // a portrait iPhone until the first picture arrives
     }
 
     /// The last picture stays up while live or paused; a disconnected phone's stale frame is hidden.
@@ -320,6 +333,10 @@ struct SlotTile: View {
         Button("Restart") { store.restart(slot) }
         Button("Show Log") { showingLog = true }
         Toggle("Stats for Nerds", isOn: $showStats)
+        Toggle("Phone Bezel", isOn: Binding(
+            get: { slot.showsBezel },
+            set: { store.setBezel(slot, on: $0) }
+        ))
         Divider()
         if slot.recordingSince == nil {
             Button("Start Recording") { slot.startRecording() }

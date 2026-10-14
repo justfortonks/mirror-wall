@@ -155,6 +155,20 @@ internal static partial class Native
     [DllImport("user32.dll")]
     private static extern bool FlashWindowEx(ref FLASHWINFO info);
 
+    // MARK: Staying awake
+
+    /// <summary>Keeps the PC and its screen from going to sleep on their own, or lets them again.
+    /// Call from the UI thread only: Windows ties the request to the thread that made it.</summary>
+    public static void KeepAwake(bool on)
+    {
+        SetThreadExecutionState(on ? ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED : ES_CONTINUOUS);
+    }
+
+    private const uint ES_CONTINUOUS = 0x80000000, ES_SYSTEM_REQUIRED = 0x1, ES_DISPLAY_REQUIRED = 0x2;
+
+    [DllImport("kernel32.dll")]
+    private static extern uint SetThreadExecutionState(uint flags);
+
     // MARK: Folders
 
     /// <summary>Opens a folder in File Explorer, creating it if needed.</summary>
