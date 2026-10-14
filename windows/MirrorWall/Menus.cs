@@ -79,7 +79,8 @@ internal static class Menus
         yield return new Separator();
         yield return Item("Take Screenshot", slot.TakeScreenshot, enabled: slot.ShowsPicture);
         yield return slot.RecordingSince == null
-            ? Item("Start Recording", slot.StartRecording)
+            // With no phone yet, recording starts when one connects.
+            ? Item(slot.ShowsPicture ? "Start Recording" : "Record When a Phone Connects", slot.StartRecording)
             : Item("Stop Recording", () => slot.StopRecording());
         yield return new Separator();
         var bezel = new List<object>

@@ -265,7 +265,9 @@ struct SlotTile: View {
                         .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
                 }
                 .buttonStyle(.borderless)
-                .help(slot.recordingSince == nil ? "Start recording to \(SaveFolders.recordings.lastPathComponent)" : "Stop recording")
+                .help(slot.recordingSince == nil
+                    ? (showsPicture ? "Start recording to \(SaveFolders.recordings.lastPathComponent)" : "Record to \(SaveFolders.recordings.lastPathComponent) when a phone connects")
+                    : "Stop recording")
                 Button {
                     slot.takeScreenshot()
                 } label: {
@@ -327,7 +329,8 @@ struct SlotTile: View {
         Button("Take Screenshot") { slot.takeScreenshot() }
             .disabled(!showsPicture)
         if slot.recordingSince == nil {
-            Button("Start Recording") { slot.startRecording() }
+            // With no phone yet, recording starts when one connects.
+            Button(showsPicture ? "Start Recording" : "Record When a Phone Connects") { slot.startRecording() }
         } else {
             Button("Stop Recording") { slot.stopRecording() }
         }
