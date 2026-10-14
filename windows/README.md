@@ -15,11 +15,13 @@ and download **MirrorWall-Setup** from the bottom of the page.
 1. Windows SmartScreen may say it protected your PC, because the installer isn't signed. Click
    **More info**, then **Run anyway**. This is needed once per installer.
 2. The installer asks for administrator rights to add Windows Firewall rules that let iPhones
-   reach the receiver, and Android phones reach Mirror Wall (TCP 7350, 7450, ... 8050), on home
-   and work networks.
-3. The PC's network must be set to **Private** (Settings › Network & internet › Wi-Fi or
-   Ethernet › the network › Network profile type). On a Public network, Windows blocks phones
-   from finding Mirror Wall.
+   reach the receiver, and Android phones reach Mirror Wall (TCP 7350, 7450, ... 8050). They
+   cover every network type, so the PC's network can stay **Public**. On Public networks they
+   only let in devices on the PC's own subnet (the same Wi-Fi); untick **Also allow phones on
+   Public networks** in the installer to limit Mirror Wall to Private and work networks.
+3. The installer also clears any Block rule Windows made for Mirror Wall when someone cancelled
+   its "Allow access?" prompt. A PC whose firewall is run by an organization (Intune or Group
+   Policy) may ignore rules added on the PC; there, IT has to allow Mirror Wall.
 
 Then on the iPhone: Control Center › Screen Mirroring › **Mirror Wall 1 · &lt;PC name&gt;**.
 
