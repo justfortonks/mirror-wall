@@ -13,6 +13,9 @@ if it hasn't been released yet.
   / tray icon. Choose Side by Side, Stacked or Grid from View › Stage Layout or by right-clicking
   the stage. Phones with a bezel turned on show it on the stage too. OBS finds the window as
   "MacMirror-Stage".
+- Choose which phones appear on the stage: untick Show on Stage in a slot's ⋯ menu, or use
+  Phones on Stage in the View menu or the stage's right-click menu. Every slot is on stage
+  unless you take it off.
 
 ## October 14, 2026: Android app on the releases page
 

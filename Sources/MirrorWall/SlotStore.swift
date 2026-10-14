@@ -443,6 +443,11 @@ final class SlotStore: ObservableObject {
         stageWindow?.show()
     }
 
+    func setShowsOnStage(_ slot: Slot, on: Bool) {
+        slot.setShowsOnStage(on)
+        save()
+    }
+
     func setStageLayout(_ layout: StageLayout) {
         guard layout != stageLayout else { return }
         stageLayout = layout

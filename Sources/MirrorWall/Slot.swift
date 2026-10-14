@@ -278,6 +278,14 @@ final class Slot: ObservableObject, Identifiable {
         syphonFeed?.bezelStyle = framesOBSFeed ? BezelStyle(modelCode: config.lastPhoneModel) : nil
     }
 
+    /// Whether the phone appears in the Stage window while it's mirroring.
+    var showsOnStage: Bool { config.onStage ?? true }
+
+    func setShowsOnStage(_ on: Bool) {
+        objectWillChange.send()
+        config.onStage = on ? nil : false
+    }
+
     /// True while the slot is sending its picture to OBS through Syphon.
     var sendsToOBS: Bool { syphonFeed != nil }
     /// The name OBS lists the slot's feed under, while it's on.

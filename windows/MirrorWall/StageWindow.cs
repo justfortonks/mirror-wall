@@ -23,7 +23,7 @@ internal sealed class StageWindow : Window
     private readonly Canvas canvas = new() { Background = Brushes.Black, ClipToBounds = true };
     private readonly TextBlock empty = new()
     {
-        Text = "Phones show up here while they're mirroring.",
+        Text = "Phones on stage show up here while they're mirroring.",
         Foreground = new SolidColorBrush(Color.FromArgb(128, 255, 255, 255)),
         FontSize = 18,
         HorizontalAlignment = HorizontalAlignment.Center,
@@ -83,6 +83,8 @@ internal sealed class StageWindow : Window
         ContextMenu = Menus.Context(() => Menus.StageLayoutItems(store).Concat(new object[]
         {
             new Separator(),
+            Menus.Submenu("Phones on Stage", Menus.StageSlotItems(store)),
+            new Separator(),
             Menus.Item("Show Mirror Wall Window", MainWindow.ShowMain),
             Menus.Item("Close Stage", Close),
         }));
@@ -136,12 +138,12 @@ internal sealed class StageWindow : Window
     /// <summary>Puts the phones that are mirroring on stage and takes the others off.</summary>
     private void Refresh()
     {
-        foreach (var slot in phones.Keys.Where(slot => !slot.ShowsPicture || !store.Slots.Contains(slot)).ToList())
+        foreach (var slot in phones.Keys.Where(slot => !OnStage(slot) || !store.Slots.Contains(slot)).ToList())
         {
             canvas.Children.Remove(phones[slot].Element);
             phones.Remove(slot);
         }
-        foreach (var slot in store.Slots.Where(slot => slot.ShowsPicture))
+        foreach (var slot in store.Slots.Where(OnStage))
         {
             if (!phones.TryGetValue(slot, out var phone))
             {
@@ -153,6 +155,8 @@ internal sealed class StageWindow : Window
         }
         Layout();
     }
+
+    private static bool OnStage(Slot slot) => slot.ShowsPicture && slot.ShowsOnStage;
 
     private void Layout()
     {
