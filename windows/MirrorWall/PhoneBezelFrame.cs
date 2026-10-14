@@ -81,13 +81,18 @@ internal sealed class PhoneBezelFrame : Decorator
         return final;
     }
 
-    /// <summary>Draws the frame upright and turns it a quarter left for a sideways phone, so the
-    /// portrait top edge (notch, camera) ends up on the left.</summary>
     protected override void OnRender(DrawingContext dc)
     {
         var size = RenderSize;
         if (size.Width <= 0 || size.Height <= 0) return;
-        double unit = Unit(size);
+        Draw(dc, geometry, size, Unit(size));
+    }
+
+    /// <summary>Draws the frame filling <paramref name="size"/>, with <paramref name="unit"/> pixels
+    /// to the picture's shorter side: upright, turned a quarter left for a sideways phone, so the
+    /// portrait top edge (notch, camera) ends up on the left. Also draws the OBS feed's frame.</summary>
+    public static void Draw(DrawingContext dc, BezelGeometry geometry, Size size, double unit)
+    {
         var upright = geometry.Landscape ? new Size(size.Height, size.Width) : size;
         if (geometry.Landscape) dc.PushTransform(new MatrixTransform(0, -1, 1, 0, 0, size.Height));
 

@@ -545,6 +545,14 @@ internal sealed class SlotStore : Observable
         Changed(nameof(BezelsForAllSlots));
     }
 
+    /// <summary>Puts the phone frame around a slot's OBS feed, or takes it off. Remembered per slot.</summary>
+    public void SetFramesObsFeed(Slot slot, bool on)
+    {
+        slot.SetFramesObsFeed(on);
+        Save();
+        SendStandbyToObs(slot);
+    }
+
     // MARK: Keeping the PC awake, and the tray icon
 
     public void SetKeepsAwake(bool on)

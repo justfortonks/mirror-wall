@@ -293,6 +293,7 @@ internal sealed class Slot : Observable
             {
                 spoutFeed = feed;
                 feed.PassesFrames = CarriesPhoneFrames;
+                UpdateFeedBezel();
                 Renderer.OnShow = feed.PublishFrame;
                 if (Renderer.CurrentPicture() is { } picture)
                 {
@@ -329,6 +330,29 @@ internal sealed class Slot : Observable
 
     /// <summary>The frame for a picture of this size (the phone's shape), styled after the last phone.</summary>
     public BezelGeometry Bezel(Size picture) => new(Config.LastPhoneModel, picture.Width, picture.Height);
+
+    /// <summary>Whether the OBS feed has the phone frame around the picture, with see-through corners.</summary>
+    public bool FramesObsFeed => Config.FeedBezel ?? false;
+
+    /// <summary>Puts the phone frame around the OBS feed's picture, or takes it off. The store
+    /// re-sends the standby picture.</summary>
+    public void SetFramesObsFeed(bool on)
+    {
+        Config.FeedBezel = on ? true : null;
+        UpdateFeedBezel();
+        if (ShowsPicture && Renderer.CurrentPicture() is { } picture)
+        {
+            spoutFeed?.PublishFrame(picture);
+            picture.Release();
+        }
+        Changed(nameof(FramesObsFeed));
+    }
+
+    /// <summary>The feed's frame follows the last phone's model.</summary>
+    private void UpdateFeedBezel()
+    {
+        if (spoutFeed != null) spoutFeed.Bezel = FramesObsFeed ? BezelGeometry.StyleFor(Config.LastPhoneModel) : null;
+    }
 
     /// <summary>True while the slot is sending its picture to OBS.</summary>
     public bool SendsToObs => spoutFeed != null;
@@ -667,6 +691,7 @@ internal sealed class Slot : Observable
                 {
                     Config.LastPhoneName = name;
                     if (model.Length > 0) Config.LastPhoneModel = model;
+                    UpdateFeedBezel();
                     Changed(nameof(Config));
                     OnConfigChanged?.Invoke();
                 }

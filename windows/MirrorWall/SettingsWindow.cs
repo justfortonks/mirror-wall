@@ -120,7 +120,7 @@ internal sealed class SettingsWindow : Window
         var bezels = new CheckBox { Content = "Show a phone frame around every slot", IsChecked = store.BezelsForAllSlots };
         bezels.Click += (_, _) => store.SetBezelsForAllSlots(bezels.IsChecked == true);
         content.Children.Add(bezels);
-        Note("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings, screenshots and the OBS (Spout) feed stay unframed.");
+        Note("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings and screenshots stay unframed; the OBS (Spout) feed does too unless its ⋯ menu › Phone Bezel in OBS Feed is on.");
 
         Header("While mirroring");
         var awake = new CheckBox { Content = "Keep the PC and its screen awake while a phone is mirroring", IsChecked = store.KeepsAwake };

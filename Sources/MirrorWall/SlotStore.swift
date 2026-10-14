@@ -513,6 +513,13 @@ final class SlotStore: ObservableObject {
         save()
     }
 
+    /// Puts the phone frame around a slot's OBS feed, or takes it off. Remembered per slot.
+    func setFramesOBSFeed(_ slot: Slot, on: Bool) {
+        slot.setFramesOBSFeed(on)
+        save()
+        sendStandbyToOBS(slot)
+    }
+
     // MARK: - Keeping the Mac awake
 
     func setKeepsMacAwake(_ on: Bool) {

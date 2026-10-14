@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using MirrorWall.Core;
 
 namespace MirrorWall;
 
@@ -22,6 +23,7 @@ internal sealed class SpoutFeed
     // Guarded by `gate`.
     private Picture? waiting;
     private bool framesOn = true;
+    private BezelStyle? frameStyle;
     private string name;
     private bool renamed;
     private bool stopping;
@@ -35,6 +37,8 @@ internal sealed class SpoutFeed
     {
         this.name = name;
         thread = new Thread(Run) { Name = "Mirror Wall Spout", IsBackground = true, Priority = ThreadPriority.AboveNormal };
+        // STA, to draw the phone frame with WPF.
+        thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
     }
 
@@ -62,6 +66,14 @@ internal sealed class SpoutFeed
     {
         get { lock (gate) return framesOn; }
         set { lock (gate) framesOn = value; }
+    }
+
+    /// <summary>The phone frame drawn around each picture, with see-through corners; null for the
+    /// bare picture. Applies from the next picture sent.</summary>
+    public BezelStyle? Bezel
+    {
+        get { lock (gate) return frameStyle; }
+        set { lock (gate) frameStyle = value; }
     }
 
     /// <summary>Hands one of the phone's frames to OBS, unless <see cref="PassesFrames"/> is off.
@@ -98,6 +110,7 @@ internal sealed class SpoutFeed
     {
         IntPtr sender = MirrorSpout.Create(Encoding.UTF8.GetBytes(Name + "\0"));
         Picture? last = null;
+        FeedBezel? bezel = null;
         try
         {
             while (true)
@@ -105,11 +118,13 @@ internal sealed class SpoutFeed
                 wake.WaitOne(TimeSpan.FromSeconds(1));
                 Picture? picture;
                 string? newName = null;
+                BezelStyle? style;
                 lock (gate)
                 {
                     if (stopping) break;
                     picture = waiting;
                     waiting = null;
+                    style = frameStyle;
                     if (renamed)
                     {
                         newName = name;
@@ -118,6 +133,24 @@ internal sealed class SpoutFeed
                 }
                 if (sender == IntPtr.Zero) { picture?.Release(); continue; }
                 if (newName != null) MirrorSpout.Rename(sender, Encoding.UTF8.GetBytes(newName + "\0"));
+                if (picture != null && style is { } frameIn)
+                {
+                    try
+                    {
+                        if (bezel == null || bezel.Style != frameIn || bezel.PictureWidth != picture.Width || bezel.PictureHeight != picture.Height)
+                        {
+                            bezel = new FeedBezel(frameIn, picture.Width, picture.Height);
+                        }
+                        var framed = bezel.Frame(picture);
+                        picture.Release();
+                        picture = framed;
+                    }
+                    catch (Exception)
+                    {
+                        // Couldn't draw the frame: the bare picture is better than none.
+                        bezel = null;
+                    }
+                }
                 if (picture != null)
                 {
                     last?.Release();
