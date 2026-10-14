@@ -663,6 +663,76 @@ final class PhoneBezelTests: XCTestCase {
     }
 }
 
+final class StageLayoutTests: XCTestCase {
+    private let big = (width: 1.0, height: 2.0)
+    private let small = (width: 0.5, height: 1.0)
+
+    func testSideBySideKeepsRelativeSizesAndCenters() {
+        let frames = stageFrames(sizes: [big, small], layout: .sideBySide, areaWidth: 1000, areaHeight: 1000, spacing: 0)
+        XCTAssertEqual(frames.count, 2)
+        // As tall as the stage, the row centered left to right.
+        XCTAssertEqual(frames[0].y, 0, accuracy: 1e-9)
+        XCTAssertEqual(frames[0].height, 1000, accuracy: 1e-9)
+        XCTAssertEqual(frames[0].x, 1000 - (frames[1].x + frames[1].width), accuracy: 1e-9)
+        XCTAssertEqual(frames[1].height, frames[0].height / 2, accuracy: 1e-9)
+        XCTAssertEqual(frames[0].y + frames[0].height / 2, 500, accuracy: 1e-9)
+        XCTAssertEqual(frames[1].y + frames[1].height / 2, 500, accuracy: 1e-9)
+    }
+
+    func testStackedRunsTopToBottom() {
+        let frames = stageFrames(sizes: [small, small], layout: .stacked, areaWidth: 1000, areaHeight: 1000)
+        XCTAssertLessThan(frames[0].y + frames[0].height, frames[1].y)
+        XCTAssertEqual(frames[0].x, frames[1].x, accuracy: 1e-9)
+        XCTAssertEqual(frames[0].x + frames[0].width / 2, 500, accuracy: 1e-9)
+    }
+
+    func testGapsAndMarginsKeepPhonesApartAndInside() {
+        for layout in StageLayout.allCases {
+            let frames = stageFrames(sizes: [big, small, big, small, big], layout: layout, areaWidth: 1280, areaHeight: 720)
+            for (index, frame) in frames.enumerated() {
+                XCTAssertGreaterThan(frame.x, 0)
+                XCTAssertGreaterThan(frame.y, 0)
+                XCTAssertLessThan(frame.x + frame.width, 1280)
+                XCTAssertLessThan(frame.y + frame.height, 720)
+                for other in frames[(index + 1)...] {
+                    let apart = frame.x + frame.width < other.x || other.x + other.width < frame.x
+                        || frame.y + frame.height < other.y || other.y + other.height < frame.y
+                    XCTAssertTrue(apart, "\(layout)")
+                }
+            }
+        }
+    }
+
+    func testGridCentersAShortLastRow() {
+        let frames = stageFrames(sizes: [big, big, big], layout: .grid, areaWidth: 1000, areaHeight: 1000)
+        XCTAssertEqual(frames[0].y, frames[1].y, accuracy: 1e-9)
+        XCTAssertGreaterThan(frames[2].y, frames[0].y)
+        XCTAssertEqual(frames[2].x + frames[2].width / 2, 500, accuracy: 1e-9)
+    }
+
+    func testNoPhonesOrNoRoom() {
+        XCTAssertEqual(stageFrames(sizes: [], layout: .grid, areaWidth: 100, areaHeight: 100), [])
+        XCTAssertEqual(stageFrames(sizes: [big], layout: .grid, areaWidth: 0, areaHeight: 100), [StageRect(x: 0, y: 0, width: 0, height: 0)])
+    }
+
+    func testPhoneSizesAreTrueToLife() {
+        let proMax = stagePhoneSize(modelCode: "iPhone18,2", pictureWidth: 1320, pictureHeight: 2868, bezel: false)
+        XCTAssertEqual(max(proMax.width, proMax.height), 1, accuracy: 0.01)
+        let se = stagePhoneSize(modelCode: "iPhone14,6", pictureWidth: 750, pictureHeight: 1334, bezel: false)
+        XCTAssertLessThan(se.height, 0.8)
+        XCTAssertEqual(se.width / se.height, 750.0 / 1334, accuracy: 1e-9)
+        // A frame adds to the size, around the same picture.
+        let framed = stagePhoneSize(modelCode: "iPhone14,6", pictureWidth: 750, pictureHeight: 1334, bezel: true)
+        XCTAssertGreaterThan(framed.height, se.height)
+        XCTAssertGreaterThan(framed.width, se.width)
+        // Sideways phones come out sideways; no picture yet is a portrait phone.
+        let sideways = stagePhoneSize(modelCode: "iPhone18,2", pictureWidth: 2868, pictureHeight: 1320, bezel: false)
+        XCTAssertGreaterThan(sideways.width, sideways.height)
+        let waiting = stagePhoneSize(modelCode: nil, pictureWidth: 0, pictureHeight: 0, bezel: false)
+        XCTAssertEqual(waiting.height, 1, accuracy: 1e-9)
+    }
+}
+
 final class LatestReleaseTests: XCTestCase {
     private let answer = #"""
     {

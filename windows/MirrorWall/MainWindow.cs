@@ -131,6 +131,10 @@ internal sealed class MainWindow : Window
             Menus.Item("Sharper Picture (H.265)", () => store.SetSharpPicture(!store.SharpPicture), isChecked: store.SharpPicture),
             new Separator(),
             Menus.Submenu("Pop-out Window Size", Menus.PopOutSizeItems(store)),
+            new Separator(),
+            Menus.Item("Show Stage", store.ShowStage),
+            Menus.Submenu("Stage Layout", Menus.StageLayoutItems(store)),
+            Menus.Submenu("Phones on Stage", Menus.StageSlotItems(store)),
         }));
         menu.Items.Add(Menus.Dynamic("_Window", () => WindowItems()));
         menu.Items.Add(Menus.Dynamic("_Help", () => new object[]

@@ -325,6 +325,10 @@ struct SlotTile: View {
         } else {
             Button("Open in Own Window") { store.openOwnWindow(slot) }
         }
+        Toggle("Show on Stage", isOn: Binding(
+            get: { slot.showsOnStage },
+            set: { store.setShowsOnStage(slot, on: $0) }
+        ))
         Divider()
         Button("Take Screenshot") { slot.takeScreenshot() }
             .disabled(!showsPicture)
