@@ -25,6 +25,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// Whether the slot's OBS feed has the phone frame around the picture, with see-through
     /// corners; nil (off) by default.
     public var feedBezel: Bool?
+    /// Whether the slot's phone appears in the Stage window while it's mirroring; nil (on) by
+    /// default.
+    public var onStage: Bool?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
         precondition(id >= 1 && id <= 99, "slot id out of range")
