@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -6,9 +7,9 @@ using MirrorWall.Core;
 namespace MirrorWall;
 
 /// <summary>
-/// Listens on a slot's cast port for Android phones running the Mirror Wall Cast app, and
-/// advertises the slot on the network (<c>_mirrorwall._tcp</c>) under its name so the app can list
-/// it. A port of the Mac app's CastServer.
+/// Listens on a slot's cast port for Android phones running the Mirror Wall Cast app. The slot lists
+/// itself on the network (<c>_mirrorwall._tcp</c>) with a <see cref="DnsServiceAdvertiser"/> of its
+/// own, which outlives the server across receiver restarts. A port of the Mac app's CastServer.
 ///
 /// Connections are accepted on the server's own thread and each one is read on a thread of its
 /// own; their callbacks run there.
@@ -18,33 +19,17 @@ internal sealed class CastServer
     public const string ServiceType = "_mirrorwall._tcp";
 
     public int Port { get; }
-    private readonly string name;
     private readonly Action<CastConnection> onConnection;
     private readonly object gate = new();
     // Guarded by `gate`.
     private TcpListener? listener;
     private readonly List<CastConnection> connections = new();
-    private DnsServiceAdvertiser? advertiser;
-    private bool advertised = true;
     private bool stopped;
 
-    public CastServer(int port, string name, Action<CastConnection> onConnection)
+    public CastServer(int port, Action<CastConnection> onConnection)
     {
         Port = port;
-        this.name = name;
         this.onConnection = onConnection;
-    }
-
-    /// <summary>Whether the slot is listed on the network. A listing withdrawn while a phone is
-    /// connected doesn't affect that phone, which already has the address. Safe from any thread.</summary>
-    public void SetAdvertised(bool on)
-    {
-        lock (gate)
-        {
-            if (on == advertised) return;
-            advertised = on;
-            advertiser?.SetRegistered(on);
-        }
     }
 
     /// <exception cref="SocketException">The port couldn't be opened.</exception>
@@ -56,8 +41,6 @@ internal sealed class CastServer
         lock (gate)
         {
             listener = newListener;
-            advertiser = DnsServiceAdvertiser.Create(name, ServiceType, Port);
-            advertiser?.SetRegistered(advertised);
         }
         new Thread(() => AcceptLoop(newListener)) { Name = $"Mirror Wall cast {Port}", IsBackground = true }.Start();
     }
@@ -72,8 +55,6 @@ internal sealed class CastServer
             stopped = true;
             listener?.Stop();
             listener = null;
-            advertiser?.Dispose();
-            advertiser = null;
             dropped = connections.ToList();
             connections.Clear();
         }
@@ -242,8 +223,11 @@ internal sealed class CastConnection
 /// <summary>
 /// Lists a service on the local network with Windows' own mDNS (DNS-SD) responder, dnsapi's
 /// DnsServiceRegister (Windows 10 1809 and later), the way the Mac lists it with Bonjour.
-/// Registering and withdrawing finish in the background; the native memory they use stays until
-/// the last of them has.
+///
+/// Registering and withdrawing finish in the background, so they're done one at a time: a
+/// withdrawal sent while the registration is still going through is lost, which left the name
+/// listed for good, and the next registration of the same name then came out as "Name (1)".
+/// The native memory they use stays until the last of them has finished.
 /// </summary>
 internal sealed class DnsServiceAdvertiser : IDisposable
 {
@@ -252,13 +236,21 @@ internal sealed class DnsServiceAdvertiser : IDisposable
     private IntPtr instance;
     private IntPtr request;
     private GCHandle self;
-    private bool registered;
+    /// <summary>Whether the service should be listed.</summary>
+    private bool wanted;
+    /// <summary>Whether it is listed (or may be), as far as finished calls go.</summary>
+    private bool listed;
+    /// <summary>What the call in progress will make <see cref="listed"/>, if one is.</summary>
+    private bool? inProgress;
+    private long inProgressSince;
     private bool disposed;
-    /// <summary>Registrations and withdrawals that haven't called back yet.</summary>
-    private int pending;
+
+    /// <summary>Advertisers not yet let go of, so quitting can wait for their withdrawals.</summary>
+    private static readonly HashSet<DnsServiceAdvertiser> live = new();
 
     private DnsServiceAdvertiser(IntPtr instance)
     {
+        lock (live) live.Add(this);
         this.instance = instance;
         self = GCHandle.Alloc(this);
         request = Marshal.AllocHGlobal(Marshal.SizeOf<DNS_SERVICE_REGISTER_REQUEST>());
@@ -293,15 +285,15 @@ internal sealed class DnsServiceAdvertiser : IDisposable
         }
     }
 
-    /// <summary>Lists the service, or withdraws it.</summary>
+    /// <summary>Lists the service, or withdraws it. A listing withdrawn while a phone is connected
+    /// doesn't affect that phone, which already has the address. Safe from any thread.</summary>
     public void SetRegistered(bool on)
     {
         lock (gate)
         {
-            if (disposed || on == registered) return;
-            registered = on;
-            uint status = on ? DnsServiceRegister(request, IntPtr.Zero) : DnsServiceDeRegister(request, IntPtr.Zero);
-            if (status == DNS_REQUEST_PENDING) pending++;
+            if (disposed) return;
+            wanted = on;
+            Advance();
         }
     }
 
@@ -311,19 +303,64 @@ internal sealed class DnsServiceAdvertiser : IDisposable
         lock (gate)
         {
             if (disposed) return;
-            if (registered)
-            {
-                registered = false;
-                if (DnsServiceDeRegister(request, IntPtr.Zero) == DNS_REQUEST_PENDING) pending++;
-            }
             disposed = true;
-            if (pending == 0) Free();
+            wanted = false;
+            Advance();
         }
+    }
+
+    /// <summary>Waits, up to <paramref name="limit"/>, for every disposed advertiser's withdrawal to
+    /// finish. Windows' responder runs outside the app, so a name still listed as the app quits can
+    /// stay listed, and the next start's listing would come out as "Name (1)".</summary>
+    public static void WaitForWithdrawals(TimeSpan limit)
+    {
+        var deadline = Stopwatch.GetTimestamp() + (long)(limit.TotalSeconds * Stopwatch.Frequency);
+        lock (live)
+        {
+            while (live.Count > 0)
+            {
+                long left = deadline - Stopwatch.GetTimestamp();
+                if (left <= 0) return;
+                Monitor.Wait(live, TimeSpan.FromSeconds((double)left / Stopwatch.Frequency));
+            }
+        }
+    }
+
+    /// <summary>Starts the next call, if one is needed and none is in progress, and lets go once
+    /// a disposed advertiser has nothing left listed. Call with `gate` held.</summary>
+    private void Advance()
+    {
+        // Don't wait forever on a call Windows never reports back on.
+        if (inProgress is bool stuck && Stopwatch.GetElapsedTime(inProgressSince) > TimeSpan.FromSeconds(10))
+        {
+            inProgress = null;
+            listed = stuck;
+        }
+        if (inProgress != null) return;
+        if (wanted != listed && instance != IntPtr.Zero)
+        {
+            uint status = wanted ? DnsServiceRegister(request, IntPtr.Zero) : DnsServiceDeRegister(request, IntPtr.Zero);
+            if (status == DNS_REQUEST_PENDING)
+            {
+                inProgress = wanted;
+                inProgressSince = Stopwatch.GetTimestamp();
+                return;
+            }
+            // Refused outright: a registration that didn't happen, or nothing left to withdraw.
+            listed = false;
+            if (wanted) wanted = false;
+        }
+        if (disposed && !listed) Free();
     }
 
     /// <summary>Call with `gate` held.</summary>
     private void Free()
     {
+        lock (live)
+        {
+            live.Remove(this);
+            Monitor.PulseAll(live);
+        }
         if (instance != IntPtr.Zero) DnsServiceFreeInstance(instance);
         instance = IntPtr.Zero;
         if (request != IntPtr.Zero) Marshal.FreeHGlobal(request);
@@ -344,13 +381,23 @@ internal sealed class DnsServiceAdvertiser : IDisposable
             return; // already let go of: nothing to do, and throwing here would end the app
         }
         if (advertiser == null) return;
-        lock (advertiser.gate)
+        // `completedInstance` isn't freed: the documentation doesn't say whose it is, and a few
+        // hundred bytes per phone connection is a better risk than freeing Windows' own.
+        // The next call is made off Windows' thread rather than from inside its callback.
+        ThreadPool.QueueUserWorkItem(_ =>
         {
-            // `completedInstance` isn't freed: the documentation doesn't say whose it is, and a
-            // few hundred bytes per phone connection is a better risk than freeing Windows' own.
-            advertiser.pending = Math.Max(0, advertiser.pending - 1);
-            if (advertiser.disposed && advertiser.pending == 0) advertiser.Free();
-        }
+            lock (advertiser.gate)
+            {
+                if (advertiser.inProgress is not bool done) return;
+                advertiser.inProgress = null;
+                // A failed registration isn't listed; a failed withdrawal is treated as done,
+                // since there's nothing better to try.
+                advertiser.listed = done && status == 0;
+                // Not retried over and over; the next change of the slot's state tries again.
+                if (done && status != 0) advertiser.wanted = false;
+                advertiser.Advance();
+            }
+        });
     }
 
     // Kept for as long as the app runs, so Windows can always call it back.

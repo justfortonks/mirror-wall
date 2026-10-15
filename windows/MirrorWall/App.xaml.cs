@@ -12,9 +12,19 @@ public partial class App : Application
 
     internal static new App Current => (App)Application.Current;
 
+    // Held for as long as this copy runs; Windows lets go of it when the process ends.
+    private static Mutex? instanceMutex;
+    private const string InstanceMutexName = @"Local\MirrorWall-Running";
+    private const string ShowWallEventName = @"Local\MirrorWall-ShowWall";
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (!BecomeTheOnlyCopy())
+        {
+            Shutdown();
+            return;
+        }
         DispatcherUnhandledException += Crashed;
         // A problem on a background thread (receiving, recording, OBS feed) ends the app; this at
         // least leaves a note of why.
@@ -28,6 +38,52 @@ public partial class App : Application
         Store.StartAll();
         Store.RestoreOwnWindows();
         window.Activate();
+    }
+
+    /// <summary>
+    /// Only one Mirror Wall can run: a second copy can't open the slots' ports, so every tile would
+    /// show an error while the first copy, often hidden behind its notification area icon, carries
+    /// on mirroring. Opening Mirror Wall again instead brings back the running copy's wall.
+    /// </summary>
+    /// <returns>false if another copy is running, which has been asked to show its wall.</returns>
+    private static bool BecomeTheOnlyCopy()
+    {
+        var mutex = new Mutex(false, InstanceMutexName);
+        var showWall = new EventWaitHandle(false, EventResetMode.AutoReset, ShowWallEventName);
+        bool owned;
+        try
+        {
+            owned = mutex.WaitOne(0);
+        }
+        catch (AbandonedMutexException)
+        {
+            owned = true; // the last copy ended without letting go
+        }
+        if (!owned)
+        {
+            showWall.Set();
+            // A copy that's quitting (say, for an update) can't show its wall; take over once it's gone.
+            try
+            {
+                owned = mutex.WaitOne(TimeSpan.FromSeconds(5));
+            }
+            catch (AbandonedMutexException)
+            {
+                owned = true;
+            }
+            if (!owned) return false;
+            showWall.Reset();
+        }
+        instanceMutex = mutex;
+        new Thread(() =>
+        {
+            while (true)
+            {
+                showWall.WaitOne();
+                Current?.Dispatcher.InvokeAsync(MirrorWall.MainWindow.ShowMain);
+            }
+        }) { Name = "Mirror Wall show wall", IsBackground = true }.Start();
+        return true;
     }
 
     /// <summary>Quits Mirror Wall, even while the notification area icon would otherwise keep it
