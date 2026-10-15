@@ -14,6 +14,9 @@ if it hasn't been released yet.
 - Android app: turning the phone back to portrait by pressing Home (the home screen is always
   upright) no longer leaves Mirror Wall showing a sideways picture with the screen squeezed in
   the middle.
+- Phone frames now turn the way an Android phone is held: upside down, or sideways either way
+  (needs the Android app from this release; iPhones and older apps keep the frame's top on the
+  left when sideways).
 
 ## October 15, 2026: Windows fixes
 

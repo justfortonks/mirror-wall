@@ -73,13 +73,16 @@ public sealed record BezelArtwork(string Name, double CanvasWidth, double Canvas
 
 /// <summary>
 /// The frame around a slot's picture, measured in units of the picture's shorter side, so it
-/// scales with the picture. Turns with the picture: the portrait top edge becomes the left edge
-/// when the phone is held sideways. The Mac app's BezelGeometry.
+/// scales with the picture. Turns with the phone: the portrait top edge becomes the left edge
+/// when the phone is held sideways (or the right edge, or the bottom, when the phone says so).
+/// The Mac app's BezelGeometry.
 /// </summary>
 public sealed record BezelGeometry
 {
     public BezelStyle Style { get; }
     public bool Landscape { get; }
+    /// <summary>Quarter turns left from upright: 0 or 2 for a portrait picture, 1 or 3 for a sideways one.</summary>
+    public int QuarterTurns { get; }
     /// <summary>The frame's edges around the picture, as on screen.</summary>
     public double Top { get; }
     public double Left { get; }
@@ -122,23 +125,30 @@ public sealed record BezelGeometry
         _ => (0.1, 0.045, 0.1, 0.03, 0.08),
     };
 
-    public BezelGeometry(BezelStyle style, double pictureWidth, double pictureHeight)
+    /// <summary><paramref name="turns"/>: quarter turns left the phone is held at, if it says
+    /// (Android phones do): 0 upright, 1 sideways with its top on the left, 2 upside down, 3
+    /// sideways with its top on the right. Ignored when it doesn't match the picture's shape (the
+    /// phone turned and its new picture hasn't arrived yet); a sideways picture then has its top
+    /// on the left.</summary>
+    public BezelGeometry(BezelStyle style, double pictureWidth, double pictureHeight, int? turns = null)
     {
         Style = style;
         Landscape = pictureWidth > pictureHeight;
+        QuarterTurns = turns is int t && ((t & 1) == 1) == Landscape ? t & 3 : Landscape ? 1 : 0;
         if (BezelArtwork.For(style) is { } artwork)
         {
-            // The photo, turned a quarter left for a sideways phone, scaled so the picture fits
-            // its screen and centered there.
+            // The photo, turned as the phone is, scaled so the picture fits its screen and
+            // centered there.
             double shorter = Math.Max(1e-9, Math.Min(pictureWidth, pictureHeight));
             double pictureW = Math.Max(pictureWidth, 1e-9) / shorter, pictureH = Math.Max(pictureHeight, 1e-9) / shorter;
-            double canvasW = Landscape ? artwork.CanvasHeight : artwork.CanvasWidth;
-            double canvasH = Landscape ? artwork.CanvasWidth : artwork.CanvasHeight;
-            var upright = artwork.Screen;
-            // A quarter turn left: (x, y, w, h) in a W×H canvas → (y, W − x − w, h, w).
-            var screen = Landscape
-                ? new BezelRect(upright.Y, artwork.CanvasWidth - upright.X - upright.Width, upright.Height, upright.Width)
-                : upright;
+            double canvasW = artwork.CanvasWidth, canvasH = artwork.CanvasHeight;
+            var screen = artwork.Screen;
+            for (int turn = 0; turn < QuarterTurns; turn++)
+            {
+                // A quarter turn left: (x, y, w, h) in a W×H canvas → (y, W − x − w, h, w).
+                screen = new BezelRect(screen.Y, canvasW - screen.X - screen.Width, screen.Height, screen.Width);
+                (canvasW, canvasH) = (canvasH, canvasW);
+            }
             double scale = Math.Min(screen.Width / pictureW, screen.Height / pictureH); // pixels per unit
             Left = (screen.X + (screen.Width - pictureW * scale) / 2) / scale;
             Top = (screen.Y + (screen.Height - pictureH * scale) / 2) / scale;
@@ -148,22 +158,25 @@ public sealed record BezelGeometry
             return;
         }
         var edges = Portrait(style);
-        if (Landscape)
+        // Upright edges, then turned: each quarter turn left takes the right edge to the top.
+        var around = (Top: edges.Top, Left: edges.Side, Bottom: edges.Bottom, Right: edges.Side);
+        for (int turn = 0; turn < QuarterTurns; turn++)
         {
-            (Top, Left, Bottom, Right) = (edges.Side, edges.Top, edges.Side, edges.Bottom);
+            around = (around.Right, around.Top, around.Left, around.Bottom);
         }
-        else
-        {
-            (Top, Left, Bottom, Right) = (edges.Top, edges.Side, edges.Bottom, edges.Side);
-        }
+        (Top, Left, Bottom, Right) = around;
         ScreenCornerRadius = edges.Screen;
         OuterCornerRadius = edges.Outer;
     }
 
-    public BezelGeometry(string? modelCode, double pictureWidth, double pictureHeight)
-        : this(StyleFor(modelCode), pictureWidth, pictureHeight)
+    public BezelGeometry(string? modelCode, double pictureWidth, double pictureHeight, int? turns = null)
+        : this(StyleFor(modelCode), pictureWidth, pictureHeight, turns)
     {
     }
+
+    /// <summary>The frame's edges at the phone's upright top and bottom, whichever way it's held.</summary>
+    public double UprightTop => QuarterTurns switch { 1 => Left, 2 => Bottom, 3 => Right, _ => Top };
+    public double UprightBottom => QuarterTurns switch { 1 => Right, 2 => Top, 3 => Left, _ => Bottom };
 
     /// <summary>The whole frame's size, for a picture of this size, in units of the picture's shorter side.</summary>
     public (double Width, double Height) OuterSize(double pictureWidth, double pictureHeight)

@@ -279,6 +279,30 @@ public class PhoneBezelTests
     }
 
     [Fact]
+    public void FrameTurnsTheWayThePhoneSays()
+    {
+        var upright = new BezelGeometry(BezelStyle.HomeButton, 750, 1334);
+        var upsideDown = new BezelGeometry(BezelStyle.HomeButton, 750, 1334, 2);
+        Assert.Equal(2, upsideDown.QuarterTurns);
+        Assert.Equal(upright.Bottom, upsideDown.Top);
+        Assert.Equal(upright.Top, upsideDown.UprightTop);
+        var topRight = new BezelGeometry(BezelStyle.HomeButton, 1334, 750, 3);
+        Assert.Equal(upright.Top, topRight.Right);
+        Assert.Equal(upright.Bottom, topRight.Left);
+        // A turn that doesn't match the picture (its new picture hasn't arrived) is ignored.
+        Assert.Equal(0, new BezelGeometry(BezelStyle.HomeButton, 750, 1334, 1).QuarterTurns);
+        Assert.Equal(1, new BezelGeometry(BezelStyle.HomeButton, 1334, 750, 0).QuarterTurns);
+
+        // CT37 upside down: 1360×2880, screen 1080×2280 at (140, 320), so 280 above, 320 below.
+        var photo = new BezelGeometry(BezelStyle.HoneywellCT37, 1080, 2280, 2);
+        Assert.Equal(280.0 / 1080, photo.Top, 9);
+        Assert.Equal(320.0 / 1080, photo.Bottom, 9);
+        var photoRight = new BezelGeometry(BezelStyle.HoneywellCT37, 2280, 1080, 3);
+        Assert.Equal(280.0 / 1080, photoRight.Left, 9);
+        Assert.Equal(320.0 / 1080, photoRight.Right, 9);
+    }
+
+    [Fact]
     public void FrameTurnsWithThePicture()
     {
         var portrait = new BezelGeometry(BezelStyle.HomeButton, 750, 1334);

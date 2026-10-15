@@ -256,9 +256,16 @@ final class Slot: ObservableObject, Identifiable {
         config.bezel = choice
     }
 
-    /// The frame for a picture of this size (the phone's shape), styled after the last phone.
+    /// The frame for a picture of this size (the phone's shape), styled after the last phone and
+    /// turned the way an Android phone says it's held.
     func bezel(for picture: CGSize) -> BezelGeometry {
-        BezelGeometry(modelCode: config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height)
+        BezelGeometry(modelCode: config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height, turns: phoneTurns)
+    }
+
+    /// Which way up the Android phone says it's held (see `CastMessage.orientation`); nil for an
+    /// iPhone or an older Android app, which don't say.
+    @Published private(set) var phoneTurns: Int? {
+        didSet { syphonFeed?.bezelTurns = phoneTurns }
     }
 
     /// Whether the OBS feed has the phone frame around the picture, with see-through corners.
@@ -276,6 +283,7 @@ final class Slot: ObservableObject, Identifiable {
     /// The feed's frame follows the last phone's model.
     private func updateFeedBezel() {
         syphonFeed?.bezelStyle = framesOBSFeed ? BezelStyle(modelCode: config.lastPhoneModel) : nil
+        syphonFeed?.bezelTurns = phoneTurns
     }
 
     /// Whether the phone appears in the Stage window while it's mirroring.
@@ -496,6 +504,7 @@ final class Slot: ObservableObject, Identifiable {
             let now = DispatchTime.now().uptimeNanoseconds
             if now > sentAt { stats.roundTrip = Double(now - sentAt) / 1e9 }
         case .bye: append("\(phoneName ?? "The Android phone") stopped sharing")
+        case .orientation(let turns): if phoneTurns != turns { phoneTurns = turns }
         default: break
         }
     }
@@ -516,6 +525,7 @@ final class Slot: ObservableObject, Identifiable {
             return
         }
         castPhone = phone
+        phoneTurns = nil
         append("Android phone connecting: \(hello.name) (\(hello.model)) from \(phone.remoteDescription)")
         // Take the slot off iPhones' Screen Mirroring list while the Android phone has it. The
         // generation bump keeps the stopping uxplay's exit, and any pending restart, from
@@ -537,6 +547,7 @@ final class Slot: ObservableObject, Identifiable {
     private func castPhoneLeft(_ phone: CastConnection) {
         guard phone === castPhone else { return }
         castPhone = nil
+        phoneTurns = nil
         append("\(phoneName ?? "The Android phone") disconnected")
         connectedSince = nil
         if state != .waiting && state != .disconnected {

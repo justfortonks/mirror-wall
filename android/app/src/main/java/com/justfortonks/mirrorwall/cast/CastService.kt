@@ -329,6 +329,8 @@ class CastService : Service() {
             keepAwake()
         }
         if (screenOff) link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
+        sentTurns = -1
+        sendOrientation()
         update(if (screenOff) "Screen off: $slotName shows it as paused" else "Sharing to $slotName")
     }
 
@@ -470,9 +472,23 @@ class CastService : Service() {
 
     private val recheckShape = Runnable { matchScreenShape() }
 
+    /** Quarter turns left last told to Mirror Wall; -1 when it hasn't been told on this connection. */
+    private var sentTurns = -1
+
+    /** Tells Mirror Wall which way up the phone is, so its frame can turn the same way. */
+    private fun sendOrientation() {
+        @Suppress("DEPRECATION")
+        val turns = getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: return
+        val outbox = link?.outbox ?: return
+        if (turns == sentTurns) return
+        sentTurns = turns
+        outbox.offer(CastProtocol.message(CastProtocol.ORIENTATION, byteArrayOf(turns.toByte())))
+    }
+
     /** A new encoder if the screen is now a different size from what's being sent. */
     private fun matchScreenShape() {
         if (stopped) return
+        sendOrientation()
         val old = encoder ?: return
         val size = captureSize()
         if (size.width == old.width && size.height == old.height) return

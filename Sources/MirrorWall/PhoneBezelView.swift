@@ -17,7 +17,7 @@ struct PhoneBezel<Content: View>: View {
             // Points per unit: one unit is the picture's shorter side.
             let unit = proxy.size.width / outer.width
             if let screen = geometry.artworkScreen,
-               let photo = PhoneBezelDrawing.artworkImage(geometry.style, landscape: geometry.landscape) {
+               let photo = PhoneBezelDrawing.artworkImage(geometry.style, turns: geometry.quarterTurns) {
                 // A photo of the phone's front over the picture, with black showing in any of
                 // its screen the picture doesn't cover.
                 ZStack(alignment: .topLeading) {
