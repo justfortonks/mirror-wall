@@ -50,7 +50,7 @@ internal sealed class PhoneBezelFrame : FrameworkElement
         if (newGeometry == geometry && newPicture == picture) return;
         geometry = newGeometry;
         picture = newPicture;
-        photo.Source = geometry.ArtworkScreen != null ? BezelPhotos.Get(geometry.Style, geometry.Landscape) : null;
+        photo.Source = geometry.ArtworkScreen != null ? BezelPhotos.Get(geometry.Style, geometry.QuarterTurns) : null;
         photo.Visibility = photo.Source != null ? Visibility.Visible : Visibility.Collapsed;
         InvalidateMeasure();
         InvalidateVisual();
@@ -110,12 +110,20 @@ internal sealed class PhoneBezelFrame : FrameworkElement
     }
 
     /// <summary>Draws the frame filling <paramref name="size"/>, with <paramref name="unit"/> pixels
-    /// to the picture's shorter side: upright, turned a quarter left for a sideways phone, so the
-    /// portrait top edge (notch, camera) ends up on the left. Also draws the OBS feed's frame.</summary>
+    /// to the picture's shorter side: laid out upright, then turned as the phone is held, so for a
+    /// sideways phone the portrait top edge (notch, camera) usually ends up on the left. Also draws
+    /// the OBS feed's frame.</summary>
     public static void Draw(DrawingContext dc, BezelGeometry geometry, Size size, double unit)
     {
         var upright = geometry.Landscape ? new Size(size.Height, size.Width) : size;
-        if (geometry.Landscape) dc.PushTransform(new MatrixTransform(0, -1, 1, 0, 0, size.Height));
+        Matrix? turn = geometry.QuarterTurns switch
+        {
+            1 => new Matrix(0, -1, 1, 0, 0, size.Height),          // (x, y) → (y, height − x)
+            2 => new Matrix(-1, 0, 0, -1, size.Width, size.Height), // (x, y) → (width − x, height − y)
+            3 => new Matrix(0, 1, -1, 0, size.Width, 0),            // (x, y) → (width − y, x)
+            _ => null,
+        };
+        if (turn is { } matrix) dc.PushTransform(new MatrixTransform(matrix));
 
         double rim = 0.012 * unit, outer = geometry.OuterCornerRadius * unit;
         dc.DrawRoundedRectangle(BodyBrush, null, new Rect(upright), outer, outer);
@@ -123,8 +131,8 @@ internal sealed class PhoneBezelFrame : FrameworkElement
         dc.DrawRoundedRectangle(null, new Pen(RimBrush, rim), rimRect, Math.Max(0, outer - rim / 2), Math.Max(0, outer - rim / 2));
 
         // Portrait top and bottom edges, whichever way the phone is held.
-        double topEdge = (geometry.Landscape ? geometry.Left : geometry.Top) * unit;
-        double bottomEdge = (geometry.Landscape ? geometry.Right : geometry.Bottom) * unit;
+        double topEdge = geometry.UprightTop * unit;
+        double bottomEdge = geometry.UprightBottom * unit;
         double centerX = upright.Width / 2;
         switch (geometry.Style)
         {
@@ -146,7 +154,7 @@ internal sealed class PhoneBezelFrame : FrameworkElement
                 Pill(dc, Brushes.Black, new Rect(centerX - 0.08 * unit, topEdge / 4 - 0.008 * unit, 0.16 * unit, 0.016 * unit));
                 break;
         }
-        if (geometry.Landscape) dc.Pop();
+        if (turn != null) dc.Pop();
     }
 
     private static void Pill(DrawingContext dc, Brush brush, Rect rect) =>
@@ -164,19 +172,20 @@ internal sealed class PhoneBezelFrame : FrameworkElement
 
 /// <summary>
 /// The photos phone frames are drawn from (see <see cref="BezelArtwork"/>), embedded in the app
-/// from the Mac app's Resources/Bezels: upright, or turned a quarter left for a sideways phone so
-/// the top edge (camera, earpiece) is on the left. Frozen, so any thread can use them.
+/// from the Mac app's Resources/Bezels, turned some quarter turns left (1: the top edge, camera
+/// and earpiece, on the left). Frozen, so any thread can use them.
 /// </summary>
 internal static class BezelPhotos
 {
-    private static readonly Dictionary<(string, bool), BitmapSource?> Cache = new();
+    private static readonly Dictionary<(string, int), BitmapSource?> Cache = new();
 
-    public static BitmapSource? Get(BezelStyle style, bool landscape)
+    public static BitmapSource? Get(BezelStyle style, int turns)
     {
         if (BezelArtwork.For(style) is not { } artwork) return null;
+        turns &= 3;
         lock (Cache)
         {
-            if (Cache.TryGetValue((artwork.Name, landscape), out var cached)) return cached;
+            if (Cache.TryGetValue((artwork.Name, turns), out var cached)) return cached;
             BitmapSource? image = null;
             try
             {
@@ -185,7 +194,8 @@ internal static class BezelPhotos
                 {
                     var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
                     image = decoder.Frames[0];
-                    if (landscape) image = new TransformedBitmap(image, new RotateTransform(-90));
+                    // WPF turns clockwise for positive angles.
+                    if (turns != 0) image = new TransformedBitmap(image, new RotateTransform(-90 * turns));
                     image = new FormatConvertedBitmap(image, PixelFormats.Pbgra32, null, 0);
                     // Laid out by the frame's size, not the PNG's DPI.
                     image = new CachedBitmap(image, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
@@ -196,7 +206,7 @@ internal static class BezelPhotos
             {
                 image = null; // The plain frame instead.
             }
-            Cache[(artwork.Name, landscape)] = image;
+            Cache[(artwork.Name, turns)] = image;
             return image;
         }
     }

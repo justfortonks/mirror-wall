@@ -556,7 +556,7 @@ final class CastProtocolTests: XCTestCase {
             .paused, .resumed, .heartbeat,
             .busy(CastBusy(reason: "In use")),
             .welcome(CastWelcome(slot: "Mirror Wall 2", maxFrameRate: 60, sharpPicture: true)),
-            .ping(0x0102_0304_0506_0708), .pong(42),
+            .ping(0x0102_0304_0506_0708), .pong(42), .orientation(2),
             .bye,
         ]
         let reader = CastReader()
@@ -571,6 +571,11 @@ final class CastProtocolTests: XCTestCase {
         let reader = CastReader()
         XCTAssertEqual(try reader.push([0x40, 0, 0, 0, 2, 7, 7] + CastMessage.heartbeat.encoded()), [.heartbeat])
         XCTAssertThrowsError(try CastReader().push([0x02, 0x7F, 0, 0, 0]))
+    }
+
+    func testOrientationIsOneByteOfQuarterTurns() throws {
+        XCTAssertEqual(CastMessage.orientation(3).encoded(), [0x08, 0, 0, 0, 1, 3])
+        XCTAssertEqual(try CastReader().push([0x08, 0, 0, 0, 1, 1]), [.orientation(1)])
     }
 
     /// Phones and Mirror Walls of any version have to understand each other (see "Compatibility" in
@@ -684,6 +689,29 @@ final class PhoneBezelTests: XCTestCase {
         XCTAssertEqual(sideways.right, 280.0 / 1080, accuracy: 1e-9)
         XCTAssertEqual(sideways.top, 140.0 / 1080, accuracy: 1e-9)
         XCTAssertEqual(sideways.bottom, 140.0 / 1080, accuracy: 1e-9)
+    }
+
+    func testFrameTurnsTheWayThePhoneSays() {
+        let upright = BezelGeometry(style: .homeButton, pictureWidth: 750, pictureHeight: 1334)
+        let upsideDown = BezelGeometry(style: .homeButton, pictureWidth: 750, pictureHeight: 1334, turns: 2)
+        XCTAssertEqual(upsideDown.quarterTurns, 2)
+        XCTAssertEqual(upsideDown.top, upright.bottom)
+        XCTAssertEqual(upsideDown.uprightTop, upright.top)
+        let topRight = BezelGeometry(style: .homeButton, pictureWidth: 1334, pictureHeight: 750, turns: 3)
+        XCTAssertEqual(topRight.right, upright.top)
+        XCTAssertEqual(topRight.left, upright.bottom)
+        // A turn that doesn't match the picture (its new picture hasn't arrived) is ignored.
+        XCTAssertEqual(BezelGeometry(style: .homeButton, pictureWidth: 750, pictureHeight: 1334, turns: 1).quarterTurns, 0)
+        XCTAssertEqual(BezelGeometry(style: .homeButton, pictureWidth: 1334, pictureHeight: 750, turns: 0).quarterTurns, 1)
+
+        // CT37 upside down: 1360×2880, screen 1080×2280 at (140, 320), so 280 above, 320 below.
+        let photo = BezelGeometry(style: .honeywellCT37, pictureWidth: 1080, pictureHeight: 2280, turns: 2)
+        XCTAssertEqual(photo.top, 280.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(photo.bottom, 320.0 / 1080, accuracy: 1e-9)
+        // Top on the right.
+        let photoRight = BezelGeometry(style: .honeywellCT37, pictureWidth: 2280, pictureHeight: 1080, turns: 3)
+        XCTAssertEqual(photoRight.left, 280.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(photoRight.right, 320.0 / 1080, accuracy: 1e-9)
     }
 
     func testFrameTurnsWithThePicture() {

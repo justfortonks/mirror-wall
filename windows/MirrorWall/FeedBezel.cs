@@ -14,6 +14,7 @@ namespace MirrorWall;
 internal sealed class FeedBezel
 {
     public BezelStyle Style { get; }
+    public int? Turns { get; }
     public int PictureWidth { get; }
     public int PictureHeight { get; }
 
@@ -27,12 +28,13 @@ internal sealed class FeedBezel
     /// edges), where the two are blended.</summary>
     private readonly int[] blended;
 
-    public FeedBezel(BezelStyle style, int pictureWidth, int pictureHeight)
+    public FeedBezel(BezelStyle style, int pictureWidth, int pictureHeight, int? turns = null)
     {
         Style = style;
+        Turns = turns;
         PictureWidth = pictureWidth;
         PictureHeight = pictureHeight;
-        var geometry = new BezelGeometry(style, pictureWidth, pictureHeight);
+        var geometry = new BezelGeometry(style, pictureWidth, pictureHeight, turns);
         double unit = Math.Min(pictureWidth, pictureHeight);
         left = (int)Math.Round(geometry.Left * unit);
         top = (int)Math.Round(geometry.Top * unit);
@@ -41,7 +43,7 @@ internal sealed class FeedBezel
 
         var visual = new DrawingVisual();
         RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
-        var photo = geometry.ArtworkScreen != null ? BezelPhotos.Get(style, geometry.Landscape) : null;
+        var photo = geometry.ArtworkScreen != null ? BezelPhotos.Get(style, geometry.QuarterTurns) : null;
         using (var dc = visual.RenderOpen())
         {
             double radius = geometry.ScreenCornerRadius * unit;
