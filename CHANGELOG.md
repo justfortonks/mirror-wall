@@ -5,6 +5,14 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 15, 2026: Windows fixes
+
+- Windows: opening Mirror Wall while it's already running (say, hidden behind its tray icon)
+  now brings back the wall instead of starting a second copy whose tiles all said "Couldn't
+  listen on UDP port".
+- Windows: the Android app no longer lists a phantom "Slot Name(1)", and a slot drops off its
+  list every time an Android phone takes it, including after reconnecting.
+
 ## October 14, 2026: Beta updates
 
 - Settings › General › Updates chooses what Check for Update offers: releases only (Stable, the
