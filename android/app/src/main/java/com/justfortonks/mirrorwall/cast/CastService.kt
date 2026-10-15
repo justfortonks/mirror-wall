@@ -421,6 +421,8 @@ class CastService : Service() {
     private val heartbeat = object : Runnable {
         override fun run() {
             link?.outbox?.offer(CastProtocol.message(CastProtocol.HEARTBEAT))
+            // A turn the display listener missed is caught here.
+            matchScreenShape()
             main.postDelayed(this, 2000)
         }
     }
@@ -448,18 +450,34 @@ class CastService : Service() {
         }
     }
 
-    /** Turning the phone changes the screen's shape: a new encoder at the new size. */
+    /**
+     * Turning the phone changes the screen's shape: a new encoder at the new size. The display
+     * can report the change before its size has turned (pressing Home in landscape, when the
+     * home screen turns the phone back to portrait), so the shape is checked again a moment later.
+     */
     private val rotationListener = object : DisplayManager.DisplayListener {
         override fun onDisplayChanged(displayId: Int) {
             if (displayId != Display.DEFAULT_DISPLAY) return
-            val old = encoder ?: return
-            val size = captureSize()
-            if (size.width == old.width && size.height == old.height) return
-            replaceEncoder(size)
+            matchScreenShape()
+            main.removeCallbacks(recheckShape)
+            main.postDelayed(recheckShape, 300)
+            main.postDelayed(recheckShape, 1000)
         }
 
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
+    }
+
+    private val recheckShape = Runnable { matchScreenShape() }
+
+    /** A new encoder if the screen is now a different size from what's being sent. */
+    private fun matchScreenShape() {
+        if (stopped) return
+        val old = encoder ?: return
+        val size = captureSize()
+        if (size.width == old.width && size.height == old.height) return
+        AppLog.write("Screen turned: ${old.width}×${old.height} → ${size.width}×${size.height}")
+        replaceEncoder(size)
     }
 
     private class CaptureSize(val mime: String, val width: Int, val height: Int, val dpi: Int)
@@ -493,6 +511,7 @@ class CastService : Service() {
         stopped = true
         AppLog.write("Stopped sharing${reason?.let { ": $it" } ?: ""}")
         main.removeCallbacks(heartbeat)
+        main.removeCallbacks(recheckShape)
         if (display != null) {
             getSystemService(DisplayManager::class.java).unregisterDisplayListener(rotationListener)
             try {
