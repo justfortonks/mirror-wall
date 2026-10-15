@@ -45,8 +45,7 @@ internal sealed class Slot : Observable
             Changed(nameof(StateSince));
             Changed(nameof(ShowsPicture));
             if (spoutFeed != null) spoutFeed.PassesFrames = CarriesPhoneFrames;
-            // A slot in use drops out of the Android app's list until it's free again.
-            castServer?.SetAdvertised(!CarriesPhoneFrames);
+            UpdateListing();
         }
     }
     /// <summary>Why the slot failed, while <see cref="State"/> is Failed.</summary>
@@ -126,6 +125,10 @@ internal sealed class Slot : Observable
     private UdpReceiver? receiver;
     /// <summary>Listens for Android phones (Mirror Wall Cast) while the slot runs.</summary>
     private CastServer? castServer;
+    /// <summary>Lists the slot for the Android app. Kept across receiver restarts, so restarting
+    /// doesn't withdraw the name and list it again.</summary>
+    private DnsServiceAdvertiser? listing;
+    private string? listingName;
     /// <summary>The Android phone that has the slot, if any. While one does, the slot's uxplay is
     /// stopped so iPhones don't list it.</summary>
     private CastConnection? castPhone;
@@ -272,6 +275,7 @@ internal sealed class Slot : Observable
 
     private void Fail(string message)
     {
+        if (castServer == null) listing?.SetRegistered(false);
         FailureMessage = message;
         Changed(nameof(FailureMessage));
         State = SlotState.Failed;
@@ -557,8 +561,7 @@ internal sealed class Slot : Observable
 
     private void StartCastServer()
     {
-        var server = new CastServer(Config.CastPort, Name, CastPhoneConnected);
-        server.SetAdvertised(!CarriesPhoneFrames);
+        var server = new CastServer(Config.CastPort, CastPhoneConnected);
         try
         {
             server.Start();
@@ -566,8 +569,25 @@ internal sealed class Slot : Observable
         }
         catch (SocketException error)
         {
+            listing?.SetRegistered(false);
             Append($"Android phones can't connect to this slot: couldn't listen on port {Config.CastPort} ({error.Message})");
         }
+        UpdateListing();
+    }
+
+    /// <summary>A free slot is on the Android app's list; one in use drops off it until it's free
+    /// again. Leaves the listing alone while the slot is between receivers (Stop, then Start).</summary>
+    private void UpdateListing()
+    {
+        if (castServer == null) return;
+        bool listed = !CarriesPhoneFrames;
+        if (listed && (listing == null || listingName != Name))
+        {
+            listing?.Dispose();
+            listing = DnsServiceAdvertiser.Create(Name, CastServer.ServiceType, Config.CastPort);
+            listingName = Name;
+        }
+        listing?.SetRegistered(listed);
     }
 
     /// <summary>The server's thread: wires up a new connection. Nothing is decided until the phone
@@ -838,6 +858,8 @@ internal sealed class Slot : Observable
         spoutFeed?.Stop();
         spoutFeed = null;
         Stop();
+        listing?.Dispose();
+        listing = null;
         Renderer.Dispose();
         logFile?.Dispose();
         logFile = null;

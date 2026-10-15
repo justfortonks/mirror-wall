@@ -489,6 +489,7 @@ internal sealed class SlotStore : Observable
         // Every receiver is asked to quit first, so they shut down together rather than in turn.
         foreach (var slot in Slots) slot.AskReceiverToQuit();
         foreach (var slot in Slots) slot.Shutdown();
+        DnsServiceAdvertiser.WaitForWithdrawals(TimeSpan.FromSeconds(1.5));
     }
 
     private Dictionary<int, string> WindowTitles => SlotConfig.WindowTitles(Slots.Select(slot => slot.Config));
