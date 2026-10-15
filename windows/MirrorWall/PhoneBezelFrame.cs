@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using MirrorWall.Core;
 
 namespace MirrorWall;
@@ -8,10 +9,11 @@ namespace MirrorWall;
 /// <summary>
 /// A phone-shaped frame around a slot's picture: the phone's body, drawn around the picture
 /// without covering any of it, with a notch, Dynamic Island, home button or front camera to match
-/// the phone's model. Put it in an <see cref="AspectBox"/> with <see cref="Ratio"/>, so it gets
+/// the phone's model, or a photo of the phone's front laid over the picture for the Android
+/// phones that have one. Put it in an <see cref="AspectBox"/> with <see cref="Ratio"/>, so it gets
 /// the frame's shape. The Mac app's PhoneBezel.
 /// </summary>
-internal sealed class PhoneBezelFrame : Decorator
+internal sealed class PhoneBezelFrame : FrameworkElement
 {
     private static readonly Brush BodyBrush = Frozen(new SolidColorBrush(Color.FromRgb(28, 28, 30)));
     private static readonly Brush RimBrush = Frozen(new SolidColorBrush(Color.FromRgb(82, 82, 87)));
@@ -19,13 +21,21 @@ internal sealed class PhoneBezelFrame : Decorator
 
     /// <summary>Holds the picture, clipped to the screen's rounded corners.</summary>
     private readonly Border screen = new() { Background = Brushes.Black };
+    /// <summary>The phone's photo, over the picture, for a frame drawn from one.</summary>
+    private readonly Image photo = new() { IsHitTestVisible = false, Stretch = Stretch.Fill, Visibility = Visibility.Collapsed };
     private BezelGeometry geometry = new(BezelStyle.Plain, 9, 19.5);
     private Size picture = new(9, 19.5);
 
     public PhoneBezelFrame()
     {
-        Child = screen;
+        RenderOptions.SetBitmapScalingMode(photo, BitmapScalingMode.HighQuality);
+        AddVisualChild(screen);
+        AddVisualChild(photo);
     }
+
+    protected override int VisualChildrenCount => 2;
+
+    protected override Visual GetVisualChild(int index) => index == 0 ? screen : photo;
 
     /// <summary>What goes on the phone's screen.</summary>
     public UIElement? Content
@@ -40,6 +50,8 @@ internal sealed class PhoneBezelFrame : Decorator
         if (newGeometry == geometry && newPicture == picture) return;
         geometry = newGeometry;
         picture = newPicture;
+        photo.Source = geometry.ArtworkScreen != null ? BezelPhotos.Get(geometry.Style, geometry.Landscape) : null;
+        photo.Visibility = photo.Source != null ? Visibility.Visible : Visibility.Collapsed;
         InvalidateMeasure();
         InvalidateVisual();
     }
@@ -69,6 +81,7 @@ internal sealed class PhoneBezelFrame : Decorator
     {
         var size = new Size(double.IsInfinity(available.Width) ? 300 : available.Width, double.IsInfinity(available.Height) ? 300 / Ratio : available.Height);
         screen.Measure(ScreenRect(size).Size);
+        photo.Measure(size);
         return size;
     }
 
@@ -78,6 +91,7 @@ internal sealed class PhoneBezelFrame : Decorator
         screen.Arrange(rect);
         double radius = geometry.ScreenCornerRadius * Unit(final);
         screen.Clip = new RectangleGeometry(new Rect(rect.Size), radius, radius);
+        photo.Arrange(new Rect(final));
         return final;
     }
 
@@ -85,7 +99,14 @@ internal sealed class PhoneBezelFrame : Decorator
     {
         var size = RenderSize;
         if (size.Width <= 0 || size.Height <= 0) return;
-        Draw(dc, geometry, size, Unit(size));
+        double unit = Unit(size);
+        if (photo.Source != null && geometry.ArtworkScreen is { } opening)
+        {
+            // Black in any of the photo's screen the picture doesn't cover.
+            dc.DrawRectangle(Brushes.Black, null, new Rect(opening.X * unit, opening.Y * unit, opening.Width * unit, opening.Height * unit));
+            return;
+        }
+        Draw(dc, geometry, size, unit);
     }
 
     /// <summary>Draws the frame filling <paramref name="size"/>, with <paramref name="unit"/> pixels
@@ -120,7 +141,7 @@ internal sealed class PhoneBezelFrame : Decorator
             case BezelStyle.DynamicIsland:
                 Pill(dc, Brushes.Black, new Rect(centerX - 0.15 * unit, topEdge / 2 - 0.022 * unit, 0.3 * unit, 0.044 * unit));
                 break;
-            default:
+            default: // Plain; frames drawn from photos don't come here.
                 Dot(dc, Brushes.Black, centerX, topEdge / 2, 0.018 * unit);
                 Pill(dc, Brushes.Black, new Rect(centerX - 0.08 * unit, topEdge / 4 - 0.008 * unit, 0.16 * unit, 0.016 * unit));
                 break;
@@ -138,5 +159,45 @@ internal sealed class PhoneBezelFrame : Decorator
     {
         brush.Freeze();
         return brush;
+    }
+}
+
+/// <summary>
+/// The photos phone frames are drawn from (see <see cref="BezelArtwork"/>), embedded in the app
+/// from the Mac app's Resources/Bezels: upright, or turned a quarter left for a sideways phone so
+/// the top edge (camera, earpiece) is on the left. Frozen, so any thread can use them.
+/// </summary>
+internal static class BezelPhotos
+{
+    private static readonly Dictionary<(string, bool), BitmapSource?> Cache = new();
+
+    public static BitmapSource? Get(BezelStyle style, bool landscape)
+    {
+        if (BezelArtwork.For(style) is not { } artwork) return null;
+        lock (Cache)
+        {
+            if (Cache.TryGetValue((artwork.Name, landscape), out var cached)) return cached;
+            BitmapSource? image = null;
+            try
+            {
+                using var stream = typeof(BezelPhotos).Assembly.GetManifestResourceStream($"Bezels.{artwork.Name}.png");
+                if (stream != null)
+                {
+                    var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    image = decoder.Frames[0];
+                    if (landscape) image = new TransformedBitmap(image, new RotateTransform(-90));
+                    image = new FormatConvertedBitmap(image, PixelFormats.Pbgra32, null, 0);
+                    // Laid out by the frame's size, not the PNG's DPI.
+                    image = new CachedBitmap(image, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                    image.Freeze();
+                }
+            }
+            catch (Exception)
+            {
+                image = null; // The plain frame instead.
+            }
+            Cache[(artwork.Name, landscape)] = image;
+            return image;
+        }
     }
 }

@@ -5,9 +5,9 @@ name: Windows
 
 on:
   push:
-    paths: ['windows/**', 'patches/**', '.github/workflows/windows.yml']
+    paths: ['windows/**', 'patches/**', 'Sources/MirrorWall/Resources/**', '.github/workflows/windows.yml']
   pull_request:
-    paths: ['windows/**', 'patches/**', '.github/workflows/windows.yml']
+    paths: ['windows/**', 'patches/**', 'Sources/MirrorWall/Resources/**', '.github/workflows/windows.yml']
   workflow_dispatch:
   workflow_call:
     inputs:
