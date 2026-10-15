@@ -7,7 +7,8 @@ namespace MirrorWall;
 
 /// <summary>
 /// The phone frame for a slot's OBS feed, around pictures of one size: the phone's body with a
-/// see-through screen and see-through corners, drawn once, then laid over each picture. Built on
+/// see-through screen and see-through corners (or a photo of the phone's front), drawn once, then
+/// laid over each picture. Built on
 /// the feed's own thread, which must be STA, since it draws with WPF.
 /// </summary>
 internal sealed class FeedBezel
@@ -39,13 +40,26 @@ internal sealed class FeedBezel
         height = pictureHeight + top + (int)Math.Round(geometry.Bottom * unit);
 
         var visual = new DrawingVisual();
+        RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.HighQuality);
+        var photo = geometry.ArtworkScreen != null ? BezelPhotos.Get(style, geometry.Landscape) : null;
         using (var dc = visual.RenderOpen())
         {
             double radius = geometry.ScreenCornerRadius * unit;
             var screen = new RectangleGeometry(new Rect(left, top, pictureWidth, pictureHeight), radius, radius);
             dc.PushClip(new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(new Rect(0, 0, width, height)), screen));
-            PhoneBezelFrame.Draw(dc, geometry, new Size(width, height), unit);
-            dc.Pop();
+            if (photo != null && geometry.ArtworkScreen is { } opening)
+            {
+                // Black in any of the photo's screen the picture doesn't cover, then the photo
+                // over everything (its screen's rounded corners can sit over the picture's).
+                dc.DrawRectangle(Brushes.Black, null, new Rect(opening.X * unit, opening.Y * unit, opening.Width * unit, opening.Height * unit));
+                dc.Pop();
+                dc.DrawImage(photo, new Rect(0, 0, width, height));
+            }
+            else
+            {
+                PhoneBezelFrame.Draw(dc, geometry, new Size(width, height), unit);
+                dc.Pop();
+            }
         }
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual);

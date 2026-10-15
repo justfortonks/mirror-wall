@@ -93,6 +93,8 @@ fi
 
 # Licences: Mirror Wall's own (GPLv3, as UxPlay's), and the notices of what it bundles.
 cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+# Phone frames drawn from photos of Android phones' fronts (PhoneBezelDrawing.swift).
+cp -R Sources/MirrorWall/Resources/Bezels "$APP/Contents/Resources/"
 # What's new, shown in About Mirror Wall.
 cp CHANGELOG.md "$APP/Contents/Resources/"
 if [ -n "$SYPHON" ] && [ -f build/Syphon-Framework/License.txt ]; then

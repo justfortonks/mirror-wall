@@ -1,4 +1,6 @@
 import CoreGraphics
+import Foundation
+import ImageIO
 import MirrorCore
 import SwiftUI
 
@@ -52,7 +54,7 @@ enum PhoneBezelDrawing {
         case .dynamicIsland:
             let island = CGRect(x: centerX - 0.15 * unit, y: topEdge / 2 - 0.022 * unit, width: 0.3 * unit, height: 0.044 * unit)
             shapes.append(Shape(path: Path(roundedRect: island, cornerRadius: island.height / 2), color: black))
-        case .plain:
+        default: // .plain; frames drawn from photos don't come here.
             let camera = CGRect(x: centerX - 0.018 * unit, y: topEdge / 2 - 0.018 * unit, width: 0.036 * unit, height: 0.036 * unit)
             shapes.append(Shape(path: Path(ellipseIn: camera), color: black))
             let speaker = CGRect(x: centerX - 0.08 * unit, y: topEdge / 4 - 0.008 * unit, width: 0.16 * unit, height: 0.016 * unit)
@@ -77,6 +79,9 @@ enum PhoneBezelDrawing {
     static func overlay(style: BezelStyle, width: Int, height: Int) -> Overlay? {
         guard width > 0, height > 0 else { return nil }
         let geometry = BezelGeometry(style: style, pictureWidth: Double(width), pictureHeight: Double(height))
+        if geometry.artworkScreen != nil, let overlay = artworkOverlay(geometry: geometry, width: width, height: height) {
+            return overlay
+        }
         let unit = CGFloat(min(width, height))
         let left = Int((geometry.left * unit).rounded())
         let top = Int((geometry.top * unit).rounded())
@@ -112,5 +117,79 @@ enum PhoneBezelDrawing {
         context.fillPath()
         guard let image = context.makeImage() else { return nil }
         return Overlay(image: image, left: left, top: top, bottom: bottom)
+    }
+
+    /// The photo frame for the OBS feed: black where the photo's screen isn't covered by the
+    /// picture, see-through where it is, with the photo on top (its screen's rounded corners can
+    /// sit over the picture's corners).
+    private static func artworkOverlay(geometry: BezelGeometry, width: Int, height: Int) -> Overlay? {
+        guard let screen = geometry.artworkScreen, let photo = artworkImage(geometry.style, landscape: geometry.landscape) else { return nil }
+        let unit = CGFloat(min(width, height))
+        let left = Int((geometry.left * unit).rounded())
+        let top = Int((geometry.top * unit).rounded())
+        let right = Int((geometry.right * unit).rounded())
+        let bottom = Int((geometry.bottom * unit).rounded())
+        let size = CGSize(width: width + left + right, height: height + top + bottom)
+        guard let context = CGContext(
+            data: nil,
+            width: Int(size.width),
+            height: Int(size.height),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else { return nil }
+        // y up here.
+        context.setFillColor(black)
+        context.fill(CGRect(x: screen.x * unit, y: size.height - (screen.y + screen.height) * unit, width: screen.width * unit, height: screen.height * unit))
+        context.clear(CGRect(x: left, y: bottom, width: width, height: height))
+        context.interpolationQuality = .high
+        context.draw(photo, in: CGRect(origin: .zero, size: size))
+        guard let image = context.makeImage() else { return nil }
+        return Overlay(image: image, left: left, top: top, bottom: bottom)
+    }
+
+    private static let artworkLock = NSLock()
+    private static var artworkCache: [String: CGImage] = [:]
+
+    /// The photo a frame is drawn from, upright or turned a quarter left for a sideways phone, so
+    /// its top edge (camera, earpiece) is on the left. Nil if the style has none or it's missing.
+    static func artworkImage(_ style: BezelStyle, landscape: Bool) -> CGImage? {
+        guard let artwork = style.artwork else { return nil }
+        let key = "\(artwork.name) \(landscape)"
+        artworkLock.lock()
+        defer { artworkLock.unlock() }
+        if let image = artworkCache[key] { return image }
+        guard let upright = loadArtwork(artwork.name) else { return nil }
+        var image = upright
+        if landscape {
+            guard let context = CGContext(
+                data: nil,
+                width: upright.height,
+                height: upright.width,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+            ) else { return nil }
+            // y up: a quarter turn left takes the top edge to the left.
+            context.translateBy(x: CGFloat(upright.height), y: 0)
+            context.rotate(by: .pi / 2)
+            context.draw(upright, in: CGRect(x: 0, y: 0, width: upright.width, height: upright.height))
+            guard let turned = context.makeImage() else { return nil }
+            image = turned
+        }
+        artworkCache[key] = image
+        return image
+    }
+
+    /// From the app's Resources/Bezels, or the build folder's resource bundle when run unpackaged.
+    private static func loadArtwork(_ name: String) -> CGImage? {
+        var url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Bezels")
+        if url == nil, Bundle.main.bundleURL.pathExtension != "app" {
+            url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Bezels")
+        }
+        guard let url, let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 }
