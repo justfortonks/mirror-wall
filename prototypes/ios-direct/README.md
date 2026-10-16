@@ -4,8 +4,16 @@ Independent iPhone-only iOS 27 app. Full-display ScreenCaptureKit → paced SDR 
 VideoToolbox → bounded counting/hash stub. No networking, audio output, broadcast
 extension, entitlements file, third-party dependencies or production integration.
 
-**Build validation is blocked by this shell's sandbox; no successful compile, signed
-install or device/background pass is claimed.** See the G1-build entry in
+G1b separates encoder state from capture: encoder failures invalidate only VT,
+then retry on a paced frame after 0.25/0.5/1/2 seconds (2-second cap), with a new
+generation and forced IDR. Valid output resets backoff. JSON/UI report encoder
+state, recreate attempts/successes (create + properties + prepare), last failing
+OSStatus and no-session frame drops; attempts include initial creation. Nil pools
+have no OSStatus and are logged as such. Hardware readback -12900 is
+`"unknown (not supported)"`. No new device/background pass is claimed.
+
+**G1b build validation is blocked by this shell's sandbox; no new successful compile,
+signed install or device/background pass is claimed.** See the G1-build entry in
 [results](../../docs/ios-direct/results.md). The full
 [G1 procedure](../../docs/ios-direct/test-plan.md) remains the acceptance procedure.
 
@@ -41,9 +49,11 @@ git status --porcelain
 ```
 
 Inspect diagnostics and the `TEST`/`BUILD` result, since the pipeline status belongs
-to `tail`. The five Shared XCTest methods cover even/aspect fitting in portrait,
+to `tail`. The six Shared XCTest methods cover even/aspect fitting in portrait,
 landscape and odd sizes; 60→30 FPS pacing; byte/age rejection and drop counts;
-and metrics/event JSON lines. No tests executed in the sandbox attempt.
+retry deadlines/cap/reset; and metrics/event JSON lines. G1b tests/compilation
+were blocked by sandbox_apply and SwiftPM diagnostic-cache permissions;
+no workaround was attempted.
 
 ## Run and export
 
@@ -82,17 +92,26 @@ profile, PTS or memory data remains absent/unavailable, never an assumed success
 
 - Main owns picker/UI/stream lifecycle. Capture callbacks use a dedicated queue,
   check complete/valid/ready samples, and apply explicit 30 FPS PTS pacing.
-  iOS has no `minimumFrameInterval`, `pixelFormat` or `queueDepth` setters.
-  Capture stays at native dimensions; Core Image applies the per-frame EXIF
-  orientation and source color interpretation, converts to SDR Rec.709, and fits
-  even dimensions inside 1280×720 or 720×1280. Rounding error is below two pixels.
+  Capture width/height use the existing even/aspect fitter and picker filter's
+  contentRect × pointPixelScale. Matching buffers feed VT directly; size
+  mismatches use VTPixelTransferSession to fit into 1280×720 or 720×1280,
+  targeting video-range bi-planar YCbCr. No Core Image rendering or pixel rotation.
+  The iPhoneOS 27.1 `SCStream.h` explicitly excludes `minimumFrameInterval`,
+  `pixelFormat`, `scalesToFit`, `preservesAspectRatio`, `queueDepth` and
+  `updateConfiguration` on iOS. Thus 30 FPS/pixel-format/aspect setters and live
+  stream reconfiguration cannot be requested through this SDK. Default aspect
+  preservation applies. Frame orientation, delivered buffer size/pixel format,
+  screen/content rect and scales are recorded; buffer/orientation/screen-size
+  changes rebuild the encoder without stopping capture. Rotation and whether SCK
+  honors requested sizing need a device run.
 - A locked mailbox permits two waiting source buffers. One serial encoder worker
   submits at most two VT frames in flight. Size/orientation changes invalidate
   the session and increment a generation; old completions are discarded. PTS is
   preserved. The encoder requests 6 Mbit/s, 30 FPS, one-second keyframes, no frame
   reordering, real time and High auto-level; low-latency rate control is supplied
-  at creation. Every property result is logged. A rejected requested property
-  fails visibly. Hardware/profile readback failures remain unavailable; actual
+  at creation. Every property result is logged. Rejected requested properties
+  enter visible encoder unavailability and retry; hardware/profile readback
+  failures remain unknown/unavailable; actual
   output avcC profile/level and format dimensions are recorded on keyframes.
 - The stub has its own serial consumer. Admission is bounded by 1 MiB; admission,
   dequeue and metrics sampling expire entries aged 100 ms. Stale entries never
@@ -100,16 +119,20 @@ profile, PTS or memory data remains absent/unavailable, never an assumed success
   IDR. Dispatch blocks do not retain payloads outside this queue. The consumer
   counts access-unit bytes and hashes them, then discards them. Stop clears source
   admission, invalidates VT generations, clears the sink and waits for its current
-  drain before returning. No automatic restart or background task/audio workaround.
+  drain before returning. Encoder recovery never restarts capture. No background
+  task/audio workaround.
 - A dedicated DispatchSource timer attempts one metrics line per second while
   capture grants execution. Events and metrics are serialized and synchronized
   to disk after every line. UIKit lifecycle/battery data is cached from main;
   process thermal/power/resident memory is sampled with each tick. Disk failures
-  stop the experiment visibly. The OS can still suspend/stop execution; a missing
+  are shown separately and leave capture running. Only user Stop or app teardown
+  calls stopCapture; picker/start failures and delegate stops clean up downstream
+  state. The OS can still suspend/stop execution; a missing
   interval is evidence to investigate, not filled in afterward.
-- No signed entitlements/profile, actual supported encoder properties, image
-  correctness, background cadence, rotation, stop latency, hardware or G1 gate
-  success has been measured. No G2 radio code exists.
+- G1 run 1 recorded two nil-pool failures after backgrounding followed by our
+  stopCapture path. G1b recovery, image correctness, background cadence, rotation,
+  stop latency and G1 gate success still need device validation. No G2 radio code
+  exists.
 
 SDK reference: `xcrun --sdk iphoneos --show-sdk-path` resolved to Xcode's
 `iPhoneOS27.1.sdk`. Implementation spelling/availability was checked against

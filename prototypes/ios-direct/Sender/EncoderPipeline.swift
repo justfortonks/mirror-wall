@@ -1,8 +1,6 @@
 import Foundation
 import ScreenCaptureKit
 import VideoToolbox
-import CoreImage
-import ImageIO
 import IOSDirectShared
 
 /// Capture queue calls offer(). A two-entry mailbox feeds one encode worker.
@@ -12,16 +10,24 @@ final class EncoderPipeline {
         let image: CVPixelBuffer
         let pts: CMTime
         let orientation: UInt32
+        let screenSize: CGSize?
     }
-    private struct Format: Equatable { let sourceWidth: Int; let sourceHeight: Int; let orientation: UInt32; let output: Dimensions }
+    private struct Format: Equatable {
+        let sourceWidth: Int
+        let sourceHeight: Int
+        let pixelFormat: OSType
+        let orientation: UInt32
+        let screenSize: CGSize?
+        let output: Dimensions
+    }
     private let mailboxLock = NSLock()
     private var frames: [Frame] = []
     private var workerScheduled = false
     private var accepting = false
     private var pacer = FramePacer()
     private let encodeQueue = DispatchQueue(label: "iosdirect.encode", qos: .userInitiated)
-    private let context = CIContext(options: [.cacheIntermediates: false])
-    private let colorSpace = CGColorSpace(name: CGColorSpace.itur_709)!
+    private var transfer: VTPixelTransferSession?
+    private var backoff = EncoderBackoff()
     private var session: VTCompressionSession?
     private var format: Format?
     private var generation = 0
@@ -30,18 +36,22 @@ final class EncoderPipeline {
     private let metrics: Telemetry
     private let log: RunLog
     private let sink: StubSink
-    var onFailure: ((String) -> Void)?
     init(metrics: Telemetry, log: RunLog) {
         self.metrics = metrics; self.log = log; sink = StubSink(metrics: metrics)
         sink.requestIDR = { [weak self] in self?.encodeQueue.async { [weak self] in self?.forceIDR = true } }
     }
     func start() {
         stop()
+        encodeQueue.sync { setEncoderState("unavailable: awaiting frame") }
         mailboxLock.lock(); accepting = true; pacer = FramePacer(); mailboxLock.unlock()
     }
     func stop() {
         mailboxLock.lock(); accepting = false; frames.removeAll(); mailboxLock.unlock()
-        encodeQueue.sync { invalidate() }
+        encodeQueue.sync {
+            invalidate(); format = nil; backoff.reset()
+            setEncoderState("unavailable: stopped")
+            metrics.update { $0.encoderRetryAfter = 0 }
+        }
     }
     func resetCounters() {
         // Keep totals/hash aligned with a reset event without restarting capture.
@@ -59,13 +69,28 @@ final class EncoderPipeline {
         guard pts.isNumeric, pts.seconds.isFinite else { return }
         metrics.update { $0.validFrames += 1; $0.latestPTS = pts.seconds }
         let orientation = (info[.videoOrientation] as? NSNumber)?.uint32Value ?? 1
+        let screenRect = Self.rect(info[.screenRect])
+        let contentRect = Self.rect(info[.contentRect])
+        metrics.update {
+            $0.sourceDimensions = Dimensions(width: CVPixelBufferGetWidth(image), height: CVPixelBufferGetHeight(image))
+            $0.sourcePixelFormat = CVPixelBufferGetPixelFormatType(image); $0.frameOrientation = orientation
+            $0.frameScreenRect = screenRect.map { String(describing: $0) }
+            $0.frameContentRect = contentRect.map { String(describing: $0) }
+            $0.frameScaleFactor = (info[.scaleFactor] as? NSNumber)?.doubleValue
+            $0.frameContentScale = (info[.contentScale] as? NSNumber)?.doubleValue
+        }
         mailboxLock.lock(); defer { mailboxLock.unlock() }
         guard accepting else { return }
         guard pacer.accept(pts: pts.seconds) else { metrics.update { $0.pacingDrops += 1 }; return }
         metrics.update { $0.pacedFrames += 1 }
         guard frames.count < 2 else { metrics.update { $0.sourceDrops += 1 }; return }
-        frames.append(Frame(image: image, pts: pts, orientation: orientation))
+        frames.append(Frame(image: image, pts: pts, orientation: orientation, screenSize: screenRect?.size))
         scheduleWorker()
+    }
+    private static func rect(_ value: Any?) -> CGRect? {
+        if let rect = value as? CGRect { return rect }
+        if let dictionary = value as? [String: Any] { return CGRect(dictionaryRepresentation: dictionary as CFDictionary) }
+        return nil
     }
     private func scheduleWorker() { // mailboxLock held
         guard !workerScheduled else { return }
@@ -83,23 +108,41 @@ final class EncoderPipeline {
         if accepting && !frames.isEmpty { scheduleWorker() }
         mailboxLock.unlock()
     }
-    private func invalidate() {
+    private func invalidate() { // encodeQueue only; obsolete callbacks cannot affect the new session.
         generation += 1
         if let session { VTCompressionSessionInvalidate(session) }
-        session = nil; format = nil; inFlight = 0; forceIDR = true
+        if let transfer { VTPixelTransferSessionInvalidate(transfer) }
+        session = nil; transfer = nil; inFlight = 0; forceIDR = true
+        metrics.update { $0.generation = generation }
         sink.begin(generation: generation)
     }
-    private func fail(_ message: String) {
-        metrics.update { $0.encodeErrors += 1 }
-        log.event("encoder.error", message)
-        mailboxLock.lock(); accepting = false; frames.removeAll(); mailboxLock.unlock()
-        invalidate()
-        onFailure?(message)
+    private func setEncoderState(_ value: String) {
+        metrics.update { $0.encoderState = value }
+        log.event("encoder.state", "\(value) generation=\(generation) appState=\(metrics.snapshot().appState)")
     }
+    private func fail(_ message: String, status: OSStatus? = nil, unavailable: Bool = false) {
+        metrics.update {
+            $0.encodeErrors += 1
+            if let status, status != noErr { $0.encoderLastFailingOSStatus = status }
+        }
+        log.event("encoder.error", "\(message) OSStatus=\(status.map { String($0) } ?? "none") generation=\(generation) appState=\(metrics.snapshot().appState)")
+        invalidate()
+        let delay = backoff.failed(now: uptime())
+        metrics.update { $0.encoderRetryAfter = backoff.retryAfter }
+        let reason = status.flatMap { $0 == noErr ? nil : String($0) } ?? message
+        setEncoderState(unavailable ? "unavailable: \(reason)" : "invalidated")
+        log.event("encoder.backoff", "delay=\(delay) retryAfter=\(backoff.retryAfter) appState=\(metrics.snapshot().appState)")
+    }
+    private func dropWithoutSession() { metrics.update { $0.encoderNoSessionDrops += 1 } }
     private func configure(_ next: Format) -> Bool {
         invalidate()
+        setEncoderState("recreating")
+        metrics.update { $0.encoderRecreateAttempts += 1 }
+        log.event("encoder.recreateAttempt", "attempt=\(metrics.snapshot().encoderRecreateAttempts) generation=\(generation) appState=\(metrics.snapshot().appState)")
         var created: VTCompressionSession?
-        let attrs: [CFString: Any] = [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+        let direct = next.sourceWidth == next.output.width && next.sourceHeight == next.output.height
+        let bufferFormat = direct ? next.pixelFormat : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        let attrs: [CFString: Any] = [kCVPixelBufferPixelFormatTypeKey: bufferFormat,
             kCVPixelBufferWidthKey: next.output.width, kCVPixelBufferHeightKey: next.output.height,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [String: Any]]
         let spec = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true] as CFDictionary
@@ -107,9 +150,10 @@ final class EncoderPipeline {
             height: Int32(next.output.height), codecType: kCMVideoCodecType_H264, encoderSpecification: spec,
             imageBufferAttributes: attrs as CFDictionary, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &created)
-        log.event("encoder.create", "generation=\(generation) dims=\(next.output) source=\(next.sourceWidth)x\(next.sourceHeight) orientation=\(next.orientation) lowLatency=true OSStatus=\(status)")
-        guard status == noErr, let created else { fail("create OSStatus=\(status)"); return false }
-        session = created; format = next
+        log.event("encoder.create", "generation=\(generation) dims=\(next.output) source=\(next.sourceWidth)x\(next.sourceHeight) orientation=\(next.orientation) lowLatency=true appState=\(metrics.snapshot().appState) OSStatus=\(status)")
+        // Retain even a partial result so failure always invalidates/releases it.
+        session = created
+        guard status == noErr, let created else { fail("create", status: status, unavailable: true); return false }
         let properties: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
             (kVTCompressionPropertyKey_ExpectedFrameRate, 30 as CFNumber),
@@ -121,11 +165,11 @@ final class EncoderPipeline {
         for (key, value) in properties {
             let result = VTSessionSetProperty(created, key: key, value: value)
             log.event("encoder.property", "\(key)=\(value) OSStatus=\(result)")
-            if result != noErr { fail("property \(key) OSStatus=\(result)"); return false }
+            if result != noErr { fail("property \(key)", status: result, unavailable: true); return false }
         }
         let prepared = VTCompressionSessionPrepareToEncodeFrames(created)
         log.event("encoder.prepare", "OSStatus=\(prepared)")
-        guard prepared == noErr else { fail("prepare OSStatus=\(prepared)"); return false }
+        guard prepared == noErr else { fail("prepare", status: prepared, unavailable: true); return false }
         var hardware: CFTypeRef?
         let hwStatus = withUnsafeMutablePointer(to: &hardware) {
             VTSessionCopyProperty(created, key: kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder, allocator: nil, valueOut: $0)
@@ -137,35 +181,75 @@ final class EncoderPipeline {
         log.event("encoder.readback", "hardware OSStatus=\(hwStatus) value=\(String(describing: hardware)); profile OSStatus=\(profileStatus) value=\(String(describing: profile))")
         metrics.update {
             $0.generation = generation; $0.dimensions = next.output
-            $0.hardwareEncoder = hwStatus == noErr ? (hardware as? Bool) : nil
+            if hwStatus == kVTPropertyNotSupportedErr { $0.hardwareEncoder = "unknown (not supported)" }
+            else if hwStatus == noErr, let value = hardware as? Bool { $0.hardwareEncoder = value ? "yes" : "no" }
+            else { $0.hardwareEncoder = "unknown (OSStatus=\(hwStatus))" }
             $0.negotiatedProfile = profileStatus == noErr ? profile.map { String(describing: $0) } : nil
         }
+        metrics.update { $0.encoderRecreateSuccesses += 1 }
+        setEncoderState("ok")
+        log.event("encoder.recreateSuccess", "generation=\(generation) appState=\(metrics.snapshot().appState)")
+        // Reset backoff only when output arrives: create can succeed while encode is forbidden.
         return true
     }
     private func encode(_ frame: Frame) {
-        let image = CIImage(cvPixelBuffer: frame.image).oriented(forExifOrientation: Int32(frame.orientation))
-        let extent = image.extent
-        guard let dimensions = Dimensions.fit(width: Int(extent.width), height: Int(extent.height)) else {
-            fail("invalid source dimensions"); return
+        let width = CVPixelBufferGetWidth(frame.image), height = CVPixelBufferGetHeight(frame.image)
+        guard let dimensions = Dimensions.fit(width: width, height: height) else {
+            if backoff.canAttempt(now: uptime()) { fail("invalid source dimensions") }
+            dropWithoutSession(); return
         }
-        let next = Format(sourceWidth: CVPixelBufferGetWidth(frame.image), sourceHeight: CVPixelBufferGetHeight(frame.image),
-                          orientation: frame.orientation, output: dimensions)
-        if format != next, !configure(next) { return }
-        guard let session, let pool = VTCompressionSessionGetPixelBufferPool(session) else { fail("missing pixel buffer pool"); return }
+        let next = Format(sourceWidth: width, sourceHeight: height,
+                          pixelFormat: CVPixelBufferGetPixelFormatType(frame.image),
+                          orientation: frame.orientation, screenSize: frame.screenSize, output: dimensions)
+        if format != next {
+            log.event("capture.frameFormat", "source=\(width)x\(height) pixelFormat=\(next.pixelFormat) orientation=\(frame.orientation) screenSize=\(String(describing: frame.screenSize)) output=\(dimensions) appState=\(metrics.snapshot().appState)")
+            // iOS 27.1 explicitly marks SCStream.updateConfiguration unavailable. Keep capture
+            // running and fit the delivered buffers; never rotate pixels or restart the stream.
+            log.event("stream.reconfigurationUnavailable", "iOS 27.1: updateConfiguration unavailable; encoder generation follows delivered size/orientation")
+            invalidate(); format = next
+        }
+        if session == nil {
+            guard backoff.canAttempt(now: uptime()) else { dropWithoutSession(); return }
+            guard configure(next) else { dropWithoutSession(); return }
+        }
+        guard let session, let pool = VTCompressionSessionGetPixelBufferPool(session) else {
+            // A nil pool has no returned OSStatus; do not fabricate -12903 in telemetry.
+            fail("missing pixel buffer pool"); dropWithoutSession(); return
+        }
         guard inFlight < 2 else { metrics.update { $0.sourceDrops += 1 }; return }
-        var buffer: CVPixelBuffer?
-        let allocated = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(nil, pool,
-            [kCVPixelBufferPoolAllocationThresholdKey: 3] as CFDictionary, &buffer)
-        guard allocated == kCVReturnSuccess, let buffer else {
-            metrics.update { $0.sourceDrops += 1 }; log.event("encoder.pool", "CVReturn=\(allocated)"); return
+        let buffer: CVPixelBuffer
+        if width == dimensions.width && height == dimensions.height {
+            buffer = frame.image // SCK IOSurface goes straight to VT, with its color attachments.
+        } else {
+            var converted: CVPixelBuffer?
+            let allocated = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(nil, pool,
+                [kCVPixelBufferPoolAllocationThresholdKey: 3] as CFDictionary, &converted)
+            guard allocated == kCVReturnSuccess, let converted else {
+                metrics.update { $0.sourceDrops += 1 }; log.event("encoder.pool", "CVReturn=\(allocated)"); return
+            }
+            if transfer == nil {
+                let status = VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &transfer)
+                log.event("encoder.transferCreate", "OSStatus=\(status) appState=\(metrics.snapshot().appState)")
+                guard status == noErr, let transfer else {
+                    fail("pixel transfer create", status: status); dropWithoutSession(); return
+                }
+                let properties: [(CFString, CFTypeRef)] = [
+                    (kVTPixelTransferPropertyKey_RealTime, kCFBooleanTrue),
+                    (kVTPixelTransferPropertyKey_ScalingMode, kVTScalingMode_Letterbox)
+                ]
+                for (key, value) in properties {
+                    let result = VTSessionSetProperty(transfer, key: key, value: value)
+                    log.event("encoder.transferProperty", "\(key)=\(value) OSStatus=\(result)")
+                    guard result == noErr else {
+                        fail("pixel transfer property \(key)", status: result); dropWithoutSession(); return
+                    }
+                }
+            }
+            guard let transfer else { return }
+            let status = VTPixelTransferSessionTransferImage(transfer, from: frame.image, to: converted)
+            guard status == noErr else { fail("pixel transfer", status: status); dropWithoutSession(); return }
+            buffer = converted
         }
-        // Orientation baked into pixels; preserve source PTS. SDR 709 output is explicit.
-        let normalized = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
-        let scaled = normalized.transformed(by: CGAffineTransform(scaleX: Double(dimensions.width) / extent.width,
-                                                                 y: Double(dimensions.height) / extent.height))
-        context.render(scaled, to: buffer, bounds: CGRect(x: 0, y: 0, width: dimensions.width, height: dimensions.height), colorSpace: colorSpace)
-        CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
-        CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
         let token = generation
         let properties = forceIDR ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         forceIDR = false; inFlight += 1
@@ -176,17 +260,22 @@ final class EncoderPipeline {
                 guard let self else { return }
                 self.encodeQueue.async { self.completed(token: token, status: status, flags: flags, sample: sample) }
             })
-        if status != noErr { fail("submit OSStatus=\(status)") }
+        if status != noErr { fail("submit", status: status) }
     }
     private func completed(token: Int, status: OSStatus, flags: VTEncodeInfoFlags, sample: CMSampleBuffer?) {
         guard token == generation else { return }
         inFlight -= 1
-        guard status == noErr, !flags.contains(.frameDropped), let sample, sample.isValid,
-              CMSampleBufferDataIsReady(sample), let block = sample.dataBuffer else {
-            metrics.update { $0.encodeErrors += 1 }
-            log.event("encoder.completion", "OSStatus=\(status) flags=\(flags.rawValue) missing/invalid=\(sample == nil)")
-            forceIDR = true; return
+        guard status == noErr else {
+            log.event("encoder.completion", "OSStatus=\(status) flags=\(flags.rawValue)")
+            fail("completion", status: status); return
         }
+        guard !flags.contains(.frameDropped), let sample, sample.isValid,
+              CMSampleBufferDataIsReady(sample), let block = sample.dataBuffer else {
+            log.event("encoder.completion", "OSStatus=\(status) flags=\(flags.rawValue) missing/invalid=\(sample == nil)")
+            fail("completion missing/invalid/dropped output"); return
+        }
+        backoff.reset()
+        metrics.update { $0.encoderRetryAfter = 0 }
         let size = CMBlockBufferGetDataLength(block)
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
         let keyframe = (attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool) != true
@@ -206,7 +295,7 @@ final class EncoderPipeline {
         }
         var data = Data(count: size)
         let copied = data.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: size, destination: $0.baseAddress!) }
-        guard copied == kCMBlockBufferNoErr else { fail("copy OSStatus=\(copied)"); return }
+        guard copied == kCMBlockBufferNoErr else { fail("copy", status: copied); return }
         sink.enqueue(data, pts: sample.presentationTimeStamp.seconds, generation: token)
     }
 }

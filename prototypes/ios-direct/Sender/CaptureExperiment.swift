@@ -10,6 +10,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     @Published private(set) var state = "idle"
     @Published private(set) var counters = MetricsSnapshot()
     @Published private(set) var busy = false
+    @Published private(set) var logFailure: String?
     let metrics = Telemetry()
     private(set) var log: RunLog?
     var logURL: URL? { log?.url }
@@ -27,10 +28,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
         do {
             let log = try RunLog(); self.log = log
             let pipeline = EncoderPipeline(metrics: metrics, log: log); self.pipeline = pipeline
-            pipeline.onFailure = { [weak self] error in
-                DispatchQueue.main.async { self?.finish(state: "failed: \(error)") }
-            }
-            log.event("run.start", "G1 stub only; iOS=\(UIDevice.current.systemVersion); build=1; bitrate=6000000; fps=30")
+            log.event("run.start", "G1b stub only; iOS=\(UIDevice.current.systemVersion); build=1; bitrate=6000000; fps=30")
         } catch { setState("failed: log creation: \(error.localizedDescription)") }
         SCContentSharingPicker.shared.add(self)
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -97,7 +95,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
         let failure = log?.error()
         DispatchQueue.main.async {
             self.counters = snapshot
-            if let failure, !self.state.hasPrefix("failed: log") { self.finish(state: "failed: log write: \(failure)") }
+            self.logFailure = failure // Logging failure is visible, but cannot tear down capture.
         }
     }
     private func setState(_ value: String) {
@@ -116,19 +114,21 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
         setState("picker shown")
         picker.present()
     }
-    func stop() { finish(state: "stopped by user") }
+    func stop() { finish(state: "stopped by user", stopCapture: true) }
     func reset() {
         pipeline?.resetCounters()
         log?.event("counters.reset", "epoch=\(metrics.snapshot().resetEpoch)")
     }
-    private func finish(state: String) { // main only; invalidate admission before SCStream stop
+    private func finish(state: String, stopCapture: Bool = false) { // main only
         request += 1; pickerPending = false; busy = false
         SCContentSharingPicker.shared.isActive = false
         let old = stream; stream = nil
         captureQueue.sync { capturedStream = nil; pipeline?.stop() }
         setState(state)
-        old?.stopCapture { [weak self] error in
-            self?.log?.event("stream.stopCompletion", error.map { String(describing: $0) } ?? "success")
+        if stopCapture {
+            old?.stopCapture { [weak self] error in
+                self?.log?.event("stream.stopCompletion", error.map { String(describing: $0) } ?? "success")
+            }
         }
     }
     func contentSharingPicker(_ picker: SCContentSharingPicker, didCancelFor stream: SCStream?) {
@@ -151,13 +151,23 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
             let configuration = SCStreamConfiguration()
             configuration.capturesAudio = false
             configuration.captureDynamicRange = .SDR
+            let rect = filter.contentRect
+            let scale = CGFloat(filter.pointPixelScale)
+            if let size = Dimensions.fit(width: Int(rect.width * scale), height: Int(rect.height * scale)) {
+                configuration.width = size.width; configuration.height = size.height
+            }
+            // iPhoneOS 27.1 SCStream.h exposes width/height on iOS, but explicitly
+            // excludes minimumFrameInterval, pixelFormat, scalesToFit,
+            // preservesAspectRatio and updateConfiguration. Keep the PTS pacer;
+            // accept the delivered pixel format and observe frame metadata.
             let newStream = SCStream(filter: filter, configuration: configuration, delegate: self)
             let token = self.request
             do {
                 try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.captureQueue)
                 self.stream = newStream
                 self.captureQueue.sync { self.pipeline?.start(); self.capturedStream = newStream }
-                self.log?.event("stream.startRequested", "full display; native capture dimensions; SDR; no audio output")
+                self.log?.event("stream.startRequested", "full display; filterRect=\(rect) pointPixelScale=\(scale); requested=\(configuration.width)x\(configuration.height); SDR; no audio output")
+                self.log?.event("stream.configurationLimits", "iOS 27.1 SDK: minimumFrameInterval/pixelFormat/scalesToFit/preservesAspectRatio/updateConfiguration unavailable; explicit 30fps pacer; delivered pixel format recorded")
                 newStream.startCapture { [weak self, weak newStream] error in
                     DispatchQueue.main.async {
                         guard let self, let newStream, token == self.request, self.stream === newStream else { return }
@@ -188,5 +198,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
         timer?.cancel()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         SCContentSharingPicker.shared.remove(self)
+        pipeline?.stop()
+        stream?.stopCapture { _ in }
     }
 }

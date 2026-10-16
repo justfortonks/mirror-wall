@@ -21,6 +21,20 @@ final class PrimitivesTests: XCTestCase {
         XCTAssertFalse(pacer.accept(pts: .nan))
         XCTAssertFalse(pacer.accept(pts: 0))
     }
+    func testEncoderBackoff() {
+        var backoff = EncoderBackoff()
+        XCTAssertTrue(backoff.canAttempt(now: 10))
+        var now = 10.0
+        for delay in [0.25, 0.5, 1.0, 2.0, 2.0, 2.0] {
+            XCTAssertEqual(backoff.failed(now: now), delay)
+            XCTAssertFalse(backoff.canAttempt(now: now + delay - 0.001))
+            now += delay
+            XCTAssertTrue(backoff.canAttempt(now: now))
+        }
+        backoff.reset()
+        XCTAssertTrue(backoff.canAttempt(now: now))
+        XCTAssertEqual(backoff.failed(now: now), 0.25)
+    }
     func testByteLimitAndDrops() {
         var q = BoundedQueue<Int>(maxBytes: 10, maxAge: 0.1)
         XCTAssertTrue(q.enqueue(1, bytes: 6, now: 0))
@@ -41,10 +55,18 @@ final class PrimitivesTests: XCTestCase {
     func testMetricsJSONLine() throws {
         var m = MetricsSnapshot(); m.monotonicTime = 12.5; m.encodeCompleted = 30
         m.dimensions = Dimensions(width: 720, height: 1280)
+        m.encoderState = "unavailable: -12903"; m.encoderLastFailingOSStatus = -12903
+        m.encoderRecreateAttempts = 4; m.encoderRecreateSuccesses = 2; m.encoderNoSessionDrops = 60
+        m.hardwareEncoder = "unknown (not supported)"
         let data = try m.jsonLine()
         XCTAssertEqual(data.last, 10); XCTAssertEqual(data.filter { $0 == 10 }.count, 1)
         let decoded = try JSONDecoder().decode(MetricsSnapshot.self, from: data)
         XCTAssertEqual(decoded.encodeCompleted, 30); XCTAssertEqual(decoded.dimensions, m.dimensions)
+        XCTAssertEqual(decoded.encoderState, m.encoderState)
+        XCTAssertEqual(decoded.encoderLastFailingOSStatus, -12903)
+        XCTAssertEqual(decoded.encoderRecreateAttempts, 4); XCTAssertEqual(decoded.encoderRecreateSuccesses, 2)
+        XCTAssertEqual(decoded.encoderNoSessionDrops, 60)
+        XCTAssertEqual(decoded.hardwareEncoder, "unknown (not supported)")
         let event = Event(monotonicTime: 1, wallTime: "now", name: "error", details: "line\nquote\"")
         let eventData = try JSONLine.encode(event)
         XCTAssertEqual(eventData.filter { $0 == 10 }.count, 1)
