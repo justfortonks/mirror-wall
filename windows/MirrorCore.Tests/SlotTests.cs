@@ -239,10 +239,79 @@ public class PhoneBezelTests
     [InlineData("iPhone15,2", BezelStyle.DynamicIsland)]
     [InlineData("iPhone18,2", BezelStyle.DynamicIsland)]
     [InlineData("iPhone99,1", BezelStyle.DynamicIsland)]
-    [InlineData("Zebra HC50", BezelStyle.Plain)]
+    [InlineData("Pixel 8", BezelStyle.Plain)]
+    [InlineData("Zebra Technologies HC50", BezelStyle.ZebraHC50)]
+    [InlineData("Zebra HC50", BezelStyle.ZebraHC50)]
+    [InlineData("HC50", BezelStyle.ZebraHC50)]
+    [InlineData("Zebra Technologies HC20", BezelStyle.Plain)]
+    [InlineData("Zebra Technologies HC55", BezelStyle.Plain)]
+    [InlineData("Honeywell CT37", BezelStyle.HoneywellCT37)]
+    [InlineData("Honeywell CT37 HC", BezelStyle.HoneywellCT37)]
+    [InlineData("Honeywell CT37HC", BezelStyle.HoneywellCT37)]
+    [InlineData("Honeywell CT30", BezelStyle.Plain)]
+    [InlineData("Honeywell CT370", BezelStyle.Plain)]
+    [InlineData("Spectralink 9640", BezelStyle.Versity95)]
+    [InlineData("Spectralink Versity 9553", BezelStyle.Versity95)]
+    [InlineData("Spectralink V9540", BezelStyle.Versity95)]
+    [InlineData("Spectralink Versity 9753", BezelStyle.Versity97)]
+    [InlineData("Spectralink 9740", BezelStyle.Versity97)]
+    [InlineData("Spectralink 9240", BezelStyle.Plain)]
     [InlineData("iPhone", BezelStyle.Plain)]
     [InlineData(null, BezelStyle.Plain)]
     public void PicksAStyleFromTheModel(string? model, BezelStyle style) => Assert.Equal(style, BezelGeometry.StyleFor(model));
+
+    [Fact]
+    public void PhotoFrameFitsThePictureInItsScreen()
+    {
+        // HC50: 1280×2640 photo, 1080×2160 screen at (100, 240).
+        var exact = new BezelGeometry(BezelStyle.ZebraHC50, 1080, 2160);
+        Assert.Equal(100.0 / 1080, exact.Left, 9);
+        Assert.Equal(240.0 / 1080, exact.Top, 9);
+        Assert.Equal(100.0 / 1080, exact.Right, 9);
+        Assert.Equal(240.0 / 1080, exact.Bottom, 9);
+        var outer = exact.OuterSize(1080, 2160);
+        Assert.Equal(1280.0 / 2640, outer.Width / outer.Height, 9);
+
+        // A slightly narrower picture is centered, never stretched; the photo keeps its shape.
+        var narrow = new BezelGeometry(BezelStyle.ZebraHC50, 1072, 2160);
+        var narrowOuter = narrow.OuterSize(1072, 2160);
+        Assert.Equal(1280.0 / 2640, narrowOuter.Width / narrowOuter.Height, 9);
+        Assert.Equal(narrow.Left, narrow.Right, 9);
+        Assert.True(narrow.Left > narrow.ArtworkScreen!.Value.X);
+
+        // Sideways: the photo's top edge goes left. CT37: 1360×2880, screen 1080×2280 at (140, 320).
+        var sideways = new BezelGeometry(BezelStyle.HoneywellCT37, 2280, 1080);
+        Assert.True(sideways.Landscape);
+        Assert.Equal(320.0 / 1080, sideways.Left, 9);
+        Assert.Equal(280.0 / 1080, sideways.Right, 9);
+        Assert.Equal(140.0 / 1080, sideways.Top, 9);
+        Assert.Equal(140.0 / 1080, sideways.Bottom, 9);
+        Assert.Equal(6, PhoneModels.ScreenDiagonal("Zebra Technologies HC50"));
+    }
+
+    [Fact]
+    public void FrameTurnsTheWayThePhoneSays()
+    {
+        var upright = new BezelGeometry(BezelStyle.HomeButton, 750, 1334);
+        var upsideDown = new BezelGeometry(BezelStyle.HomeButton, 750, 1334, 2);
+        Assert.Equal(2, upsideDown.QuarterTurns);
+        Assert.Equal(upright.Bottom, upsideDown.Top);
+        Assert.Equal(upright.Top, upsideDown.UprightTop);
+        var topRight = new BezelGeometry(BezelStyle.HomeButton, 1334, 750, 3);
+        Assert.Equal(upright.Top, topRight.Right);
+        Assert.Equal(upright.Bottom, topRight.Left);
+        // A turn that doesn't match the picture (its new picture hasn't arrived) is ignored.
+        Assert.Equal(0, new BezelGeometry(BezelStyle.HomeButton, 750, 1334, 1).QuarterTurns);
+        Assert.Equal(1, new BezelGeometry(BezelStyle.HomeButton, 1334, 750, 0).QuarterTurns);
+
+        // CT37 upside down: 1360×2880, screen 1080×2280 at (140, 320), so 280 above, 320 below.
+        var photo = new BezelGeometry(BezelStyle.HoneywellCT37, 1080, 2280, 2);
+        Assert.Equal(280.0 / 1080, photo.Top, 9);
+        Assert.Equal(320.0 / 1080, photo.Bottom, 9);
+        var photoRight = new BezelGeometry(BezelStyle.HoneywellCT37, 2280, 1080, 3);
+        Assert.Equal(280.0 / 1080, photoRight.Left, 9);
+        Assert.Equal(320.0 / 1080, photoRight.Right, 9);
+    }
 
     [Fact]
     public void FrameTurnsWithThePicture()

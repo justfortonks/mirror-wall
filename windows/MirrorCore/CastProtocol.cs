@@ -22,6 +22,10 @@ public enum CastMessageType : byte
     Bye = 0x06,
     /// <summary>Answers a ping with the same payload, for measuring the round trip.</summary>
     Pong = 0x07,
+    /// <summary>Which way up the phone is held: one byte, quarter turns left from upright (0 to 3,
+    /// as Android's display rotation). Sent when sharing starts and whenever it changes; phones
+    /// from before 0.125 never send it.</summary>
+    Orientation = 0x08,
     // PC to phone.
     Welcome = 0x81,
     Busy = 0x82,
@@ -119,6 +123,8 @@ public abstract record CastMessage
     public sealed record Heartbeat : CastMessage;
     public sealed record Bye : CastMessage;
     public sealed record Pong(ulong Value) : CastMessage;
+    /// <summary>Quarter turns left from upright: 1 is sideways with the phone's top on the left.</summary>
+    public sealed record Orientation(int Turns) : CastMessage;
     public sealed record Welcome(CastWelcome Info) : CastMessage;
     public sealed record Busy(CastBusy Info) : CastMessage;
     public sealed record Ping(ulong Value) : CastMessage;
@@ -153,6 +159,10 @@ public abstract record CastMessage
                 type = CastMessageType.Ping;
                 payload = new byte[8];
                 BinaryPrimitives.WriteUInt64BigEndian(payload, ping.Value);
+                break;
+            case Orientation orientation:
+                type = CastMessageType.Orientation;
+                payload = [(byte)(orientation.Turns & 3)];
                 break;
             case Welcome welcome:
                 type = CastMessageType.Welcome;
@@ -260,6 +270,9 @@ public sealed class CastReader
                     if (payload.Length != 8) throw Malformed(rawType);
                     ulong value = BinaryPrimitives.ReadUInt64BigEndian(payload);
                     return type == CastMessageType.Pong ? new CastMessage.Pong(value) : new CastMessage.Ping(value);
+                case CastMessageType.Orientation:
+                    if (payload.Length < 1) throw Malformed(rawType);
+                    return new CastMessage.Orientation(payload[0] & 3);
                 default:
                     return null;
             }

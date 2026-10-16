@@ -14,6 +14,10 @@ public enum CastMessageType: UInt8 {
     case bye = 0x06
     /// Answers a ping with the same payload, for measuring the round trip.
     case pong = 0x07
+    /// Which way up the phone is held: one byte, quarter turns left from upright (0 to 3, as
+    /// Android's display rotation). Sent when sharing starts and whenever it changes; phones from
+    /// before 0.125 never send it.
+    case orientation = 0x08
     // Mac to phone.
     case welcome = 0x81
     case busy = 0x82
@@ -83,6 +87,8 @@ public enum CastMessage: Equatable {
     case heartbeat
     case bye
     case pong(UInt64)
+    /// Quarter turns left from upright: 1 is sideways with the phone's top on the left.
+    case orientation(Int)
     case welcome(CastWelcome)
     case busy(CastBusy)
     case ping(UInt64)
@@ -109,6 +115,9 @@ public enum CastMessage: Equatable {
         case .ping(let value):
             type = .ping
             payload = withUnsafeBytes(of: value.bigEndian, Array.init)
+        case .orientation(let turns):
+            type = .orientation
+            payload = [UInt8(turns & 3)]
         case .welcome(let welcome):
             type = .welcome
             payload = Array((try? encoder.encode(welcome)) ?? Data())
@@ -181,6 +190,9 @@ public final class CastReader {
                 guard payload.count == 8 else { throw Failure.malformed(rawType) }
                 let value = payload.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
                 return type == .pong ? .pong(value) : .ping(value)
+            case .orientation:
+                guard let turns = payload.first else { throw Failure.malformed(rawType) }
+                return .orientation(Int(turns & 3))
             }
         } catch let failure as Failure {
             throw failure

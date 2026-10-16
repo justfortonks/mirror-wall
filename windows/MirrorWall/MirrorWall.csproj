@@ -39,6 +39,8 @@
   <ItemGroup>
     <Resource Include="AppIcon.ico" />
     <Resource Include="..\..\Sources\MirrorWall\Resources\AppIcon.png" Link="AppIcon.png" />
+    <!-- Photos of Android phones' fronts, for their frames (PhoneBezelFrame.cs, BezelPhotos). -->
+    <EmbeddedResource Include="..\..\Sources\MirrorWall\Resources\Bezels\*.png" LogicalName="Bezels.%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

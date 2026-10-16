@@ -1,4 +1,6 @@
 import CoreGraphics
+import Foundation
+import ImageIO
 import MirrorCore
 import SwiftUI
 
@@ -18,8 +20,8 @@ enum PhoneBezelDrawing {
     }
 
     /// The frame filling `size`, in back-to-front order, with y pointing down and `unit` points to
-    /// the picture's shorter side. Laid out upright and turned a quarter left for a sideways
-    /// phone, so the portrait top edge (notch, camera) ends up on the left.
+    /// the picture's shorter side. Laid out upright and turned as the phone is held, so for a
+    /// sideways phone the portrait top edge (notch, camera) usually ends up on the left.
     static func shapes(geometry: BezelGeometry, size: CGSize, unit: CGFloat) -> [Shape] {
         let upright = geometry.landscape ? CGSize(width: size.height, height: size.width) : size
         var shapes: [Shape] = []
@@ -32,8 +34,8 @@ enum PhoneBezelDrawing {
         ))
 
         // Portrait top and bottom edges, whichever way the phone is held.
-        let topEdge = (geometry.landscape ? geometry.left : geometry.top) * unit
-        let bottomEdge = (geometry.landscape ? geometry.right : geometry.bottom) * unit
+        let topEdge = geometry.uprightTop * unit
+        let bottomEdge = geometry.uprightBottom * unit
         let centerX = upright.width / 2
         switch geometry.style {
         case .homeButton:
@@ -52,15 +54,19 @@ enum PhoneBezelDrawing {
         case .dynamicIsland:
             let island = CGRect(x: centerX - 0.15 * unit, y: topEdge / 2 - 0.022 * unit, width: 0.3 * unit, height: 0.044 * unit)
             shapes.append(Shape(path: Path(roundedRect: island, cornerRadius: island.height / 2), color: black))
-        case .plain:
+        default: // .plain; frames drawn from photos don't come here.
             let camera = CGRect(x: centerX - 0.018 * unit, y: topEdge / 2 - 0.018 * unit, width: 0.036 * unit, height: 0.036 * unit)
             shapes.append(Shape(path: Path(ellipseIn: camera), color: black))
             let speaker = CGRect(x: centerX - 0.08 * unit, y: topEdge / 4 - 0.008 * unit, width: 0.16 * unit, height: 0.016 * unit)
             shapes.append(Shape(path: Path(roundedRect: speaker, cornerRadius: speaker.height / 2), color: black))
         }
-        guard geometry.landscape else { return shapes }
-        // A quarter turn left: (x, y) → (y, height − x).
-        let turn = CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: size.height)
+        let turn: CGAffineTransform
+        switch geometry.quarterTurns {
+        case 1: turn = CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: size.height)          // (x, y) → (y, height − x)
+        case 2: turn = CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: size.width, ty: size.height) // (x, y) → (width − x, height − y)
+        case 3: turn = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: size.width, ty: 0)           // (x, y) → (width − y, x)
+        default: return shapes
+        }
         return shapes.map { Shape(path: $0.path.applying(turn), color: $0.color, lineWidth: $0.lineWidth) }
     }
 
@@ -74,9 +80,12 @@ enum PhoneBezelDrawing {
         let bottom: Int
     }
 
-    static func overlay(style: BezelStyle, width: Int, height: Int) -> Overlay? {
+    static func overlay(style: BezelStyle, width: Int, height: Int, turns: Int? = nil) -> Overlay? {
         guard width > 0, height > 0 else { return nil }
-        let geometry = BezelGeometry(style: style, pictureWidth: Double(width), pictureHeight: Double(height))
+        let geometry = BezelGeometry(style: style, pictureWidth: Double(width), pictureHeight: Double(height), turns: turns)
+        if geometry.artworkScreen != nil, let overlay = artworkOverlay(geometry: geometry, width: width, height: height) {
+            return overlay
+        }
         let unit = CGFloat(min(width, height))
         let left = Int((geometry.left * unit).rounded())
         let top = Int((geometry.top * unit).rounded())
@@ -112,5 +121,85 @@ enum PhoneBezelDrawing {
         context.fillPath()
         guard let image = context.makeImage() else { return nil }
         return Overlay(image: image, left: left, top: top, bottom: bottom)
+    }
+
+    /// The photo frame for the OBS feed: black where the photo's screen isn't covered by the
+    /// picture, see-through where it is, with the photo on top (its screen's rounded corners can
+    /// sit over the picture's corners).
+    private static func artworkOverlay(geometry: BezelGeometry, width: Int, height: Int) -> Overlay? {
+        guard let screen = geometry.artworkScreen, let photo = artworkImage(geometry.style, turns: geometry.quarterTurns) else { return nil }
+        let unit = CGFloat(min(width, height))
+        let left = Int((geometry.left * unit).rounded())
+        let top = Int((geometry.top * unit).rounded())
+        let right = Int((geometry.right * unit).rounded())
+        let bottom = Int((geometry.bottom * unit).rounded())
+        let size = CGSize(width: width + left + right, height: height + top + bottom)
+        guard let context = CGContext(
+            data: nil,
+            width: Int(size.width),
+            height: Int(size.height),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else { return nil }
+        // y up here.
+        context.setFillColor(black)
+        context.fill(CGRect(x: screen.x * unit, y: size.height - (screen.y + screen.height) * unit, width: screen.width * unit, height: screen.height * unit))
+        context.clear(CGRect(x: left, y: bottom, width: width, height: height))
+        context.interpolationQuality = .high
+        context.draw(photo, in: CGRect(origin: .zero, size: size))
+        guard let image = context.makeImage() else { return nil }
+        return Overlay(image: image, left: left, top: top, bottom: bottom)
+    }
+
+    private static let artworkLock = NSLock()
+    private static var artworkCache: [String: CGImage] = [:]
+
+    /// The photo a frame is drawn from, turned `turns` quarter turns left (1: its top edge, camera
+    /// and earpiece, on the left). Nil if the style has none or it's missing.
+    static func artworkImage(_ style: BezelStyle, turns: Int) -> CGImage? {
+        guard let artwork = style.artwork else { return nil }
+        let turns = turns & 3
+        let key = "\(artwork.name) \(turns)"
+        artworkLock.lock()
+        defer { artworkLock.unlock() }
+        if let image = artworkCache[key] { return image }
+        guard let upright = loadArtwork(artwork.name) else { return nil }
+        var image = upright
+        if turns != 0 {
+            let sideways = turns & 1 == 1
+            guard let context = CGContext(
+                data: nil,
+                width: sideways ? upright.height : upright.width,
+                height: sideways ? upright.width : upright.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+            ) else { return nil }
+            // y up, so positive angles turn left.
+            switch turns {
+            case 1: context.translateBy(x: CGFloat(upright.height), y: 0)
+            case 2: context.translateBy(x: CGFloat(upright.width), y: CGFloat(upright.height))
+            default: context.translateBy(x: 0, y: CGFloat(upright.width))
+            }
+            context.rotate(by: CGFloat(turns == 3 ? -1 : turns) * .pi / 2)
+            context.draw(upright, in: CGRect(x: 0, y: 0, width: upright.width, height: upright.height))
+            guard let turned = context.makeImage() else { return nil }
+            image = turned
+        }
+        artworkCache[key] = image
+        return image
+    }
+
+    /// From the app's Resources/Bezels, or the build folder's resource bundle when run unpackaged.
+    private static func loadArtwork(_ name: String) -> CGImage? {
+        var url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Bezels")
+        if url == nil, Bundle.main.bundleURL.pathExtension != "app" {
+            url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Bezels")
+        }
+        guard let url, let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 }
