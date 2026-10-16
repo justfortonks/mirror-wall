@@ -50,3 +50,69 @@ Same revision `70e2f1a`, same worktree, run by Claude in a normal shell.
 | `swift test` | **Pass** — XCTest: 80 tests executed, 0 failures. (Swift Testing: 0 tests, as expected.) |
 
 Run 0's failure was the Codex sandbox, not the project. This is the accepted G0 baseline.
+
+## G1-build — 2026-10-16
+
+**Authored; build/test validation blocked.** Isolated G1 sender/project, local Shared
+package (five XCTest methods), and instructions in `prototypes/ios-direct/README.md`.
+Installed tools: Xcode 27.1 (27A9275), iPhoneOS SDK 27.1, Swift 6.4; Swift language
+mode 5. iOS 27 target, automatic signing/team configured as requested, but the generic
+device build used `CODE_SIGNING_ALLOWED=NO`. No signing/install/device experiment.
+
+The exact requested commands were run from the worktree root:
+
+```sh
+cd prototypes/ios-direct/Shared && swift test 2>&1 | tail -20; cd -
+xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectSender \
+  -destination 'generic/platform=iOS' -derivedDataPath prototypes/ios-direct/.build-xcode \
+  CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -30
+git status --porcelain
+```
+
+SwiftPM emitted user-cache accessibility warnings, then `error: 'shared': Invalid
+manifest` and this fatal diagnostic verbatim:
+
+```text
+sandbox-exec: sandbox_apply: Operation not permitted
+```
+
+Xcode failed during Resolve Package Graph, before source compilation. Fatal output
+verbatim (including the actual denied cache/diagnostic paths):
+
+```text
+xcodebuild: error: Could not resolve package dependencies:
+  <unknown>:0: error: error opening '/var/folders/vn/w0gkmgxn1g7gspgm_n1dp_540000gn/C/clang/ModuleCache/PackageDescription-3G5ELZSCPJCMB.swiftmodule' for output: /var/folders/vn/w0gkmgxn1g7gspgm_n1dp_540000gn/C/clang/ModuleCache/PackageDescription-3G5ELZSCPJCMB.swiftmodule: Operation not permitted
+/Users/me/Documents/Claude Code/Mirror-wall POC/prototypes/ios-direct/Shared/Package.swift:2:8: error: failed to build module 'PackageDescription' for importation due to the errors above; the textual interface may be broken by project issues or a compiler bug
+ 1 | // swift-tools-version: 5.9
+ 2 | import PackageDescription
+   |        `- error: failed to build module 'PackageDescription' for importation due to the errors above; the textual interface may be broken by project issues or a compiler bug
+ 3 |
+ 4 | let package = Package(
+<unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)
+```
+
+Xcode also reported CoreSimulatorService connection failures; the selected destination
+was generic iOS. Both pipelines returned 0 from `tail`, which is **not** build/test
+success. Tests executed: **0**; source compile, imported-signature verification,
+signing/profile, hardware encoder, rotation/stop/background behavior: **not verified**.
+No cache override, sandbox disable, alternate compiler path or other workaround/retry.
+
+Static verification: `plutil -lint` accepts Info.plist and project.pbxproj; scheme XML
+parses; Info.plist has only standard CFBundle keys plus the three requested keys,
+with `UIBackgroundModes = [screen-capture]`; scope and `git diff --check` pass. Final
+Git status is limited to the prototype, `.gitignore`, and G1-build appendices in
+handoff/results. This is source/configuration evidence, not a Built or G1 pass.
+
+## Run 1b — G1 build/sign/install (Claude, 2026-10-16)
+
+| Step | Result |
+| --- | --- |
+| `Shared` `swift test` | **Pass** — 5 tests, 0 failures |
+| Generic iOS build (unsigned) | Initially **failed**: 5 Swift API spelling errors in `EncoderPipeline.swift` (VTSessionCopyProperty `valueOut:`, `VTCompressionSessionEncodeFrame(…outputHandler:)`, optional CFDictionary). Fixed by Claude in review; also wrapped the property readback pointers in `withUnsafeMutablePointer`. Now **Built**, no warnings in sender code beyond one weak-capture note. |
+| Signed device build, Personal Team 499JQDRQF9 | **Built** with `-allowProvisioningUpdates`; identity "Apple Development" |
+| Signed entitlements | Only `application-identifier`, `team-identifier`, `get-task-allow`. No capture or Wi-Fi entitlements. `UIBackgroundModes=[screen-capture]` is an Info.plist key only. |
+| Install on phone A (iPhone 17 Pro Max, iPhone18,2) | **Installed** via `devicectl` |
+| Phone B (iPhone 17e) | Not yet visible to `devicectl`; not installed |
+
+Hardware: phone A = iPhone 17 Pro Max (user's Apple Account); phone B = iPhone 17e (no Apple Account).
+Developer Mode enabled on both (user report). G1 device run: **not run**.
