@@ -230,6 +230,14 @@ final class WindowTitleTests: XCTestCase {
         XCTAssertEqual(titles, [1: "MacMirror-Tom’s iPhone", 2: "MacMirror-Mirror Wall 2"])
     }
 
+    func testRenamedSlotsUseTheirOwnName() {
+        let titles = SlotConfig.windowTitles(for: [
+            SlotConfig(id: 1, name: "Desk", lastPhoneName: "Tom’s iPhone"),
+            SlotConfig(id: 2, name: "Mirror Wall 2 · MacBook Air", lastPhoneName: "iPad"),
+        ])
+        XCTAssertEqual(titles, [1: "MacMirror-Desk", 2: "MacMirror-iPad"])
+    }
+
     func testClashingNamesGetTheSlotNumber() {
         let titles = SlotConfig.windowTitles(for: [
             SlotConfig(id: 1, name: "Mirror Wall 1", lastPhoneName: "iPhone"),
@@ -847,14 +855,25 @@ final class LatestReleaseTests: XCTestCase {
         XCTAssertLessThan(BuildNumber(build: 111), BuildNumber(build: 112, beta: 1))
     }
 
-    func testTheBetaChannelPicksTheHighestNumber() throws {
-        func release(_ tag: String, draft: Bool = false, asset: String = "MirrorWall.dmg") -> String {
-            #"{"tag_name": "\#(tag)", "draft": \#(draft), "body": "", "assets": [{"name": "\#(asset)", "browser_download_url": "https://example.com/\#(tag)/\#(asset)"}]}"#
+    func testTheBetaChannelListsEveryTestBuildNewestBuiltFirst() {
+        func release(_ tag: String, name: String = "", draft: Bool = false, asset: String = "MirrorWall.dmg") -> String {
+            #"{"tag_name": "\#(tag)", "name": "\#(name)", "draft": \#(draft), "body": "", "published_at": "2026-10-16T12:56:54Z", "assets": [{"name": "\#(asset)", "browser_download_url": "https://example.com/\#(tag)/\#(asset)"}]}"#
         }
-        let list = "[" + [release("v0.111"), release("v0.113-beta.9", draft: true), release("v0.112-beta.7"),
+        let list = "[" + [release("v0.123-beta.48", name: "Mirror Wall 0.123 beta 48: Rename a slot's OBS feed"),
+                          release("v0.111"), release("v0.113-beta.9", draft: true), release("v0.125-beta.45"),
                           release("v0.112-beta.8", asset: "MirrorWall-Setup.exe"), release("v0.110")].joined(separator: ",") + "]"
-        let newest = try XCTUnwrap(LatestRelease(json: Data(list.utf8), asset: "MirrorWall.dmg", channel: .beta))
-        XCTAssertEqual(newest.number, BuildNumber(build: 112, beta: 7))
-        XCTAssertEqual(newest.downloadURL?.absoluteString, "https://example.com/v0.112-beta.7/MirrorWall.dmg")
+        let choices = LatestRelease.choices(json: Data(list.utf8), asset: "MirrorWall.dmg")
+        XCTAssertEqual(choices.map(\.number), [BuildNumber(build: 123, beta: 48), BuildNumber(build: 125, beta: 45), BuildNumber(build: 111)])
+        XCTAssertEqual(choices[0].title, "Rename a slot's OBS feed")
+        XCTAssertEqual(choices[0].downloadURL?.absoluteString, "https://example.com/v0.123-beta.48/MirrorWall.dmg")
+        XCTAssertNotNil(choices[0].published)
+        XCTAssertEqual(choices[1].title, "")
+        XCTAssertEqual(LatestRelease.choices(json: Data("{}".utf8), asset: "MirrorWall.dmg"), [])
+    }
+
+    func testTitles() {
+        XCTAssertEqual(LatestRelease.title(in: "Mirror Wall 0.123 beta 48: Fix: names"), "Fix: names")
+        XCTAssertEqual(LatestRelease.title(in: "Mirror Wall 0.125 beta 45"), "")
+        XCTAssertEqual(LatestRelease.title(in: "Something: else"), "")
     }
 }

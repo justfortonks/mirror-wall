@@ -9,8 +9,9 @@ using MirrorWall.Core;
 namespace MirrorWall;
 
 /// <summary>
-/// Help › Check for Update…: compares this copy with the newest release on GitHub and, when asked,
-/// downloads its installer and runs it quietly; Mirror Wall closes, and opens again once the
+/// Help › Check for Update…: compares this copy with the newest release on GitHub (or, on the Beta
+/// channel, lets you choose a test build or the newest release) and, when asked, downloads its
+/// installer and runs it quietly; Mirror Wall closes, and opens again once the
 /// installer is done.
 ///
 /// Nothing needs signing for this: SmartScreen only asks about files a browser marks as
@@ -41,19 +42,30 @@ internal static class Updater
         busy = true;
         try
         {
-            LatestRelease? release;
+            var channel = Channel;
+            string json;
             try
             {
                 using var client = Client();
-                var channel = Channel;
-                release = LatestRelease.Parse(await client.GetStringAsync(LatestRelease.UrlFor(channel)), "MirrorWall-Setup.exe", channel);
+                json = await client.GetStringAsync(LatestRelease.UrlFor(channel));
             }
             catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
             {
                 Problem(owner, "Mirror Wall couldn't check for an update.", error.Message, offerPage: false);
                 return;
             }
-            if (release == null)
+            if (channel == UpdateChannel.Beta)
+            {
+                var choices = LatestRelease.Choices(json, "MirrorWall-Setup.exe");
+                if (choices.Count == 0)
+                {
+                    Problem(owner, "Mirror Wall couldn't check for an update.", "GitHub didn't list a release or test build Mirror Wall could read.", offerPage: false);
+                    return;
+                }
+                if (Choose(owner, choices) is { } chosen) await Install(owner, chosen);
+                return;
+            }
+            if (LatestRelease.Parse(json, "MirrorWall-Setup.exe") is not { } release)
             {
                 Problem(owner, "Mirror Wall couldn't check for an update.", "GitHub didn't list a release Mirror Wall could read.", offerPage: false);
                 return;
@@ -70,7 +82,7 @@ internal static class Updater
     private static bool Offer(Window? owner, LatestRelease release)
     {
         bool installable = Current != null && release.DownloadUrl != null;
-        string newest = Channel == UpdateChannel.Beta ? "the newest release or beta" : "the newest release";
+        string newest = "the newest release";
         if (Current is BuildNumber current && current >= release.Number)
         {
             string have = current == release.Number
@@ -96,6 +108,20 @@ internal static class Updater
             $"Mirror Wall {release.Version} is available. You have {Current?.Version}.{notes}\n\n" +
             "Install it now? Mirror Wall will close, Windows will ask to let the installer make changes, and Mirror Wall opens again when it's done. Phones reconnect by themselves.",
             MessageBoxButton.YesNo) == MessageBoxResult.Yes;
+    }
+
+    /// <summary>The Beta channel: a list of every test build on offer and the newest release, to
+    /// install any one of them. Null when nothing was chosen.</summary>
+    private static LatestRelease? Choose(Window? owner, List<LatestRelease> choices)
+    {
+        var picker = new BuildPicker(choices, Current) { Owner = owner?.IsVisible == true ? owner : null };
+        if (picker.ShowDialog() != true || picker.Selected is not { } chosen) return null;
+        if (Current == null)
+        {
+            OpenPage();
+            return null;
+        }
+        return chosen;
     }
 
     private static async Task Install(Window? owner, LatestRelease release)
@@ -210,6 +236,86 @@ internal static class Updater
         }
         catch (Win32Exception)
         {
+        }
+    }
+
+    /// <summary>The Beta channel's list of builds, with what the chosen one is below it.</summary>
+    private sealed class BuildPicker : Window
+    {
+        private readonly ListBox list = new() { Height = 150 };
+        private readonly TextBox details = new()
+        {
+            IsReadOnly = true,
+            Height = 170,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        private readonly Button install;
+        private readonly List<LatestRelease> choices;
+        private readonly BuildNumber? current;
+
+        public LatestRelease? Selected => list.SelectedIndex >= 0 ? choices[list.SelectedIndex] : null;
+
+        public BuildPicker(List<LatestRelease> choices, BuildNumber? current)
+        {
+            this.choices = choices;
+            this.current = current;
+            Title = "Check for Update";
+            Width = 520;
+            SizeToContent = SizeToContent.Height;
+            ResizeMode = ResizeMode.NoResize;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ShowInTaskbar = false;
+
+            string have = current is BuildNumber number ? $"You have {number.Version}." : "This copy wasn't installed by the Mirror Wall installer, so it can't replace itself.";
+            var intro = new TextBlock
+            {
+                Text = $"Choose a Mirror Wall build. {have} Test builds are listed most recent first, then the newest release."
+                    + (current != null ? " Mirror Wall will close, Windows will ask to let the installer make changes, and Mirror Wall opens again when it's done. Phones reconnect by themselves." : ""),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10),
+            };
+            foreach (var release in choices) list.Items.Add(Label(release));
+            list.SelectionChanged += (_, _) => ShowSelection();
+
+            install = new Button { Content = current != null ? "Install" : "Open Download Page", IsDefault = true, Padding = new Thickness(14, 4, 14, 4) };
+            install.Click += (_, _) => DialogResult = true;
+            var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(8, 0, 0, 0) };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            buttons.Children.Add(install);
+            buttons.Children.Add(cancel);
+
+            var panel = new StackPanel { Margin = new Thickness(16) };
+            panel.Children.Add(intro);
+            panel.Children.Add(list);
+            panel.Children.Add(details);
+            panel.Children.Add(buttons);
+            Content = panel;
+
+            // The first one that isn't this copy.
+            int first = choices.FindIndex(release => release.Number != current);
+            list.SelectedIndex = first >= 0 ? first : 0;
+            ShowSelection();
+        }
+
+        private string Label(LatestRelease release)
+        {
+            string label = release.Version;
+            if (release.Number.Beta == null) label += " · newest release";
+            else if (release.Title.Length > 0) label += " · " + release.Title;
+            return label + (release.Number == current ? " (installed)" : "");
+        }
+
+        private void ShowSelection()
+        {
+            if (Selected is not { } release) return;
+            var lines = new List<string> { (release.Number.Beta == null ? "Release " : "Test build ") + release.Version + (release.Title.Length > 0 ? $": {release.Title}" : "") };
+            if (release.Published is DateTimeOffset published) lines.Add($"Published {published.ToLocalTime():g}");
+            if (release.Number == current) lines.Add("This is the copy you have.");
+            if (release.Notes.Length > 0) lines.Add(Environment.NewLine + release.Notes.Replace("\n", Environment.NewLine));
+            details.Text = string.Join(Environment.NewLine, lines);
+            install.IsEnabled = release.Number != current;
         }
     }
 

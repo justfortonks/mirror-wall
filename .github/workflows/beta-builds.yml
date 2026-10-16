@@ -1,0 +1,85 @@
+# Chooses which test builds Check for Update offers on the Beta channel. Run it from the Actions
+# tab (Beta builds › Run workflow):
+# - Withdraw: stops offering a test build. It becomes a draft release, which GitHub only shows
+#   to people who can push to this repository, so Mirror Wall no longer lists it. Copies already
+#   installed keep working.
+# - Offer again: publishes a withdrawn test build again.
+# - Withdraw all: withdraws every test build on offer, for a clean list before the next round.
+# Name a build by its beta number ("48"), its version ("0.123 beta 48") or its tag
+# ("v0.123-beta.48"). The run's summary lists what's on offer afterwards.
+name: Beta builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do
+        type: choice
+        options: [Withdraw, Offer again, Withdraw all]
+        default: Withdraw
+      build:
+        description: Which test build (beta number, version or tag; not needed for Withdraw all)
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency: beta-builds
+
+jobs:
+  change:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Change what's offered
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ACTION: ${{ inputs.action }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          # Every test build, withdrawn ones (drafts) included: "tag<TAB>draft".
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.prerelease) | "\(.tag_name)\t\(.draft)"' > betas.tsv
+
+          if [[ "$ACTION" == "Withdraw all" ]]; then
+            awk -F'\t' '$2 == "false" { print $1 }' betas.tsv | while read -r tag; do
+              gh release edit "$tag" --draft=true > /dev/null
+              echo "Withdrew $tag"
+            done
+          else
+            # "48", "0.123 beta 48" and "v0.123-beta.48" all name beta 48.
+            NUMBER=$(grep -oE '[0-9]+$' <<< "$BUILD" || true)
+            if [[ -z "$NUMBER" ]]; then
+              echo "::error::Name the test build, for example 48 or 0.123 beta 48."
+              exit 1
+            fi
+            TAG=$(awk -F'\t' -v n="$NUMBER" '$1 ~ ("-beta\\." n "$") { print $1 }' betas.tsv | head -n 1)
+            if [[ -z "$TAG" ]]; then
+              echo "::error::There's no test build $BUILD."
+              exit 1
+            fi
+            if [[ "$ACTION" == "Withdraw" ]]; then
+              gh release edit "$TAG" --draft=true > /dev/null
+              echo "Withdrew $TAG"
+            else
+              gh release edit "$TAG" --draft=false --prerelease > /dev/null
+              echo "Offered $TAG again"
+            fi
+          fi
+
+      - name: List what's on offer
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "## Test builds"
+            echo
+            echo "| Build | Offered |"
+            echo "| --- | --- |"
+            gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+              --jq '.[] | select(.prerelease) | "| \(.name) | \(if .draft then "No (withdrawn)" else "Yes" end) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
