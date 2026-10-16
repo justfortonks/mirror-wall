@@ -5,6 +5,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var store: SlotStore
+    @CurrentTheme private var theme
     @State private var focusedSlotID: Int?
 
     var body: some View {
@@ -16,7 +17,10 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(theme.wallBackground ?? Color(nsColor: .windowBackgroundColor))
+        .preferredColorScheme(theme.colorScheme)
+        .toolbarBackground(theme.toolbarBackground ?? .clear, for: .windowToolbar)
+        .toolbarBackground(theme.toolbarBackground == nil ? .automatic : .visible, for: .windowToolbar)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -80,6 +84,7 @@ struct ContentView: View {
 /// Shown when uxplay can't be found.
 struct SetupView: View {
     @EnvironmentObject private var store: SlotStore
+    @CurrentTheme private var theme
 
     var body: some View {
         VStack(spacing: 14) {
@@ -87,7 +92,7 @@ struct SetupView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
             Text("Mirror Wall needs uxplay")
-                .font(.title2.bold())
+                .font(theme.font(22, .bold, standard: .title2.bold()))
             Text("It looks in /opt/homebrew/bin, /usr/local/bin and the casting app folder. Point it at the uxplay you built.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -110,6 +115,7 @@ struct SlotTile: View {
 
     @State private var showingLog = false
     @AppStorage(StatsSetting.key) private var showStats = false
+    @CurrentTheme private var theme
     @State private var renaming = false
     @State private var newName = ""
 
@@ -154,15 +160,20 @@ struct SlotTile: View {
         .overlay(alignment: .topTrailing) { popOutButton }
         if slot.showsBezel {
             PhoneBezel(geometry: slot.bezel(for: pictureShape), picture: pictureShape) {
-                picture.background(Color.black)
+                picture.background(pictureBackground)
             }
         } else {
             picture
                 .aspectRatio(pictureShape.width / pictureShape.height, contentMode: .fit)
-                .background(Color.black)
+                .background(pictureBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
         }
+    }
+
+    /// Black behind a phone's picture; the theme's color while the slot waits for one.
+    private var pictureBackground: Color {
+        showsPicture || hasStandbyImage ? .black : theme.emptyTileBackground
     }
 
     private var pictureShape: CGSize {
@@ -212,15 +223,29 @@ struct SlotTile: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 10) {
-            Image(systemName: placeholderIcon)
-                .font(.system(size: 28))
-            Text(placeholderText)
-                .font(.callout)
-                .multilineTextAlignment(.center)
+        ZStack(alignment: .topTrailing) {
+            if theme.showsHexPattern {
+                HexPattern(radius: 13, columns: 5, rows: 5, density: 0.75, seed: UInt64(slot.id) + 7)
+                    .frame(height: 120)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+            VStack(spacing: 10) {
+                Image(systemName: placeholderIcon)
+                    .font(.system(size: 28))
+                    .foregroundStyle(placeholderIsProblem && theme == .imprivata ? theme.red : theme.placeholderIcon)
+                Text(placeholderText)
+                    .font(theme.font(13, standard: .callout))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(theme == .imprivata ? 0.8 : 0.75))
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .foregroundStyle(.white.opacity(0.75))
-        .padding()
+    }
+
+    private var placeholderIsProblem: Bool {
+        if case .failed = slot.state { return true }
+        return slot.state == .disconnected
     }
 
     private var placeholderIcon: String {
@@ -250,7 +275,7 @@ struct SlotTile: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
                 Text(slot.name)
-                    .font(.headline)
+                    .font(theme.font(14, .semibold, standard: .headline))
                     .lineLimit(1)
                 if let feedName = slot.obsFeedName {
                     Image(systemName: "dot.radiowaves.left.and.right")
@@ -262,7 +287,7 @@ struct SlotTile: View {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
                 } label: {
                     Image(systemName: slot.recordingSince == nil ? "record.circle" : "stop.circle.fill")
-                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
+                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : theme.red)
                 }
                 .buttonStyle(.borderless)
                 .help(slot.recordingSince == nil
@@ -299,7 +324,7 @@ struct SlotTile: View {
                         }
                         if let since = slot.recordingSince {
                             Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
-                                .foregroundStyle(.red)
+                                .foregroundStyle(theme.red)
                                 .help(slot.recordingError ?? "Recording to \(SaveFolders.recordings.path)")
                         }
                         Text(statusText(now: context.date))
@@ -389,13 +414,7 @@ struct SlotTile: View {
     }
 
     private var statusColor: Color {
-        switch slot.state {
-        case .live: return .green
-        case .waiting, .connecting, .paused: return .yellow
-        case .disconnected: return .orange
-        case .stopped: return .gray
-        case .failed: return .red
-        }
+        theme.statusColor(slot.state)
     }
 
     private func statusText(now: Date) -> String {

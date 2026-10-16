@@ -25,6 +25,12 @@ product names are their trademarks.
 
 ## What the app includes
 
+### Barlow typeface (SIL Open Font License 1.1)
+
+The Barlow font files in `Contents/Resources/Brand` are Copyright 2017 The Barlow Project
+Authors (<https://github.com/jpt/barlow>), licensed under the SIL Open Font License 1.1; the full
+licence is `Contents/Resources/Brand/OFL.txt`.
+
 ### UxPlay (GNU GPL v3)
 
 The AirPlay receiver inside the app (`Contents/Resources/receiver/bin/uxplay`) is
