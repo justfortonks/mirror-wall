@@ -5,6 +5,20 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 16, 2026: Themes and a friendlier Stage
+
+- Mac: Settings › General › Theme chooses the app's look. Standard is the look you know;
+  Imprivata gives the wall and the Stage Imprivata Blue, brand status colors, the Barlow font
+  and the hex pattern, plus a "Live demo" caption bar along the Stage's bottom (with the
+  Imprivata logo when it's been added to the app). Thanks to Cody for the Imprivata design.
+- Mac: the Stage has a control bar that fades in when you move the mouse over it, with a chip
+  for each phone (its menu has that phone's options), Add Slot, Layout, Bezels, Record All and
+  more. Before any phone connects, it shows a "Ready for phones" screen with how to connect to
+  each slot. Right-click the Stage to show or hide the caption bar.
+- Mac: two new switches in Settings › Wall › Stage, both off unless you turn them on: open to
+  the Stage when Mirror Wall starts, and put phones on the Stage as they connect.
+- Mac: "Show Mirror Wall Window" is now "Show Wall", and View › Show Stage is ⌘1.
+
 ## October 15, 2026: Windows fixes
 
 - Windows: opening Mirror Wall while it's already running (say, hidden behind its tray icon)
