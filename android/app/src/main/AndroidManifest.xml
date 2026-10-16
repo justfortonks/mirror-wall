@@ -34,7 +34,7 @@
 
         <provider
             android:name=".LogProvider"
-            android:authorities="com.justfortonks.mirrorwall.cast.log"
+            android:authorities="com.imprivata.mirrorwallcast.log"
             android:exported="false"
             android:grantUriPermissions="true" />
     </application>

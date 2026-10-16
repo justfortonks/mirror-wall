@@ -17,7 +17,9 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.justfortonks.mirrorwall.cast"
+        // The ID devices and MDM know the app by. (The code keeps its original package name in
+        // `namespace`; only this changed.)
+        applicationId = "com.imprivata.mirrorwallcast"
         minSdk = 29
         targetSdk = 35
         versionCode = buildNumber
