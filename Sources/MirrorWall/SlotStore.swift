@@ -25,6 +25,13 @@ final class SlotStore: ObservableObject {
     @Published private(set) var knownPhones: [KnownPhone]
     /// When on, only phones in `allowedDeviceIDs` can mirror. Off by default: any phone can.
     @Published private(set) var allowListEnabled: Bool
+    /// A 4-digit code iPhones must enter to mirror, for events and shared networks; nil when off.
+    @Published private(set) var airplayPIN: String?
+    /// Slots whose phone dropped mid-demo, and when. The Stage keeps them in place, showing
+    /// "Reconnecting…", for `reconnectGrace` seconds before closing the gap.
+    @Published private(set) var reconnectingSince: [Int: Date] = [:]
+    static let reconnectGrace: TimeInterval = 45
+    private let airplayPINKey = "airplayPIN"
     @Published private(set) var allowedDeviceIDs: Set<String>
     /// What slots show while no phone is mirroring, unless a slot has its own.
     @Published private(set) var defaultStandby: StandbyPicture
@@ -100,6 +107,7 @@ final class SlotStore: ObservableObject {
         popOutSizeLocked = defaults.bool(forKey: popOutSizeLockedKey)
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
         allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
+        airplayPIN = defaults.string(forKey: airplayPINKey)
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
         defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         obsFeedForAllSlots = defaults.bool(forKey: obsFeedForAllSlotsKey)
@@ -125,6 +133,7 @@ final class SlotStore: ObservableObject {
         slot.renderer.smoothMotion = smoothMotion
         slot.sharpPicture = sharpPicture
         slot.allowedDevices = allowedDevices
+        slot.airplayPIN = airplayPIN
         slot.showsBezel = slot.config.bezel ?? bezelsForAllSlots
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
@@ -164,11 +173,15 @@ final class SlotStore: ObservableObject {
                 MainActor.assumeIsolated {
                     guard let self, let slot else { return }
                     let connected = slot.state == .connecting || slot.state == .live || slot.state == .paused
-                    if connected, !self.connectedSlotIDs.contains(slot.id) {
-                        self.connectedSlotIDs.insert(slot.id)
-                        if !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
-                    } else if !connected {
-                        self.connectedSlotIDs.remove(slot.id)
+                    if connected {
+                        self.reconnectingSince[slot.id] = nil
+                        if !self.connectedSlotIDs.contains(slot.id) {
+                            self.connectedSlotIDs.insert(slot.id)
+                            if !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
+                        }
+                    } else if self.connectedSlotIDs.remove(slot.id) != nil, slot.state != .stopped {
+                        // Dropped mid-demo: hold its place on the Stage for a while.
+                        self.holdForReconnect(slot)
                     }
                 }
             }
@@ -195,6 +208,22 @@ final class SlotStore: ObservableObject {
 
     /// Turning the allow-list on starts with every known phone ticked, so nobody is locked out
     /// by surprise.
+    /// Turns the iPhone PIN on (with this code) or off (nil). Restarts the slots, so phones
+    /// mirroring now will need to reconnect.
+    func setAirplayPIN(_ pin: String?) {
+        guard pin != airplayPIN else { return }
+        airplayPIN = pin
+        defaults.set(pin, forKey: airplayPINKey)
+        for slot in slots {
+            slot.airplayPIN = pin
+            restart(slot)
+        }
+    }
+
+    static func randomPIN() -> String {
+        String(format: "%04d", Int.random(in: 1000...9999))
+    }
+
     func setAllowListEnabled(_ enabled: Bool) {
         guard enabled != allowListEnabled else { return }
         if enabled && allowedDeviceIDs.isEmpty {
@@ -225,6 +254,8 @@ final class SlotStore: ObservableObject {
     /// Bounces the Dock icon until Mirror Wall is clicked (macOS doesn't while it's in front).
     private func alertPhoneDropped() {
         guard defaults.bool(forKey: Self.bounceKey) else { return }
+        // A bouncing Dock icon shows in a screen share; the Stage already says "Reconnecting…".
+        if stageWindow?.window.isVisible == true { return }
         NSApp.requestUserAttention(.criticalRequest)
     }
 
@@ -334,6 +365,7 @@ final class SlotStore: ObservableObject {
         awakeWatchers[slot.id] = nil
         stageWatchers[slot.id] = nil
         connectedSlotIDs.remove(slot.id)
+        reconnectingSince[slot.id] = nil
         slots.removeAll { $0 === slot }
         save()
         updateWindowTitles()
@@ -460,6 +492,35 @@ final class SlotStore: ObservableObject {
     }
 
     // MARK: - Stage
+
+    func isReconnecting(_ slot: Slot) -> Bool {
+        reconnectingSince[slot.id] != nil
+    }
+
+    /// Stops holding a dropped phone's place on the Stage.
+    func stopWaitingForReconnect(_ slot: Slot) {
+        reconnectingSince[slot.id] = nil
+    }
+
+    private func holdForReconnect(_ slot: Slot) {
+        let since = Date()
+        let id = slot.id
+        reconnectingSince[id] = since
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reconnectGrace) { [weak self] in
+            MainActor.assumeIsolated {
+                // Only this drop's timer clears it, not one from an earlier drop.
+                guard let self, self.reconnectingSince[id] == since else { return }
+                self.reconnectingSince[id] = nil
+            }
+        }
+    }
+
+    /// Resizes the Stage window around the phones on it, so a shared window isn't mostly
+    /// background and the phones show bigger in Teams or Zoom.
+    func fitStageToPhones() {
+        showStage()
+        stageWindow?.fitToPhones()
+    }
 
     func showStage() {
         if stageWindow == nil {

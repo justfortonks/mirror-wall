@@ -22,7 +22,7 @@ enum Brand {
 
     /// The guide's Imprivata Blue → #4698CB gradient, for the stage.
     static let stageGradient = LinearGradient(
-        colors: [blue, Color(hex: 0x2F4D6E), sky],
+        colors: [blue, sky],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

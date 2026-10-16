@@ -134,7 +134,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// second the phone is asked to send; it may send fewer. With `allowedDevices`, only phones
     /// with those device IDs may connect. With `sharpPicture`, phones are offered H.265 at up to
     /// 3840×2160, and send portrait pictures twice as tall and wide as with H.264's 1920×1080.
-    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false) -> [String] {
+    /// With `pin`, an iPhone has to enter that 4-digit code before it can mirror (for events and
+    /// shared networks).
+    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false, pin: String? = nil) -> [String] {
         var arguments = [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
@@ -155,6 +157,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         ]
         if sharpPicture {
             arguments.append("-h265")
+        }
+        if let pin, pin.count == 4, pin.allSatisfy(\.isNumber) {
+            arguments += ["-pin", pin]  // a fixed code, asked once per iPhone
         }
         if let allowedDevices {
             arguments.append("-restrict")

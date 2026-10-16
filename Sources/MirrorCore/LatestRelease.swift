@@ -44,11 +44,11 @@ public struct BuildNumber: Comparable, Hashable {
 /// "What's new" notes and the download for this computer.
 public struct LatestRelease: Equatable {
     /// The releases page, for when the app can't install it itself.
-    public static let pageURL = URL(string: "https://github.com/justfortonks/mirror-wall/releases")!
+    public static let pageURL = URL(string: "https://github.com/yurtbeer/mirror-wall/releases")!
     /// GitHub's description of the newest regular release (not a pre-release or draft).
-    public static let apiURL = URL(string: "https://api.github.com/repos/justfortonks/mirror-wall/releases/latest")!
+    public static let apiURL = URL(string: "https://api.github.com/repos/yurtbeer/mirror-wall/releases/latest")!
     /// GitHub's recent releases, pre-releases (betas) included, newest first.
-    public static let listURL = URL(string: "https://api.github.com/repos/justfortonks/mirror-wall/releases?per_page=30")!
+    public static let listURL = URL(string: "https://api.github.com/repos/yurtbeer/mirror-wall/releases?per_page=30")!
 
     public static func url(for channel: UpdateChannel) -> URL { channel == .beta ? listURL : apiURL }
 

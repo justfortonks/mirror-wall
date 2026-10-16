@@ -76,6 +76,8 @@ final class Slot: ObservableObject, Identifiable {
     /// Only phones with these device IDs may connect, or any phone if nil. Takes effect when the
     /// receiver starts.
     var allowedDevices: [String]?
+    /// The 4-digit code iPhones must enter, or nil for none. Takes effect when the receiver starts.
+    var airplayPIN: String?
     /// Called when a phone asks to connect, so the store can remember it for the allow-list.
     var onPhoneSeen: ((KnownPhone) -> Void)?
     /// Called when a mirroring phone drops unexpectedly (not when the slot is stopped).
@@ -155,7 +157,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture),
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, pin: airplayPIN),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -177,7 +179,7 @@ final class Slot: ObservableObject, Identifiable {
         processStartedAt = Date()
         startCastServer()
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture).joined(separator: " "))")
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, pin: airplayPIN).joined(separator: " "))")
         state = .waiting
     }
 

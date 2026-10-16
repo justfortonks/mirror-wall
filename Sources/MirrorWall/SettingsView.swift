@@ -164,6 +164,29 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section {
+                    Toggle("Require a PIN to mirror an iPhone", isOn: Binding(
+                        get: { store.airplayPIN != nil },
+                        set: { store.setAirplayPIN($0 ? SlotStore.randomPIN() : nil) }
+                    ))
+                    if let pin = store.airplayPIN {
+                        HStack {
+                            Text("PIN")
+                            Spacer()
+                            Text(pin)
+                                .font(.system(.title3, design: .monospaced).weight(.semibold))
+                                .textSelection(.enabled)
+                            Button("New PIN") { store.setAirplayPIN(SlotStore.randomPIN()) }
+                        }
+                    }
+                } header: {
+                    Text("PIN for events")
+                } footer: {
+                    Text("For trade shows and shared networks: an iPhone has to enter this code before it can mirror. The Stage shows it while you hold ⌥. Changing it restarts the slots. Android phones using Mirror Wall Cast don't ask for it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
             }
             .formStyle(.grouped)
             .tabItem { Label("Phones", systemImage: "iphone") }

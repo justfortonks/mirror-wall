@@ -184,6 +184,8 @@ struct FrameRateCommands: Commands {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = SlotStore()
+    /// Stage-first: the wall closes itself the first time it appears (see ContentView).
+    static var hideWallAtLaunch = true
 
     private var signalSources: [DispatchSourceSignal] = []
     /// Keeps macOS from napping the app while its windows are hidden, e.g. behind a full-screen
@@ -203,12 +205,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SlotStore.stopLeftoverReceivers()
         store.startAll()
         store.restoreOwnWindows()
-        // Stage-first: open straight to the Stage. SwiftUI opens the wall on its own at launch, so
-        // tuck it away once it's up; it's still in Window › Show Wall.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [store] in
-            MainWindow.hide()
-            store.showStage()
-        }
+        // Stage-first: open straight to the Stage. The wall closes itself as it appears
+        // (ContentView, hideWallAtLaunch); it's still in Window › Show Wall.
+        store.showStage()
     }
 
     /// MirrorWall.app gets its icon from the bundle; run with `swift run`, the app sets it itself
@@ -241,15 +240,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.stopAll()
     }
 
-    /// Clicking the Dock icon brings back the main window, even when it's minimized and slots'
-    /// own windows are open.
     /// Clicking the Dock icon brings back the Stage, the window being shared, not the wall.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         store.showStage()
         return false
     }
 
-    /// Closing the wall quits Mirror Wall, unless its menu bar icon is there to bring it back.
+    /// Closing the last window (now usually the Stage) quits Mirror Wall, unless its menu bar
+    /// icon is there to bring it back. Closing the Stage with ⌘W only hides it.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !UserDefaults.standard.bool(forKey: SlotStore.menuBarIconKey)
     }
@@ -260,7 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// newest entry, which scripts/build-app.sh copies into the app).
 @MainActor
 enum AboutPanel {
-    static let repository = "https://github.com/justfortonks/mirror-wall"
+    /// This fork, so About and updates point at its builds, not upstream's.
+    static let repository = "https://github.com/yurtbeer/mirror-wall"
 
     static func show() {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -311,15 +310,22 @@ enum MainWindow {
         if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
-        } else {
-            open?(id: "main")
+        } else if let open {
+            open(id: "main")
+        } else if let menu = showWallMenuItem?.menu, let item = showWallMenuItem {
+            // The wall never appeared this run, so SwiftUI's open action isn't known yet; the
+            // Window menu's Show Wall item has it.
+            menu.performActionForItem(at: menu.index(of: item))
+            return
         }
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Closes the wall without quitting (the Stage stays open).
-    static func hide() {
-        NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true })?.close()
+    private static var showWallMenuItem: NSMenuItem? {
+        for top in NSApp.mainMenu?.items ?? [] {
+            if let item = top.submenu?.items.first(where: { $0.title == "Show Wall" }) { return item }
+        }
+        return nil
     }
 }
 

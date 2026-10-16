@@ -6,6 +6,8 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var store: SlotStore
     @State private var focusedSlotID: Int?
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         Group {
@@ -17,10 +19,20 @@ struct ContentView: View {
         }
         .frame(minWidth: 480, minHeight: 420)
         .background(Brand.blue)
-        // Imprivata Blue wall: dark appearance so text, menus and controls read on it.
-        .preferredColorScheme(.dark)
+        // Imprivata Blue wall: dark appearance for this window only, so text and controls read
+        // on it without changing Settings or alerts.
+        .background(DarkWindowAppearance())
         .toolbarBackground(Brand.blueDeep, for: .windowToolbar)
         .toolbarBackground(.visible, for: .windowToolbar)
+        .onAppear {
+            // Lets Show Wall reopen this window from anywhere once it's been closed.
+            MainWindow.open = openWindow
+            // Stage-first: SwiftUI opens the wall at launch; close it as soon as it appears.
+            if AppDelegate.hideWallAtLaunch {
+                AppDelegate.hideWallAtLaunch = false
+                dismissWindow(id: "main")
+            }
+        }
         .toolbar {
             ToolbarItem {
                 Button {
@@ -415,9 +427,8 @@ struct SlotTile: View {
         case .live: return Brand.teal
         case .connecting, .paused: return Brand.sky
         case .waiting: return Brand.blueMuted
-        case .disconnected: return .orange
+        case .disconnected, .failed: return Brand.red
         case .stopped: return .gray
-        case .failed: return Brand.red
         }
     }
 
@@ -532,6 +543,14 @@ struct VideoLayerView: NSViewRepresentable {
         // Let SwiftUI handle clicks (double-click to focus, context menu).
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        /// A layer that was off screen (a closed or hidden window, another Space) can come back
+        /// empty, and a still phone sends no new frame to fill it, so hand it the latest picture.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, isShowing else { return }
+            renderer.refresh(videoLayer)
+        }
+
         override func layout() {
             super.layout()
             CATransaction.begin()
@@ -552,6 +571,19 @@ enum StandbyChoice: Hashable {
         case .message?: self = .message
         case .blank?: self = .blank
         case .image?: self = .image
+        }
+    }
+}
+
+/// Gives the window this view is in a dark appearance, without touching the rest of the app.
+struct DarkWindowAppearance: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { AppearanceView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class AppearanceView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.appearance = NSAppearance(named: .darkAqua)
         }
     }
 }
