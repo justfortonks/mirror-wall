@@ -54,3 +54,32 @@ Claude must rerun both original commands outside the sandbox and resolve any com
 errors before calling this Built, then provision/install and perform G1 on A/B.
 No entitlement requirement has been demonstrated; stop/report if provisioning requires
 one. Full-display background capture/encode/stub operation remains unproven.
+
+
+## G2 implementation handoff — 2026-10-16
+
+Brief G2 implemented under `prototypes/ios-direct/`: independent macOS 14
+`IOSDirectReceiver` target/scheme (Personal Team 499JQDRQF9, automatic signing,
+App Sandbox OFF), sender Radio tab, shared TLS 1.2 PSK/framing/admission/pacing/
+metrics, unit tests and real TLS-PSK macOS loopback tests. Both apps declare
+local-network/Bonjour usage. Capture pipeline, encoder, stub, telemetry and
+original tests are unchanged; sender root only adds the tab. No production files,
+commits, pushes, installs or entitlement workarounds.
+
+[Protocol v1](protocol.md) records the G2-only 80-bit credential/HKDF model,
+binary format, strict parser, two-active/two-pending limits, five-second hello
+deadline, explicit authenticated capacity reject, and pre-TLS refusal when the
+pending limit is full. QR/per-device identity/revocation remain G3. Synthetic bytes
+are independent of capture. Full no-AP/two-phone throughput acceptance remains
+[the G2 test plan](test-plan.md), not a loopback result.
+
+All requested test/build commands were attempted. SwiftPM stopped before tests
+at `sandbox-exec: sandbox_apply: Operation not permitted`; both Xcode schemes
+stopped resolving Shared with `<unknown>:0: error: cannot open file
+'/Users/thomas/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia'
+for diagnostics emission (Operation not permitted)`. No bypass attempted. Plist
+and scheme XML checks passed, but **no successful compilation/test, signed launch,
+TLS runtime result, direct route or gate pass is claimed**. Claude must run the
+README commands outside the sandbox, then device/local-network and controlled
+G2 acceptance. Review pending-overload behavior and the 65,536-byte body limit
+(65,516 synthetic bytes after metadata) in protocol.md before accepting G2.

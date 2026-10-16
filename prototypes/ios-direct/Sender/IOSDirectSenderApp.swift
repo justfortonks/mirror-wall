@@ -6,6 +6,7 @@ struct IOSDirectSenderApp: App {
     @StateObject private var experiment = CaptureExperiment()
     var body: some Scene {
         WindowGroup {
+            TabView {
             NavigationStack {
                 Form {
                     Section {
@@ -47,6 +48,8 @@ struct IOSDirectSenderApp: App {
                     }
                 }
                 .navigationTitle("Capture experiment")
+            }.tabItem { Label("Capture", systemImage: "record.circle") }
+            RadioExperimentView().tabItem { Label("Radio", systemImage: "antenna.radiowaves.left.and.right") }
             }
         }
     }

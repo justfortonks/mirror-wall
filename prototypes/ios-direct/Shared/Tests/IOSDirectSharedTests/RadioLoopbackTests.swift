@@ -1,0 +1,144 @@
+#if os(macOS)
+import XCTest
+import Network
+@testable import IOSDirectShared
+
+/// Uses the production TLS configuration, parser and admission registry. No mocks,
+/// plaintext listener, skipped handshake or verification bypass. Requires sockets.
+final class RadioLoopbackTests: XCTestCase {
+    private var receivers: [RadioReceiver] = []
+    private var clients: [RadioChannel] = []
+    private let lock = NSLock()
+    override func tearDown() {
+        for client in clients { client.queue.sync { client.close("test teardown") } }
+        for receiver in receivers { receiver.stop() }
+        clients.removeAll(); receivers.removeAll(); super.tearDown()
+    }
+    private func receiver(code: RadioCode, onEvent: ((String) -> Void)? = nil,
+                          onData: ((UUID, Int) -> Void)? = nil) throws -> (RadioReceiver, NWEndpoint) {
+        let receiver = RadioReceiver(label: "Loopback test")
+        receivers.append(receiver); receiver.onEvent = onEvent; receiver.onData = onData
+        let ready = expectation(description: "TLS listener ready")
+        var boundPort: NWEndpoint.Port?
+        receiver.onState = { state, port in
+            if state == "ready", let port {
+                self.lock.lock(); let first = boundPort == nil; boundPort = port; self.lock.unlock()
+                if first { ready.fulfill() }
+            }
+            if state.contains("failed") { XCTFail(state); ready.fulfill() }
+        }
+        receiver.start(code: code, advertise: false, loopbackOnly: true)
+        wait(for: [ready], timeout: 5)
+        lock.lock(); let port = boundPort; lock.unlock()
+        return (receiver, .hostPort(host: "127.0.0.1", port: try XCTUnwrap(port)))
+    }
+    private func client(endpoint: NWEndpoint, code: RadioCode, install: UUID = UUID(),
+                        handler: @escaping (RadioChannel, RadioMessage) throws -> Void) -> RadioChannel {
+        let channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)))
+        clients.append(channel)
+        channel.onReady = { [weak channel] in
+            channel?.send(.hello(install: install, label: "same display name", version: 1, rate: 12))
+        }
+        channel.onMessage = { [weak channel] message in guard let channel else { return }; try handler(channel, message) }
+        return channel
+    }
+    func testCorrectCodeHelloWelcomeDataAckAndIndependentSessions() throws {
+        let code = try RadioCode(bytes: Data(0..<10)), (_, endpoint) = try receiver(code: code)
+        let welcomed = expectation(description: "two distinct sessions"); welcomed.expectedFulfillmentCount = 2
+        let acked = expectation(description: "both data ACKs"); acked.expectedFulfillmentCount = 2
+        var sessions = Set<UUID>()
+        let payload = SyntheticPayload.make(seq: 0, count: 4096)
+        for _ in 0..<2 {
+            let channel = client(endpoint: endpoint, code: code) { channel, message in
+                switch message {
+                case .welcome(let session, _):
+                    self.lock.lock(); sessions.insert(session); self.lock.unlock()
+                    channel.active = true
+                    channel.send(.data(seq: 0, time: 111, payload: payload, crc: RadioCRC32.checksum(payload)))
+                    welcomed.fulfill()
+                case let .ack(seq, time, total):
+                    XCTAssertEqual(seq, 0); XCTAssertEqual(time, 111); XCTAssertEqual(total, 4096)
+                    XCTAssertEqual(channel.snapshot.tlsVersion, 0x0303)
+                    XCTAssertEqual(channel.snapshot.cipherSuite, 0x00a8); acked.fulfill()
+                case .stats: break
+                default: XCTFail("unexpected \(message)")
+                }
+            }
+            channel.start()
+        }
+        wait(for: [welcomed, acked], timeout: 8)
+        lock.lock(); let count = sessions.count; lock.unlock(); XCTAssertEqual(count, 2)
+        clients[0].queue.sync { clients[0].close("isolation test") }
+        let continued = expectation(description: "second session continues after first closes")
+        clients[1].queue.sync {
+            clients[1].onMessage = { message in
+                if case let .ack(seq, _, total) = message { XCTAssertEqual(seq, 1); XCTAssertEqual(total, 8192); continued.fulfill() }
+            }
+            clients[1].send(.data(seq: 1, time: 222, payload: payload, crc: RadioCRC32.checksum(payload)))
+        }
+        wait(for: [continued], timeout: 5)
+    }
+    func testWrongCodeFailsHandshakeAndNeverDeliversPayload() throws {
+        let good = try RadioCode(bytes: Data(repeating: 0, count: 10))
+        let wrong = try RadioCode(bytes: Data(repeating: 1, count: 10))
+        let noData = expectation(description: "no payload delivered"); noData.isInverted = true
+        let (_, endpoint) = try receiver(code: good, onData: { _, _ in noData.fulfill() })
+        let failed = expectation(description: "TLS handshake fails")
+        let channel = client(endpoint: endpoint, code: wrong) { _, _ in XCTFail("wrong code delivered application frame") }
+        channel.onReady = { XCTFail("wrong code reached TLS ready") }
+        channel.onClosed = { [weak channel] reason in
+            XCTAssertNil(channel?.snapshot.tlsVersion)
+            XCTAssertTrue(reason.contains("failed"), "Expected handshake failure, got \(reason)")
+            failed.fulfill()
+        }
+        channel.start()
+        wait(for: [failed], timeout: 8); wait(for: [noData], timeout: 0.5)
+    }
+    func testThirdClientReceivesExplicitCapacityRejection() throws {
+        let code = try RadioCode(bytes: Data(0..<10)), (_, endpoint) = try receiver(code: code)
+        let welcomed = expectation(description: "two active clients"); welcomed.expectedFulfillmentCount = 2
+        for _ in 0..<2 {
+            let channel = client(endpoint: endpoint, code: code) { channel, message in
+                if case .welcome = message { channel.active = true; welcomed.fulfill() }
+                else if case .stats = message {} else { XCTFail("unexpected message") }
+            }
+            channel.start()
+        }
+        wait(for: [welcomed], timeout: 8)
+        let rejected = expectation(description: "explicit authenticated reject capacity")
+        let third = client(endpoint: endpoint, code: code) { channel, message in
+            guard case .reject(let reason) = message else { XCTFail("third client admitted"); return }
+            XCTAssertEqual(reason, "capacity"); XCTAssertEqual(channel.snapshot.tlsVersion, 0x0303); rejected.fulfill()
+        }
+        third.start(); wait(for: [rejected], timeout: 8)
+    }
+    func testPendingLimitAndFiveSecondHelloTimeout() throws {
+        let code = try RadioCode(bytes: Data(0..<10))
+        let ready = expectation(description: "two pending TLS clients"); ready.expectedFulfillmentCount = 2
+        let timedOut = expectation(description: "hello timeout releases both slots"); timedOut.expectedFulfillmentCount = 2
+        let refused = expectation(description: "third pending socket refused before TLS")
+        let (_, endpoint) = try receiver(code: code, onEvent: { event in
+            if event.contains("pending handshake limit") { refused.fulfill() }
+            if event.contains("session.removed"), event.contains("5 s TLS/hello timeout") { timedOut.fulfill() }
+        })
+        for _ in 0..<2 {
+            let channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)))
+            clients.append(channel)
+            channel.onReady = { ready.fulfill() } // Deliberately omit hello.
+            channel.start()
+        }
+        wait(for: [ready], timeout: 3)
+        let third = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)))
+        clients.append(third)
+        third.onReady = { XCTFail("pending cap allowed a third TLS handshake") }
+        third.start(); wait(for: [refused], timeout: 1)
+        wait(for: [timedOut], timeout: 6)
+        let admitted = expectation(description: "pending slots reusable after timeout")
+        let fresh = client(endpoint: endpoint, code: code) { channel, message in
+            if case .welcome = message { channel.active = true; admitted.fulfill() }
+        }
+        fresh.start(); wait(for: [admitted], timeout: 5)
+    }
+
+}
+#endif
