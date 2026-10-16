@@ -18,7 +18,7 @@ These requirements apply to the packaged releases.
 
 **Windows:** Run the installer. It is unsigned, so SmartScreen may show a warning. Installation requires administrator access to add firewall rules. It works on Private and Public networks. See the [Windows guide](windows/README.md) for details.
 
-**Updating:** Mirror Wall › Check for Update… on a Mac, or Help › Check for Update… on Windows (also in the menu bar or notification area icon's menu), downloads the newest release, installs it and reopens Mirror Wall. It only checks when you ask. Settings › General › Updates can switch it to Beta, which also offers test builds (published as pre-releases). A Mac doesn't need Open Anyway again for an update installed this way; Windows asks once to let the installer make changes.
+**Updating:** Mirror Wall › Check for Update… on a Mac, or Help › Check for Update… on Windows (also in the menu bar or notification area icon's menu), downloads the newest release, installs it and reopens Mirror Wall. It only checks when you ask. Settings › General › Updates can switch it to Beta, which lists every test build on offer (published as pre-releases) and the newest release, to install whichever you choose. Actions › Beta builds withdraws a test build from that list or offers it again. A Mac doesn't need Open Anyway again for an update installed this way; Windows asks once to let the installer make changes.
 
 ## Connect your phones
 

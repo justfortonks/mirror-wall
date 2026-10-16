@@ -5,12 +5,18 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
-## October 16, 2026: OBS feed follows slot renames
+## October 16, 2026: OBS feed follows slot renames, and a list of test builds
 
 - Renaming a slot now renames its OBS feed (Syphon on the Mac, Spout on Windows) and its own
   window to "MacMirror-<new name>". Before, once a phone had connected, both kept the phone's
   name. Slots still using their standard "Mirror Wall 1" name go by the phone's name as before.
   OBS sources pointed at the old name need the new one picked once.
+- With Settings › General › Updates set to Beta, Check for Update now lists every test build on
+  offer, most recently built first, with what each one is for, and the newest release. Pick any
+  one to install it. Before, it offered only the one with the highest build number, which could be
+  an older test build from another branch.
+- Test builds can be withdrawn from that list, or offered again, with Actions › Beta builds on
+  GitHub. Copies already installed keep working.
 
 ## October 15, 2026: Windows fixes
 
