@@ -1,8 +1,10 @@
-# iOS Direct POC — G1 capture experiment
+# iOS Direct POC — G1 Capture and G2 Radio
 
-Independent iPhone-only iOS 27 app. Full-display ScreenCaptureKit → paced SDR H.264
-VideoToolbox → bounded counting/hash stub. No networking, audio output, broadcast
-extension, entitlements file, third-party dependencies or production integration.
+Independent iOS 27 sender with Capture and Radio tabs, plus a macOS 14+ receiver.
+Capture remains ScreenCaptureKit → paced SDR H.264 VideoToolbox → bounded local
+counting/hash stub. Radio sends deterministic synthetic bytes through a separate
+TLS-PSK transport; it never consumes capture output. No third-party dependencies,
+production integration, audio workaround or broadcast extension.
 
 G1b separates encoder state from capture: encoder failures invalidate only VT,
 then retry on a paced frame after 0.25/0.5/1/2 seconds (2-second cap), with a new
@@ -131,8 +133,8 @@ profile, PTS or memory data remains absent/unavailable, never an assumed success
   interval is evidence to investigate, not filled in afterward.
 - G1 run 1 recorded two nil-pool failures after backgrounding followed by our
   stopCapture path. G1b recovery, image correctness, background cadence, rotation,
-  stop latency and G1 gate success still need device validation. No G2 radio code
-  exists.
+  stop latency and G1 gate success still need device validation. G2 Radio is
+  implemented separately below; no G2 runtime pass is claimed.
 
 SDK reference: `xcrun --sdk iphoneos --show-sdk-path` resolved to Xcode's
 `iPhoneOS27.1.sdk`. Implementation spelling/availability was checked against
@@ -142,3 +144,72 @@ VideoToolbox/CoreMedia headers/interfaces. Compiler confirmation of imported
 Objective-C signatures is pending the sandbox-free build; the Swift overlay
 explicitly exposes `defaultConfiguration`, `showsMicrophoneControl` and
 `showsCameraControl` on iOS 27.
+
+
+## G2 Radio: Mac receiver and one or two phones
+
+Open the same project and choose shared scheme **IOSDirectReceiver**. It is a
+native macOS SwiftUI app, macOS 14.0 minimum, bundle ID
+`com.justfortonks.mirrorwall.iosdirectpoc.receiver`, automatic signing with Personal
+Team `499JQDRQF9`. **App Sandbox is OFF for this prototype**; no sandbox/network
+entitlements are added. Sender and receiver declare local-network usage and
+Bonjour `_mwiospoc._tcp`. Provision/install from Xcode with your existing team;
+this assignment has not signed, installed or launched either app.
+
+Launch Receiver, grant local-network access and wait for listener `ready`. The
+large code is a per-run 80-bit test credential. **New code** disconnects all phones
+and restarts with a fresh random credential. Stop any Capture run before measuring
+G2. On the phone choose **Radio**, grant local-network access, pick the discovered
+Mac, enter its code and select 2/6/12/24 Mbit/s (default 12). Tap Start; payload
+starts only after TLS authentication and welcome. Stop sends bye and disconnects.
+The receiver shows independent session IDs/rows even for two equal phone names.
+A third authenticated client receives `reject capacity`; an incorrect code must
+show `wrong code / handshake failed` without any data delivery. Validate both in
+a normal shell and on devices before claiming that behavior passed.
+
+[Protocol v1](../../docs/ios-direct/protocol.md) specifies TLS 1.2 PSK/HKDF,
+framing, binary controls/data, limits, pending overload refusal and diagnostics.
+These shared G2 test codes are **not final pairing**: QR, per-device keys,
+approval/revocation and production security belong to G3. There is no plaintext
+fallback. Opting in to peer-to-peer interfaces is not evidence of direct routing.
+Run the full G2 controlled no-AP, one-phone and simultaneous two-phone procedures
+in the [test plan](../../docs/ios-direct/test-plan.md); loopback does not close G2.
+
+Sender **Export radio log** / Finder File Sharing exports
+`Documents/IOSDirectPOC/logs/radio-*.jsonl`. Receiver **Export receiver log** exports
+`~/Documents/IOSDirectPOC-Receiver/logs/radio-*.jsonl`. Directories are created;
+a sandboxed build would use its container Documents directory. Logs contain
+metadata only, including install/session UUIDs and endpoints; codes, PSKs and
+synthetic payload bytes are never logged. Per-second snapshots and state/path
+errors persist independently of a debugger; log failures remain visible.
+
+Shared tests cover partial/coalesced/byte-fragmented parsing, invalid magic/version/
+type/length, EOF, binary messages, CRC, code parsing and PSK derivation, pacing,
+and the ten-second RTT window. macOS loopback integration tests use the **real
+TLS-PSK options and production receiver registry** for hello/welcome/data/ack,
+wrong-code failure/no data, third-client capacity rejection, duplicate labels,
+one session continuing after another closes, pending-slot refusal, and the
+five-second hello timeout with slot reuse. They require socket permission;
+no plaintext substitute or conditional skip is provided.
+
+Requested commands (repository root, no signing):
+
+```sh
+cd prototypes/ios-direct/Shared && swift test 2>&1 | tail -15; cd -
+xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectSender -destination 'generic/platform=iOS' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
+xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectReceiver -destination 'platform=macOS' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
+git status --porcelain
+```
+
+**2026-10-16 validation: all three commands attempted; compilation and tests did
+not run.** SwiftPM failed manifest evaluation with the exact error
+`sandbox-exec: sandbox_apply: Operation not permitted`. Both Xcode builds reported
+`xcodebuild: error: Could not resolve package dependencies:` followed by
+`<unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)`.
+CoreSimulator service errors also appeared. Pipeline exit 0 belongs to tail/grep,
+not a successful build. No cache override, sandbox bypass, installs, commits or
+pushes were attempted. Plists/project plist and shared scheme XML validate;
+G1 capture/encoder/stub/telemetry sources and original tests are unchanged.
+Sandbox-free builds, Shared tests, signed launch/local-network permission, actual
+wrong-code handshake behavior and controlled one/two-phone radio measurements
+remain unresolved acceptance work.
