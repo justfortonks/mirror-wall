@@ -230,6 +230,14 @@ final class WindowTitleTests: XCTestCase {
         XCTAssertEqual(titles, [1: "MacMirror-Tom’s iPhone", 2: "MacMirror-Mirror Wall 2"])
     }
 
+    func testRenamedSlotsUseTheirOwnName() {
+        let titles = SlotConfig.windowTitles(for: [
+            SlotConfig(id: 1, name: "Desk", lastPhoneName: "Tom’s iPhone"),
+            SlotConfig(id: 2, name: "Mirror Wall 2 · MacBook Air", lastPhoneName: "iPad"),
+        ])
+        XCTAssertEqual(titles, [1: "MacMirror-Desk", 2: "MacMirror-iPad"])
+    }
+
     func testClashingNamesGetTheSlotNumber() {
         let titles = SlotConfig.windowTitles(for: [
             SlotConfig(id: 1, name: "Mirror Wall 1", lastPhoneName: "iPhone"),

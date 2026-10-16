@@ -5,6 +5,13 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 16, 2026: OBS feed follows slot renames
+
+- Renaming a slot now renames its OBS feed (Syphon on the Mac, Spout on Windows) and its own
+  window to "MacMirror-<new name>". Before, once a phone had connected, both kept the phone's
+  name. Slots still using their standard "Mirror Wall 1" name go by the phone's name as before.
+  OBS sources pointed at the old name need the new one picked once.
+
 ## October 15, 2026: Windows fixes
 
 - Windows: opening Mirror Wall while it's already running (say, hidden behind its tray icon)
