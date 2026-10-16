@@ -500,17 +500,19 @@ final class SlotStore: ObservableObject {
     /// Stops holding a dropped phone's place on the Stage.
     func stopWaitingForReconnect(_ slot: Slot) {
         reconnectingSince[slot.id] = nil
+        slot.clearHeldPicture()
     }
 
     private func holdForReconnect(_ slot: Slot) {
         let since = Date()
         let id = slot.id
         reconnectingSince[id] = since
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reconnectGrace) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.reconnectGrace) { [weak self, weak slot] in
             MainActor.assumeIsolated {
                 // Only this drop's timer clears it, not one from an earlier drop.
                 guard let self, self.reconnectingSince[id] == since else { return }
                 self.reconnectingSince[id] = nil
+                slot?.clearHeldPicture()
             }
         }
     }

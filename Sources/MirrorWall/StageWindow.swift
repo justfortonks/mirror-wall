@@ -249,7 +249,7 @@ struct StageView: View {
                         .offset(x: placed.frame.x, y: placed.frame.y)
                 }
                 if showsCaption {
-                    StageCaption(phones: phones.filter(\.showsPicture), height: captionHeight)
+                    StageCaption(phones: phones, height: captionHeight)
                         .frame(width: proxy.size.width, height: captionHeight)
                         .offset(y: proxy.size.height - captionHeight)
                 }
@@ -295,7 +295,7 @@ struct StageView: View {
     }
 
     private static func picture(of slot: Slot) -> CGSize {
-        slot.videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
+        slot.displaySize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
     }
 
     static func size(of slot: Slot) -> (width: Double, height: Double) {
@@ -620,7 +620,7 @@ private struct StagePhone: View {
     let reconnecting: Bool
 
     var body: some View {
-        let shape = slot.videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
+        let shape = slot.displaySize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
         if slot.showsBezel {
             PhoneBezel(geometry: slot.bezel(for: shape), picture: shape) { picture }
         } else {
@@ -633,8 +633,16 @@ private struct StagePhone: View {
     private var picture: some View {
         ZStack {
             Color.black
-            VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture || reconnecting)
-            if reconnecting {
+            if reconnecting, let held = slot.heldImage {
+                // The receiver restarts after a drop, which clears the live picture.
+                Image(decorative: held, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .scaledToFit()
+            } else {
+                VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture || reconnecting)
+            }
+            if reconnecting || slot.isQuiet {
                 Color(hex: 0x141E2D).opacity(0.6)
                 VStack(spacing: 8) {
                     ProgressView()

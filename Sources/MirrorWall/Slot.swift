@@ -1,6 +1,7 @@
 import CoreMedia
 import Foundation
 import MirrorCore
+import VideoToolbox
 
 /// A running mirroring slot: its uxplay process, the RTP stream it forwards, and the renderer.
 ///
@@ -48,6 +49,15 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var hasPicture = false
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
+    /// True while a mirroring phone has gone quiet for a few seconds (no check-in or video) but
+    /// hasn't been given up on yet, so the Stage can say "Reconnecting…" without ending anything.
+    @Published private(set) var isQuiet = false
+    /// The last picture and its size from before the phone dropped, kept through the receiver's
+    /// restart so the Stage can hold the phone in place, dimmed, while it may reconnect.
+    @Published private(set) var heldImage: CGImage?
+    @Published private(set) var heldVideoSize: CGSize?
+    /// The picture's size, or the held one while reconnecting.
+    var displaySize: CGSize? { videoSize ?? heldVideoSize }
     /// The last picture size seen, kept after the phone leaves, for sizing the OBS feed's standby
     /// picture like the phone's.
     private(set) var lastPictureSize: CGSize?
@@ -104,6 +114,8 @@ final class Slot: ObservableObject, Identifiable {
     private var uxplayURL: URL?
     private var watchdog: Timer?
     static let silenceLimit: TimeInterval = 10
+    /// Quiet this long (the phone checks in every 2 seconds) and the Stage shows "Reconnecting…".
+    static let quietLimit: TimeInterval = 4.5
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
     private var generation = 0
     /// When the receiver last started, to tell a crash after running a while (start a fresh one)
@@ -204,6 +216,7 @@ final class Slot: ObservableObject, Identifiable {
         videoSize = nil
         phoneName = nil
         connectedSince = nil
+        isQuiet = false
         state = .stopped
     }
 
@@ -429,7 +442,10 @@ final class Slot: ObservableObject, Identifiable {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.receiver != nil else { return }
             self.lastFrameAt = Date()
-            if !self.hasPicture { self.hasPicture = true }
+            if !self.hasPicture {
+                self.hasPicture = true
+                self.clearHeldPicture()
+            }
             if let dimensions {
                 let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
                 if self.videoSize != size { self.videoSize = size }
@@ -597,6 +613,7 @@ final class Slot: ObservableObject, Identifiable {
             }
         case .heartbeat:
             lastSignOfLifeAt = Date()
+            if isQuiet { isQuiet = false }
             stats.heartbeat()
         case .networkRoundTrip(let seconds):
             stats.roundTrip = seconds
@@ -609,14 +626,32 @@ final class Slot: ObservableObject, Identifiable {
 
     private func startWatchdog() {
         watchdog?.invalidate()
-        watchdog = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.checkForSilence()
         }
     }
 
+    /// Keeps the picture on screen now, before the receiver restart clears it.
+    private func holdLastPicture() {
+        heldVideoSize = videoSize ?? heldVideoSize
+        guard let buffer = renderer.currentImage else { return }
+        var image: CGImage?
+        _ = VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+        if let image { heldImage = image }
+    }
+
+    /// Lets go of the held picture: the phone is back, or no longer waited for.
+    func clearHeldPicture() {
+        if heldImage != nil { heldImage = nil }
+        if heldVideoSize != nil { heldVideoSize = nil }
+    }
+
     private func checkForSilence() {
-        guard let lastSignOfLifeAt, state == .live || state == .paused || state == .connecting,
-              Date().timeIntervalSince(lastSignOfLifeAt) > Self.silenceLimit else { return }
+        let silentFor = lastSignOfLifeAt.map { Date().timeIntervalSince($0) } ?? 0
+        let quiet = state == .live && silentFor > Self.quietLimit
+        if quiet != isQuiet { isQuiet = quiet }
+        guard lastSignOfLifeAt != nil, state == .live || state == .paused || state == .connecting,
+              silentFor > Self.silenceLimit else { return }
         append("No check-in or video from the phone for \(Int(Self.silenceLimit)) seconds; treating it as disconnected")
         connectedSince = nil
         phoneDropped()
@@ -624,6 +659,7 @@ final class Slot: ObservableObject, Identifiable {
 
     private func phoneDropped() {
         let wasMirroring = state == .live || state == .paused || state == .connecting
+        if wasMirroring { holdLastPicture() }
         state = .disconnected
         restartReceiverSoon()
         if wasMirroring { onPhoneDropped?() }
@@ -681,6 +717,7 @@ final class Slot: ObservableObject, Identifiable {
         }
         let wasMirroring = state == .live || state == .paused || state == .connecting
         let phone = phoneName
+        if wasMirroring { holdLastPicture() }
         append("Starting a fresh receiver")
         stop()
         start(uxplay: uxplay, freshLog: false)
