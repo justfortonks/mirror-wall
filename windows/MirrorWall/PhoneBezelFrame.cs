@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using MirrorWall.Core;
 
 namespace MirrorWall;
@@ -8,10 +9,11 @@ namespace MirrorWall;
 /// <summary>
 /// A phone-shaped frame around a slot's picture: the phone's body, drawn around the picture
 /// without covering any of it, with a notch, Dynamic Island, home button or front camera to match
-/// the phone's model. Put it in an <see cref="AspectBox"/> with <see cref="Ratio"/>, so it gets
+/// the phone's model, or a photo of the phone's front laid over the picture for the Android
+/// phones that have one. Put it in an <see cref="AspectBox"/> with <see cref="Ratio"/>, so it gets
 /// the frame's shape. The Mac app's PhoneBezel.
 /// </summary>
-internal sealed class PhoneBezelFrame : Decorator
+internal sealed class PhoneBezelFrame : FrameworkElement
 {
     private static readonly Brush BodyBrush = Frozen(new SolidColorBrush(Color.FromRgb(28, 28, 30)));
     private static readonly Brush RimBrush = Frozen(new SolidColorBrush(Color.FromRgb(82, 82, 87)));
@@ -19,13 +21,21 @@ internal sealed class PhoneBezelFrame : Decorator
 
     /// <summary>Holds the picture, clipped to the screen's rounded corners.</summary>
     private readonly Border screen = new() { Background = Brushes.Black };
+    /// <summary>The phone's photo, over the picture, for a frame drawn from one.</summary>
+    private readonly Image photo = new() { IsHitTestVisible = false, Stretch = Stretch.Fill, Visibility = Visibility.Collapsed };
     private BezelGeometry geometry = new(BezelStyle.Plain, 9, 19.5);
     private Size picture = new(9, 19.5);
 
     public PhoneBezelFrame()
     {
-        Child = screen;
+        RenderOptions.SetBitmapScalingMode(photo, BitmapScalingMode.HighQuality);
+        AddVisualChild(screen);
+        AddVisualChild(photo);
     }
+
+    protected override int VisualChildrenCount => 2;
+
+    protected override Visual GetVisualChild(int index) => index == 0 ? screen : photo;
 
     /// <summary>What goes on the phone's screen.</summary>
     public UIElement? Content
@@ -40,6 +50,8 @@ internal sealed class PhoneBezelFrame : Decorator
         if (newGeometry == geometry && newPicture == picture) return;
         geometry = newGeometry;
         picture = newPicture;
+        photo.Source = geometry.ArtworkScreen != null ? BezelPhotos.Get(geometry.Style, geometry.QuarterTurns) : null;
+        photo.Visibility = photo.Source != null ? Visibility.Visible : Visibility.Collapsed;
         InvalidateMeasure();
         InvalidateVisual();
     }
@@ -69,6 +81,7 @@ internal sealed class PhoneBezelFrame : Decorator
     {
         var size = new Size(double.IsInfinity(available.Width) ? 300 : available.Width, double.IsInfinity(available.Height) ? 300 / Ratio : available.Height);
         screen.Measure(ScreenRect(size).Size);
+        photo.Measure(size);
         return size;
     }
 
@@ -78,6 +91,7 @@ internal sealed class PhoneBezelFrame : Decorator
         screen.Arrange(rect);
         double radius = geometry.ScreenCornerRadius * Unit(final);
         screen.Clip = new RectangleGeometry(new Rect(rect.Size), radius, radius);
+        photo.Arrange(new Rect(final));
         return final;
     }
 
@@ -85,16 +99,31 @@ internal sealed class PhoneBezelFrame : Decorator
     {
         var size = RenderSize;
         if (size.Width <= 0 || size.Height <= 0) return;
-        Draw(dc, geometry, size, Unit(size));
+        double unit = Unit(size);
+        if (photo.Source != null && geometry.ArtworkScreen is { } opening)
+        {
+            // Black in any of the photo's screen the picture doesn't cover.
+            dc.DrawRectangle(Brushes.Black, null, new Rect(opening.X * unit, opening.Y * unit, opening.Width * unit, opening.Height * unit));
+            return;
+        }
+        Draw(dc, geometry, size, unit);
     }
 
     /// <summary>Draws the frame filling <paramref name="size"/>, with <paramref name="unit"/> pixels
-    /// to the picture's shorter side: upright, turned a quarter left for a sideways phone, so the
-    /// portrait top edge (notch, camera) ends up on the left. Also draws the OBS feed's frame.</summary>
+    /// to the picture's shorter side: laid out upright, then turned as the phone is held, so for a
+    /// sideways phone the portrait top edge (notch, camera) usually ends up on the left. Also draws
+    /// the OBS feed's frame.</summary>
     public static void Draw(DrawingContext dc, BezelGeometry geometry, Size size, double unit)
     {
         var upright = geometry.Landscape ? new Size(size.Height, size.Width) : size;
-        if (geometry.Landscape) dc.PushTransform(new MatrixTransform(0, -1, 1, 0, 0, size.Height));
+        Matrix? turn = geometry.QuarterTurns switch
+        {
+            1 => new Matrix(0, -1, 1, 0, 0, size.Height),          // (x, y) → (y, height − x)
+            2 => new Matrix(-1, 0, 0, -1, size.Width, size.Height), // (x, y) → (width − x, height − y)
+            3 => new Matrix(0, 1, -1, 0, size.Width, 0),            // (x, y) → (width − y, x)
+            _ => null,
+        };
+        if (turn is { } matrix) dc.PushTransform(new MatrixTransform(matrix));
 
         double rim = 0.012 * unit, outer = geometry.OuterCornerRadius * unit;
         dc.DrawRoundedRectangle(BodyBrush, null, new Rect(upright), outer, outer);
@@ -102,8 +131,8 @@ internal sealed class PhoneBezelFrame : Decorator
         dc.DrawRoundedRectangle(null, new Pen(RimBrush, rim), rimRect, Math.Max(0, outer - rim / 2), Math.Max(0, outer - rim / 2));
 
         // Portrait top and bottom edges, whichever way the phone is held.
-        double topEdge = (geometry.Landscape ? geometry.Left : geometry.Top) * unit;
-        double bottomEdge = (geometry.Landscape ? geometry.Right : geometry.Bottom) * unit;
+        double topEdge = geometry.UprightTop * unit;
+        double bottomEdge = geometry.UprightBottom * unit;
         double centerX = upright.Width / 2;
         switch (geometry.Style)
         {
@@ -120,12 +149,12 @@ internal sealed class PhoneBezelFrame : Decorator
             case BezelStyle.DynamicIsland:
                 Pill(dc, Brushes.Black, new Rect(centerX - 0.15 * unit, topEdge / 2 - 0.022 * unit, 0.3 * unit, 0.044 * unit));
                 break;
-            default:
+            default: // Plain; frames drawn from photos don't come here.
                 Dot(dc, Brushes.Black, centerX, topEdge / 2, 0.018 * unit);
                 Pill(dc, Brushes.Black, new Rect(centerX - 0.08 * unit, topEdge / 4 - 0.008 * unit, 0.16 * unit, 0.016 * unit));
                 break;
         }
-        if (geometry.Landscape) dc.Pop();
+        if (turn != null) dc.Pop();
     }
 
     private static void Pill(DrawingContext dc, Brush brush, Rect rect) =>
@@ -138,5 +167,47 @@ internal sealed class PhoneBezelFrame : Decorator
     {
         brush.Freeze();
         return brush;
+    }
+}
+
+/// <summary>
+/// The photos phone frames are drawn from (see <see cref="BezelArtwork"/>), embedded in the app
+/// from the Mac app's Resources/Bezels, turned some quarter turns left (1: the top edge, camera
+/// and earpiece, on the left). Frozen, so any thread can use them.
+/// </summary>
+internal static class BezelPhotos
+{
+    private static readonly Dictionary<(string, int), BitmapSource?> Cache = new();
+
+    public static BitmapSource? Get(BezelStyle style, int turns)
+    {
+        if (BezelArtwork.For(style) is not { } artwork) return null;
+        turns &= 3;
+        lock (Cache)
+        {
+            if (Cache.TryGetValue((artwork.Name, turns), out var cached)) return cached;
+            BitmapSource? image = null;
+            try
+            {
+                using var stream = typeof(BezelPhotos).Assembly.GetManifestResourceStream($"Bezels.{artwork.Name}.png");
+                if (stream != null)
+                {
+                    var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    image = decoder.Frames[0];
+                    // WPF turns clockwise for positive angles.
+                    if (turns != 0) image = new TransformedBitmap(image, new RotateTransform(-90 * turns));
+                    image = new FormatConvertedBitmap(image, PixelFormats.Pbgra32, null, 0);
+                    // Laid out by the frame's size, not the PNG's DPI.
+                    image = new CachedBitmap(image, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                    image.Freeze();
+                }
+            }
+            catch (Exception)
+            {
+                image = null; // The plain frame instead.
+            }
+            Cache[(artwork.Name, turns)] = image;
+            return image;
+        }
     }
 }

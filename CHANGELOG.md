@@ -5,6 +5,19 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 15, 2026: Android phone frames
+
+- Phone bezels now show the real phone for a Zebra HC50, a white Honeywell CT37, a Spectralink
+  Versity 95/96 (9540, 9553, 9640, 9653) or a Versity 97 (9740, 9753): a photo of its front,
+  on the wall, in pop-outs, on the Stage and in the OBS feed, on Mac and Windows. They also take
+  their true screen size on the Stage and in pop-outs. Other Android phones keep the plain frame.
+- Android app: turning the phone back to portrait by pressing Home (the home screen is always
+  upright) no longer leaves Mirror Wall showing a sideways picture with the screen squeezed in
+  the middle.
+- Phone frames now turn the way an Android phone is held: upside down, or sideways either way
+  (needs the Android app from this release; iPhones and older apps keep the frame's top on the
+  left when sideways).
+
 ## October 15, 2026: Windows fixes
 
 - Windows: opening Mirror Wall while it's already running (say, hidden behind its tray icon)

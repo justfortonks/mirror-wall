@@ -556,7 +556,7 @@ final class CastProtocolTests: XCTestCase {
             .paused, .resumed, .heartbeat,
             .busy(CastBusy(reason: "In use")),
             .welcome(CastWelcome(slot: "Mirror Wall 2", maxFrameRate: 60, sharpPicture: true)),
-            .ping(0x0102_0304_0506_0708), .pong(42),
+            .ping(0x0102_0304_0506_0708), .pong(42), .orientation(2),
             .bye,
         ]
         let reader = CastReader()
@@ -571,6 +571,11 @@ final class CastProtocolTests: XCTestCase {
         let reader = CastReader()
         XCTAssertEqual(try reader.push([0x40, 0, 0, 0, 2, 7, 7] + CastMessage.heartbeat.encoded()), [.heartbeat])
         XCTAssertThrowsError(try CastReader().push([0x02, 0x7F, 0, 0, 0]))
+    }
+
+    func testOrientationIsOneByteOfQuarterTurns() throws {
+        XCTAssertEqual(CastMessage.orientation(3).encoded(), [0x08, 0, 0, 0, 1, 3])
+        XCTAssertEqual(try CastReader().push([0x08, 0, 0, 0, 1, 1]), [.orientation(1)])
     }
 
     /// Phones and Mirror Walls of any version have to understand each other (see "Compatibility" in
@@ -635,9 +640,78 @@ final class PhoneBezelTests: XCTestCase {
         XCTAssertEqual(BezelStyle(modelCode: "iPhone15,2"), .dynamicIsland) // iPhone 14 Pro
         XCTAssertEqual(BezelStyle(modelCode: "iPhone18,2"), .dynamicIsland) // iPhone 17 Pro Max
         XCTAssertEqual(BezelStyle(modelCode: "iPhone99,1"), .dynamicIsland) // newer than the list
-        XCTAssertEqual(BezelStyle(modelCode: "Zebra HC50"), .plain)
+        XCTAssertEqual(BezelStyle(modelCode: "Pixel 8"), .plain)
         XCTAssertEqual(BezelStyle(modelCode: "iPhone"), .plain)
         XCTAssertEqual(BezelStyle(modelCode: nil), .plain)
+    }
+
+    func testPicksAndroidPhotoFramesByWholeModelNumber() {
+        XCTAssertEqual(BezelStyle(modelCode: "Zebra Technologies HC50"), .zebraHC50)
+        XCTAssertEqual(BezelStyle(modelCode: "Zebra HC50"), .zebraHC50)
+        XCTAssertEqual(BezelStyle(modelCode: "HC50"), .zebraHC50)
+        XCTAssertEqual(BezelStyle(modelCode: "Zebra Technologies HC20"), .plain)
+        XCTAssertEqual(BezelStyle(modelCode: "Zebra Technologies HC55"), .plain)
+        XCTAssertEqual(BezelStyle(modelCode: "Honeywell CT37"), .honeywellCT37)
+        XCTAssertEqual(BezelStyle(modelCode: "Honeywell CT37 HC"), .honeywellCT37)
+        XCTAssertEqual(BezelStyle(modelCode: "Honeywell CT37HC"), .honeywellCT37)
+        XCTAssertEqual(BezelStyle(modelCode: "Honeywell CT30"), .plain)
+        XCTAssertEqual(BezelStyle(modelCode: "Honeywell CT370"), .plain)
+        XCTAssertEqual(BezelStyle(modelCode: "Spectralink 9640"), .versity95)
+        XCTAssertEqual(BezelStyle(modelCode: "Spectralink Versity 9553"), .versity95)
+        XCTAssertEqual(BezelStyle(modelCode: "Spectralink V9540"), .versity95)
+        XCTAssertEqual(BezelStyle(modelCode: "Spectralink Versity 9753"), .versity97)
+        XCTAssertEqual(BezelStyle(modelCode: "Spectralink 9740"), .versity97)
+        XCTAssertEqual(BezelStyle(modelCode: "Spectralink 9240"), .plain)
+        XCTAssertEqual(phoneScreenDiagonal("Zebra Technologies HC50"), 6)
+    }
+
+    func testPhotoFrameFitsThePictureInItsScreen() {
+        // HC50: 1280×2640 photo, 1080×2160 screen at (100, 240).
+        let exact = BezelGeometry(style: .zebraHC50, pictureWidth: 1080, pictureHeight: 2160)
+        XCTAssertEqual(exact.left, 100.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(exact.top, 240.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(exact.right, 100.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(exact.bottom, 240.0 / 1080, accuracy: 1e-9)
+        let outer = exact.outerSize(pictureWidth: 1080, pictureHeight: 2160)
+        XCTAssertEqual(outer.width / outer.height, 1280.0 / 2640, accuracy: 1e-9)
+
+        // A slightly narrower picture is centered, never stretched; the photo keeps its shape.
+        let narrow = BezelGeometry(style: .zebraHC50, pictureWidth: 1072, pictureHeight: 2160)
+        let narrowOuter = narrow.outerSize(pictureWidth: 1072, pictureHeight: 2160)
+        XCTAssertEqual(narrowOuter.width / narrowOuter.height, 1280.0 / 2640, accuracy: 1e-9)
+        XCTAssertEqual(narrow.left, narrow.right, accuracy: 1e-9)
+        XCTAssertGreaterThan(narrow.left, narrow.artworkScreen!.x)
+
+        // Sideways: the photo's top edge goes left. CT37: 1360×2880, screen 1080×2280 at (140, 320).
+        let sideways = BezelGeometry(style: .honeywellCT37, pictureWidth: 2280, pictureHeight: 1080)
+        XCTAssertTrue(sideways.landscape)
+        XCTAssertEqual(sideways.left, 320.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(sideways.right, 280.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(sideways.top, 140.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(sideways.bottom, 140.0 / 1080, accuracy: 1e-9)
+    }
+
+    func testFrameTurnsTheWayThePhoneSays() {
+        let upright = BezelGeometry(style: .homeButton, pictureWidth: 750, pictureHeight: 1334)
+        let upsideDown = BezelGeometry(style: .homeButton, pictureWidth: 750, pictureHeight: 1334, turns: 2)
+        XCTAssertEqual(upsideDown.quarterTurns, 2)
+        XCTAssertEqual(upsideDown.top, upright.bottom)
+        XCTAssertEqual(upsideDown.uprightTop, upright.top)
+        let topRight = BezelGeometry(style: .homeButton, pictureWidth: 1334, pictureHeight: 750, turns: 3)
+        XCTAssertEqual(topRight.right, upright.top)
+        XCTAssertEqual(topRight.left, upright.bottom)
+        // A turn that doesn't match the picture (its new picture hasn't arrived) is ignored.
+        XCTAssertEqual(BezelGeometry(style: .homeButton, pictureWidth: 750, pictureHeight: 1334, turns: 1).quarterTurns, 0)
+        XCTAssertEqual(BezelGeometry(style: .homeButton, pictureWidth: 1334, pictureHeight: 750, turns: 0).quarterTurns, 1)
+
+        // CT37 upside down: 1360×2880, screen 1080×2280 at (140, 320), so 280 above, 320 below.
+        let photo = BezelGeometry(style: .honeywellCT37, pictureWidth: 1080, pictureHeight: 2280, turns: 2)
+        XCTAssertEqual(photo.top, 280.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(photo.bottom, 320.0 / 1080, accuracy: 1e-9)
+        // Top on the right.
+        let photoRight = BezelGeometry(style: .honeywellCT37, pictureWidth: 2280, pictureHeight: 1080, turns: 3)
+        XCTAssertEqual(photoRight.left, 280.0 / 1080, accuracy: 1e-9)
+        XCTAssertEqual(photoRight.right, 320.0 / 1080, accuracy: 1e-9)
     }
 
     func testFrameTurnsWithThePicture() {
