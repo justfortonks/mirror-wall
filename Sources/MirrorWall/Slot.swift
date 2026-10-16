@@ -56,6 +56,10 @@ final class Slot: ObservableObject, Identifiable {
     /// restart so the Stage can hold the phone in place, dimmed, while it may reconnect.
     @Published private(set) var heldImage: CGImage?
     @Published private(set) var heldVideoSize: CGSize?
+    /// Paused on the Stage: the picture frozen there while the phone keeps mirroring, e.g. while
+    /// the presenter types a password. Nil when not paused.
+    @Published private(set) var frozenImage: CGImage?
+    var isFrozen: Bool { frozenImage != nil }
     /// The picture's size, or the held one while reconnecting.
     var displaySize: CGSize? { videoSize ?? heldVideoSize }
     /// The last picture size seen, kept after the phone leaves, for sizing the OBS feed's standby
@@ -631,13 +635,28 @@ final class Slot: ObservableObject, Identifiable {
         }
     }
 
+    /// The picture on screen now, as an image that outlives the receiver.
+    private func snapshot() -> CGImage? {
+        guard let buffer = renderer.currentImage else { return nil }
+        var image: CGImage?
+        _ = VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+        return image
+    }
+
     /// Keeps the picture on screen now, before the receiver restart clears it.
     private func holdLastPicture() {
         heldVideoSize = videoSize ?? heldVideoSize
-        guard let buffer = renderer.currentImage else { return }
-        var image: CGImage?
-        _ = VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
-        if let image { heldImage = image }
+        if let image = frozenImage ?? snapshot() { heldImage = image }
+    }
+
+    /// Freezes the Stage on this phone's current picture; the phone keeps mirroring.
+    func pause() {
+        guard frozenImage == nil, let image = snapshot() else { return }
+        frozenImage = image
+    }
+
+    func resume() {
+        if frozenImage != nil { frozenImage = nil }
     }
 
     /// Lets go of the held picture: the phone is back, or no longer waited for.

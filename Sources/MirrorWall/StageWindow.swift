@@ -38,6 +38,7 @@ final class StageWindow: NSObject, NSWindowDelegate {
         window.center()
         window.setFrameAutosaveName("MacMirror stage")
         StageControlsPresence.shared.start()
+        StageControlsPresence.shared.onPauseKey = { [weak store] in store?.togglePauseAll() }
     }
 
     func show() {
@@ -105,6 +106,8 @@ final class StageControlsPresence: ObservableObject {
     private var monitor: Any?
 
     private var keyMonitor: Any?
+    /// P on the Stage: pause or resume every phone.
+    var onPauseKey: (() -> Void)?
 
     func start() {
         guard monitor == nil else { return }
@@ -122,6 +125,10 @@ final class StageControlsPresence: ObservableObject {
                 guard let self else { return false }
                 if event.charactersIgnoringModifiers?.lowercased() == "c" {
                     self.pinned.toggle()
+                    return true
+                }
+                if event.charactersIgnoringModifiers?.lowercased() == "p" {
+                    self.onPauseKey?()
                     return true
                 }
                 if event.keyCode == 53, self.pinned { // Esc
@@ -275,6 +282,22 @@ struct StageView: View {
         }
         .ignoresSafeArea()
         .contextMenu {
+            let sharing = store.sharingSlots
+            if !sharing.isEmpty {
+                Button(store.isAnyPaused ? "Resume" : "Pause") { store.togglePauseAll() }
+                if sharing.count == 1, let only = sharing.first {
+                    Button("Stop Sharing") { store.stopSharing(only) }
+                } else {
+                    Menu("Stop Sharing") {
+                        ForEach(sharing) { slot in
+                            Button(slot.phoneName ?? slot.name) { store.stopSharing(slot) }
+                        }
+                        Divider()
+                        Button("All Phones") { sharing.forEach(store.stopSharing) }
+                    }
+                }
+                Divider()
+            }
             StageLayoutItems(store: store)
             Button("Fit Window to Phones") { store.fitStageToPhones() }
             Toggle("Show Caption Bar", isOn: $showsCaption)
@@ -361,6 +384,13 @@ private struct StageControls: View {
             .menuStyle(.button)
             .menuIndicator(.hidden)
             .fixedSize()
+            if !phones.isEmpty {
+                let paused = phones.contains(where: \.isFrozen)
+                Button { store.togglePauseAll() } label: {
+                    HUDLabel(title: paused ? "Resume" : "Pause", systemImage: paused ? "play.fill" : "pause.fill", isOn: paused)
+                }
+                .help(paused ? "Resume the phones (P)" : "Freeze the phones on the Stage while they keep mirroring (P)")
+            }
             Button { store.setBezelsForAllSlots(!store.bezelsForAllSlots) } label: {
                 HUDLabel(title: "Bezels", systemImage: "iphone", isOn: store.bezelsForAllSlots)
             }
@@ -438,10 +468,11 @@ private struct StageSlotChip: View {
 
     var body: some View {
         Menu {
-            if reconnecting {
-                Button("Stop Waiting for It") { store.stopWaitingForReconnect(slot) }
-                Divider()
+            if slot.showsPicture {
+                Button(slot.isFrozen ? "Resume" : "Pause") { store.setPaused(slot, !slot.isFrozen) }
             }
+            Button("Stop Sharing") { store.stopSharing(slot) }
+            Divider()
             Toggle("On Stage", isOn: Binding(
                 get: { slot.showsOnStage },
                 set: { store.setShowsOnStage(slot, on: $0) }
@@ -471,6 +502,8 @@ private struct StageSlotChip: View {
                 Text(slot.phoneName ?? slot.name).lineLimit(1)
                 if reconnecting {
                     Text("reconnecting").font(Brand.font(11)).opacity(0.75)
+                } else if slot.isFrozen {
+                    Text("paused").font(Brand.font(11)).opacity(0.75)
                 }
                 if slot.recordingSince != nil {
                     // White on red: red text on the dark bar is too faint.
@@ -639,6 +672,11 @@ private struct StagePhone: View {
                     .resizable()
                     .interpolation(.medium)
                     .scaledToFit()
+            } else if let frozen = slot.frozenImage {
+                Image(decorative: frozen, scale: 1)
+                    .resizable()
+                    .interpolation(.medium)
+                    .scaledToFit()
             } else {
                 VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture || reconnecting)
             }
@@ -651,6 +689,17 @@ private struct StagePhone: View {
                     Text("Reconnecting…")
                         .font(Brand.font(14, .semibold))
                         .foregroundStyle(.white)
+                }
+            } else if slot.isFrozen {
+                VStack {
+                    Label("Paused", systemImage: "pause.fill")
+                        .font(Brand.font(12, .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.8)))
+                        .padding(.top, 10)
+                    Spacer()
                 }
             }
         }

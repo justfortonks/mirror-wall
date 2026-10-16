@@ -497,6 +497,42 @@ final class SlotStore: ObservableObject {
         reconnectingSince[slot.id] != nil
     }
 
+    /// Phones showing on the Stage that can be paused or stopped.
+    var sharingSlots: [Slot] {
+        slots.filter { $0.showsPicture || isReconnecting($0) }
+    }
+
+    var isAnyPaused: Bool { slots.contains(where: \.isFrozen) }
+
+    /// Pauses every phone on the Stage, or resumes them all if any is paused.
+    func togglePauseAll() {
+        objectWillChange.send()
+        if isAnyPaused {
+            slots.forEach { $0.resume() }
+        } else {
+            slots.filter(\.showsPicture).forEach { $0.pause() }
+        }
+    }
+
+    func setPaused(_ slot: Slot, _ paused: Bool) {
+        objectWillChange.send()
+        if paused { slot.pause() } else { slot.resume() }
+    }
+
+    /// Ends a phone's mirroring from the Mac (a fresh receiver drops its connection) and takes it
+    /// off the Stage at once, without the "Reconnecting…" wait.
+    func stopSharing(_ slot: Slot) {
+        objectWillChange.send()
+        slot.resume()
+        reconnectingSince[slot.id] = nil
+        slot.clearHeldPicture()
+        // Not treated as a drop: the watcher only holds slots it saw connected.
+        connectedSlotIDs.remove(slot.id)
+        if slot.state == .connecting || slot.state == .live || slot.state == .paused {
+            restart(slot)
+        }
+    }
+
     /// Stops holding a dropped phone's place on the Stage.
     func stopWaitingForReconnect(_ slot: Slot) {
         reconnectingSince[slot.id] = nil
