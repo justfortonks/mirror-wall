@@ -27,6 +27,21 @@ public struct FramePacer {
     }
 }
 
+/// Monotonic deadlines; successful output (not just session creation) resets retries.
+public struct EncoderBackoff {
+    public private(set) var retryAfter: Double = 0
+    private var nextDelay: Double = 0.25
+    public init() {}
+    public func canAttempt(now: Double) -> Bool { now >= retryAfter }
+    @discardableResult public mutating func failed(now: Double) -> Double {
+        let delay = nextDelay
+        retryAfter = now + delay
+        nextDelay = min(2, nextDelay * 2)
+        return delay
+    }
+    public mutating func reset() { self = EncoderBackoff() }
+}
+
 /// Caller owns synchronization. Admission and dequeue both expire old entries.
 /// Payloads never enter a dispatch backlog outside this bounded container.
 public struct BoundedQueue<Element> {

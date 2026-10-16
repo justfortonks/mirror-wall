@@ -8,6 +8,12 @@ public struct MetricsSnapshot: Codable {
     public var resetEpoch = 0
     public var appState = "active"
     public var captureState = "idle"
+    public var encoderState = "unavailable: no session"
+    public var encoderRecreateAttempts = 0
+    public var encoderRecreateSuccesses = 0
+    public var encoderLastFailingOSStatus: Int32?
+    public var encoderNoSessionDrops = 0
+    public var encoderRetryAfter: Double = 0
     public var captureCallbacks = 0
     public var validFrames = 0
     public var pacedFrames = 0
@@ -15,9 +21,16 @@ public struct MetricsSnapshot: Codable {
     public var sourceDrops = 0
     public var latestPTS: Double?
     public var dimensions: Dimensions?
+    public var sourceDimensions: Dimensions?
+    public var frameOrientation: UInt32?
+    public var frameScreenRect: String?
+    public var frameContentRect: String?
+    public var frameScaleFactor: Double?
+    public var frameContentScale: Double?
+    public var sourcePixelFormat: UInt32?
     public var generation = 0
     public var bitrate = 6_000_000
-    public var hardwareEncoder: Bool?
+    public var hardwareEncoder = "unknown"
     public var negotiatedProfile: String?
     public var encodeSubmitted = 0
     public var encodeCompleted = 0

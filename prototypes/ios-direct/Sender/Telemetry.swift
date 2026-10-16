@@ -21,7 +21,13 @@ final class Telemetry {
             var fresh = MetricsSnapshot()
             fresh.resetEpoch = old.resetEpoch + 1
             fresh.appState = old.appState; fresh.captureState = old.captureState
+            fresh.encoderState = old.encoderState; fresh.encoderLastFailingOSStatus = old.encoderLastFailingOSStatus
+            fresh.encoderRetryAfter = old.encoderRetryAfter
             fresh.dimensions = old.dimensions; fresh.generation = old.generation
+            fresh.sourceDimensions = old.sourceDimensions; fresh.frameOrientation = old.frameOrientation
+            fresh.frameScreenRect = old.frameScreenRect; fresh.frameContentRect = old.frameContentRect
+            fresh.frameScaleFactor = old.frameScaleFactor; fresh.frameContentScale = old.frameContentScale
+            fresh.sourcePixelFormat = old.sourcePixelFormat
             fresh.hardwareEncoder = old.hardwareEncoder; fresh.negotiatedProfile = old.negotiatedProfile
             fresh.batteryLevel = old.batteryLevel; fresh.batteryState = old.batteryState
             old = fresh
