@@ -86,6 +86,11 @@ struct StageView: View {
     let onClose: () -> Void
     /// The "Live demo" strip along the bottom, with the logo when it's installed.
     @AppStorage("stageCaptionBar") private var showsCaption = true
+    /// Stage-first: the controls fade in while the mouse moves over the Stage and fade out again
+    /// a couple of seconds after it stops, so the shared picture stays clean.
+    @State private var controlsVisible = false
+    @State private var overControls = false
+    @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
         let phones = store.slots.filter { $0.showsPicture && $0.showsOnStage }
@@ -113,9 +118,7 @@ struct StageView: View {
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 if phones.isEmpty {
-                    Text("Phones on stage show up here while they're mirroring.")
-                        .font(Brand.font(20, .semibold))
-                        .foregroundStyle(.white.opacity(0.6))
+                    StageEmptyState(slots: store.slots)
                         .frame(width: proxy.size.width, height: proxy.size.height - captionHeight)
                 }
                 ForEach(zip(phones, frames).map(Placed.init)) { placed in
@@ -128,9 +131,31 @@ struct StageView: View {
                         .frame(width: proxy.size.width, height: captionHeight)
                         .offset(y: proxy.size.height - captionHeight)
                 }
+                if !phones.isEmpty {
+                    WaitingPills(slots: store.slots.filter { !$0.showsPicture })
+                        .frame(width: proxy.size.width)
+                        .offset(y: proxy.size.height - captionHeight - 42)
+                        .opacity(controlsVisible ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
+                StageControls(store: store, connected: store.slots.filter(\.showsPicture), recording: store.isAnyRecording)
+                    .onHover { inside in
+                        overControls = inside
+                        if inside { showControls() } else { scheduleHide() }
+                    }
+                    .frame(width: proxy.size.width)
+                    .offset(y: 36)
+                    .opacity(controlsVisible ? 1 : 0)
+                    .allowsHitTesting(controlsVisible)
             }
         }
         .ignoresSafeArea()
+        .onContinuousHover { phase in
+            switch phase {
+            case .active: showControls()
+            case .ended: scheduleHide()
+            }
+        }
         .contextMenu {
             StageLayoutItems(store: store)
             Toggle("Show Caption Bar", isOn: $showsCaption)
@@ -139,8 +164,24 @@ struct StageView: View {
                 StageSlotItems(store: store)
             }
             Divider()
-            Button("Show Mirror Wall Window") { MainWindow.show() }
+            Button("Show Wall") { MainWindow.show() }
             Button("Close Stage", action: onClose)
+        }
+    }
+
+    private func showControls() {
+        if !controlsVisible {
+            withAnimation(.easeOut(duration: 0.15)) { controlsVisible = true }
+        }
+        scheduleHide()
+    }
+
+    private func scheduleHide() {
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.2))
+            guard !Task.isCancelled, !overControls else { return }
+            withAnimation(.easeIn(duration: 0.4)) { controlsVisible = false }
         }
     }
 
@@ -157,6 +198,224 @@ struct StageView: View {
     private static func size(of slot: Slot) -> (width: Double, height: Double) {
         let picture = picture(of: slot)
         return stagePhoneSize(modelCode: slot.config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height, bezel: slot.showsBezel)
+    }
+}
+
+/// A slot's status dot on the Stage: teal live, blues in between, red for trouble.
+private func stageDotColor(_ state: Slot.State) -> Color {
+    switch state {
+    case .live: return Brand.teal
+    case .connecting, .paused: return Brand.sky
+    case .waiting: return Brand.blueMuted
+    case .disconnected: return .orange
+    case .stopped: return .gray
+    case .failed: return Brand.red
+    }
+}
+
+private func stageStatus(_ state: Slot.State) -> String {
+    switch state {
+    case .live: return "live"
+    case .connecting: return "connecting"
+    case .paused: return "screen off"
+    case .waiting: return "waiting"
+    case .disconnected: return "disconnected"
+    case .stopped: return "stopped"
+    case .failed: return "error"
+    }
+}
+
+/// The Stage's control bar: a chip per connected phone (its menu has the slot's options), then
+/// add slot, layout, bezels, record and more. Fades with the mouse; see StageView.
+private struct StageControls: View {
+    @ObservedObject var store: SlotStore
+    /// Passed in by the Stage, which redraws whenever any slot changes.
+    let connected: [Slot]
+    let recording: Bool
+    @AppStorage("stageCaptionBar") private var showsCaption = true
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(connected) { slot in
+                StageSlotChip(slot: slot, store: store)
+            }
+            if !connected.isEmpty {
+                Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: 18).padding(.horizontal, 2)
+            }
+            Button { store.addSlot() } label: {
+                HUDLabel(title: "Slot", systemImage: "plus")
+            }
+            .disabled(!store.canAddSlot)
+            .help("Add a slot another phone can mirror to")
+            Menu { StageLayoutItems(store: store) } label: {
+                HUDLabel(title: "Layout", systemImage: "rectangle.split.3x1")
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            Button { store.setBezelsForAllSlots(!store.bezelsForAllSlots) } label: {
+                HUDLabel(title: "Bezels", systemImage: "iphone", isOn: store.bezelsForAllSlots)
+            }
+            .help("Phone frames around every phone")
+            Button { recording ? store.stopAllRecordings() : store.startAllRecordings() } label: {
+                HUDLabel(title: recording ? "Stop" : "Record", systemImage: recording ? "stop.fill" : "record.circle", fill: Brand.red)
+            }
+            .help(recording ? "Stop all recordings" : "Record every phone")
+            Menu {
+                Toggle("Caption Bar", isOn: $showsCaption)
+                Button("Screenshot All Phones") { store.screenshotAll() }
+                Divider()
+                Button("Show Wall") { MainWindow.show() }
+                Button("Settings…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openSettings()
+                }
+            } label: {
+                HUDLabel(title: nil, systemImage: "gearshape")
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .padding(5)
+        .background(Color(hex: 0x141E2D).opacity(0.85), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.06)))
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .fixedSize()
+    }
+}
+
+/// One item in the control bar.
+private struct HUDLabel: View {
+    let title: String?
+    let systemImage: String
+    var isOn = false
+    var fill: Color? = nil
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+            if let title { Text(title) }
+        }
+        .font(Brand.font(12, .semibold))
+        .foregroundStyle(fill != nil || isOn ? Color.white : Brand.ice)
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(fill ?? (isOn ? Color.white.opacity(0.14) : Color.clear))
+        )
+        .contentShape(Rectangle())
+    }
+}
+
+/// A connected phone in the control bar; its menu has what the wall tile's ⋯ menu had.
+private struct StageSlotChip: View {
+    @ObservedObject var slot: Slot
+    let store: SlotStore
+
+    var body: some View {
+        Menu {
+            Toggle("On Stage", isOn: Binding(
+                get: { slot.showsOnStage },
+                set: { store.setShowsOnStage(slot, on: $0) }
+            ))
+            Toggle("Phone Bezel", isOn: Binding(
+                get: { slot.showsBezel },
+                set: { store.setBezel(slot, on: $0) }
+            ))
+            Divider()
+            Button("Take Screenshot") { slot.takeScreenshot() }
+            if slot.recordingSince == nil {
+                Button("Start Recording") { slot.startRecording() }
+            } else {
+                Button("Stop Recording") { slot.stopRecording() }
+            }
+            Divider()
+            if store.poppedOutIDs.contains(slot.id) {
+                Button("Close Own Window") { store.closeOwnWindow(slot) }
+            } else {
+                Button("Open in Own Window") { store.openOwnWindow(slot) }
+            }
+            Button("More in the Wall…") { MainWindow.show() }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
+                Text(slot.phoneName ?? slot.name).lineLimit(1)
+                if slot.recordingSince != nil {
+                    Text("REC").foregroundStyle(Brand.red)
+                }
+            }
+            .font(Brand.font(12, .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.1)))
+            .opacity(slot.showsOnStage ? 1 : 0.55)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(slot.showsOnStage ? "On the Stage. Click for this phone's options." : "Off the Stage. Click to put it back.")
+    }
+}
+
+/// Slots without a phone, along the bottom while the controls show.
+private struct WaitingPills: View {
+    let slots: [Slot]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(slots) { slot in
+                HStack(spacing: 7) {
+                    Circle().fill(stageDotColor(slot.state)).frame(width: 7, height: 7)
+                    Text(slot.name).font(Brand.font(12, .semibold))
+                    Text(stageStatus(slot.state)).font(Brand.font(11)).opacity(0.7)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 11)
+                .frame(height: 26)
+                .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.75)))
+            }
+        }
+    }
+}
+
+/// The Stage before any phone is mirroring: how to connect, slot by slot. The meeting may see
+/// this, so it reads as a friendly "about to start" screen.
+private struct StageEmptyState: View {
+    let slots: [Slot]
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 6) {
+                Text("Ready for phones")
+                    .font(Brand.font(28, .bold))
+                Text("Each phone appears here as it connects.")
+                    .font(Brand.font(15))
+                    .opacity(0.7)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(slots) { slot in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(slot.name).font(Brand.font(14, .semibold))
+                            Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast")
+                                .font(Brand.font(12))
+                                .opacity(0.65)
+                        }
+                    }
+                }
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(hex: 0x141E2D).opacity(0.45)))
+        }
+        .foregroundStyle(.white)
+        .padding()
     }
 }
 
@@ -268,6 +527,7 @@ struct StageCommands: Commands {
         CommandGroup(after: .toolbar) {
             Divider()
             Button("Show Stage") { store.showStage() }
+                .keyboardShortcut("1")
             Menu("Stage Layout") {
                 StageLayoutItems(store: store)
             }

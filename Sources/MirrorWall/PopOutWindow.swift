@@ -218,7 +218,8 @@ struct PopOutView: View {
         .ignoresSafeArea()
         .onHover(perform: onHover)
         .contextMenu {
-            Button("Show Mirror Wall Window") { MainWindow.show() }
+            Button("Show Stage") { store.showStage() }
+            Button("Show Wall") { MainWindow.show() }
             Menu("Window Size") {
                 PopOutSizeItems(store: store)
             }
