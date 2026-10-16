@@ -89,6 +89,17 @@ public class SlotConfigTests
     }
 
     [Fact]
+    public void RenamedSlotsUseTheirOwnName()
+    {
+        var titles = SlotConfig.WindowTitles(new[]
+        {
+            new SlotConfig(1, "Desk", "Tom’s iPhone"),
+            new SlotConfig(2, "Mirror Wall 2 · Studio-PC", "iPad"),
+        });
+        Assert.Equal(new Dictionary<int, string> { [1] = "MacMirror-Desk", [2] = "MacMirror-iPad" }, titles);
+    }
+
+    [Fact]
     public void ClashingTitlesGetTheSlotNumber()
     {
         var titles = SlotConfig.WindowTitles(new[]

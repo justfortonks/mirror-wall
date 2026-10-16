@@ -53,16 +53,28 @@ public class LatestReleaseTests
     }
 
     [Fact]
-    public void TheBetaChannelPicksTheHighestNumber()
+    public void TheBetaChannelListsEveryTestBuildNewestBuiltFirst()
     {
-        static string Release(string tag, bool draft = false, string asset = "MirrorWall-Setup.exe") =>
-            $$"""{"tag_name": "{{tag}}", "draft": {{(draft ? "true" : "false")}}, "body": "", "assets": [{"name": "{{asset}}", "browser_download_url": "https://example.com/{{tag}}/{{asset}}"}]}""";
-        string list = "[" + string.Join(",", Release("v0.111"), Release("v0.113-beta.9", draft: true), Release("v0.112-beta.7"),
+        static string Release(string tag, string name = "", bool draft = false, string asset = "MirrorWall-Setup.exe") =>
+            $$"""{"tag_name": "{{tag}}", "name": "{{name}}", "draft": {{(draft ? "true" : "false")}}, "body": "", "published_at": "2026-10-16T12:56:54Z", "assets": [{"name": "{{asset}}", "browser_download_url": "https://example.com/{{tag}}/{{asset}}"}]}""";
+        string list = "[" + string.Join(",", Release("v0.123-beta.48", name: "Mirror Wall 0.123 beta 48: Rename a slot's OBS feed"),
+            Release("v0.111"), Release("v0.113-beta.9", draft: true), Release("v0.125-beta.45"),
             Release("v0.112-beta.8", asset: "MirrorWall.dmg"), Release("v0.110")) + "]";
-        var newest = LatestRelease.Parse(list, "MirrorWall-Setup.exe", UpdateChannel.Beta);
-        Assert.NotNull(newest);
-        Assert.Equal(new BuildNumber(112, 7), newest.Number);
-        Assert.Equal("https://example.com/v0.112-beta.7/MirrorWall-Setup.exe", newest.DownloadUrl?.AbsoluteUri);
-        Assert.Null(LatestRelease.Parse(list, "MirrorWall-Setup.exe", UpdateChannel.Stable)); // Stable reads a single release
+        var choices = LatestRelease.Choices(list, "MirrorWall-Setup.exe");
+        Assert.Equal(new[] { new BuildNumber(123, 48), new BuildNumber(125, 45), new BuildNumber(111) }, choices.Select(choice => choice.Number));
+        Assert.Equal("Rename a slot's OBS feed", choices[0].Title);
+        Assert.Equal("https://example.com/v0.123-beta.48/MirrorWall-Setup.exe", choices[0].DownloadUrl?.AbsoluteUri);
+        Assert.Equal(new DateTimeOffset(2026, 10, 16, 12, 56, 54, TimeSpan.Zero), choices[0].Published);
+        Assert.Equal("", choices[1].Title);
+        Assert.Empty(LatestRelease.Choices("{}", "MirrorWall-Setup.exe"));
+        Assert.Empty(LatestRelease.Choices("not json", "MirrorWall-Setup.exe"));
+    }
+
+    [Fact]
+    public void Titles()
+    {
+        Assert.Equal("Fix: names", LatestRelease.TitleIn("Mirror Wall 0.123 beta 48: Fix: names"));
+        Assert.Equal("", LatestRelease.TitleIn("Mirror Wall 0.125 beta 45"));
+        Assert.Equal("", LatestRelease.TitleIn("Something: else"));
     }
 }

@@ -1,8 +1,9 @@
 import AppKit
 import MirrorCore
 
-/// Mirror Wall › Check for Update…: compares this copy with the newest release on GitHub and, when
-/// asked, downloads its DMG, puts the new Mirror Wall in place of this one and reopens it.
+/// Mirror Wall › Check for Update…: compares this copy with the newest release on GitHub (or, on
+/// the Beta channel, lets you choose a test build or the newest release) and, when asked,
+/// downloads its DMG, puts the new Mirror Wall in place of this one and reopens it.
 ///
 /// Nothing needs signing for this: macOS only asks "Open Anyway" about apps that arrive marked
 /// as downloaded from the internet, and that mark comes from browsers, not from a download the
@@ -28,10 +29,19 @@ enum Updater {
                 request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
                 request.setValue("Mirror Wall", forHTTPHeaderField: "User-Agent")
                 let (data, _) = try await URLSession.shared.data(for: request)
-                guard let release = LatestRelease(json: data, asset: "MirrorWall.dmg", channel: channel) else {
-                    throw UpdateError("GitHub didn't list a release Mirror Wall could read.")
+                switch channel {
+                case .stable:
+                    guard let release = LatestRelease(json: data, asset: "MirrorWall.dmg") else {
+                        throw UpdateError("GitHub didn't list a release Mirror Wall could read.")
+                    }
+                    await offer(release)
+                case .beta:
+                    let choices = LatestRelease.choices(json: data, asset: "MirrorWall.dmg")
+                    guard !choices.isEmpty else {
+                        throw UpdateError("GitHub didn't list a release or test build Mirror Wall could read.")
+                    }
+                    if let chosen = choose(from: choices) { await install(chosen) }
                 }
-                await offer(release)
             } catch {
                 showProblem("Mirror Wall couldn't check for an update.", error)
             }
@@ -51,7 +61,7 @@ enum Updater {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         let installable = current != nil && release.downloadURL != nil
-        let newest = channel == .beta ? "the newest release or beta" : "the newest release"
+        let newest = "the newest release"
         if let current = Self.current, current >= release.number {
             alert.messageText = "Mirror Wall is up to date"
             alert.informativeText = current == release.number
@@ -76,6 +86,29 @@ enum Updater {
             }
         }
         await install(release)
+    }
+
+    /// The Beta channel: a list of every test build on offer and the newest release, to install
+    /// any one of them. Nil when nothing was chosen.
+    private static func choose(from choices: [LatestRelease]) -> LatestRelease? {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Choose a Mirror Wall build"
+        let have = current.map { "You have \($0.version)." } ?? "This copy runs from the source folder, so it can't replace itself."
+        alert.informativeText = have + " Test builds are listed most recent first, then the newest release."
+            + (current != nil ? " Mirror Wall will close, update and open again. Phones reconnect by themselves." : "")
+        let picker = BuildPicker(choices: choices, current: current)
+        alert.accessoryView = picker.view
+        alert.addButton(withTitle: current != nil ? "Install and Reopen" : "Open Download Page")
+        alert.addButton(withTitle: "Cancel")
+        picker.installButton = alert.buttons[0]
+        picker.showSelection()
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        guard current != nil else {
+            NSWorkspace.shared.open(LatestRelease.pageURL)
+            return nil
+        }
+        return picker.selected
     }
 
     private static func install(_ release: LatestRelease) async {
@@ -191,6 +224,71 @@ enum Updater {
 private struct UpdateError: Error {
     let message: String
     init(_ message: String) { self.message = message }
+}
+
+/// The list in the Beta channel's alert: a pop-up of builds and, below it, what the chosen one is.
+@MainActor
+private final class BuildPicker: NSObject {
+    let view: NSView
+    var installButton: NSButton?
+    private let choices: [LatestRelease]
+    private let current: BuildNumber?
+    private let popUp = NSPopUpButton(frame: NSRect(x: 0, y: 166, width: 440, height: 26), pullsDown: false)
+    private let details: NSTextView
+
+    var selected: LatestRelease? { choices.indices.contains(popUp.indexOfSelectedItem) ? choices[popUp.indexOfSelectedItem] : nil }
+
+    init(choices: [LatestRelease], current: BuildNumber?) {
+        self.choices = choices
+        self.current = current
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 192))
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 440, height: 158))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        details = NSTextView(frame: scroll.bounds)
+        details.isEditable = false
+        details.textContainerInset = NSSize(width: 4, height: 4)
+        details.autoresizingMask = [.width]
+        scroll.documentView = details
+        super.init()
+        for release in choices {
+            let item = NSMenuItem(title: label(for: release), action: nil, keyEquivalent: "")
+            popUp.menu?.addItem(item)
+        }
+        // The first one that isn't this copy.
+        popUp.selectItem(at: choices.firstIndex { $0.number != current } ?? 0)
+        popUp.target = self
+        popUp.action = #selector(changed)
+        view.addSubview(popUp)
+        view.addSubview(scroll)
+    }
+
+    private func label(for release: LatestRelease) -> String {
+        var parts = [release.version]
+        if release.number.beta == nil {
+            parts.append("newest release")
+        } else if !release.title.isEmpty {
+            parts.append(release.title)
+        }
+        return parts.joined(separator: " · ") + (release.number == current ? " (installed)" : "")
+    }
+
+    @objc private func changed() { showSelection() }
+
+    func showSelection() {
+        guard let release = selected else { return }
+        var lines = [release.number.beta == nil ? "Release \(release.version)" : "Test build \(release.version)"]
+        if !release.title.isEmpty { lines[0] += ": \(release.title)" }
+        if let published = release.published {
+            lines.append("Published \(published.formatted(date: .abbreviated, time: .shortened))")
+        }
+        if release.number == current { lines.append("This is the copy you have.") }
+        if !release.notes.isEmpty { lines.append("\n" + release.notes) }
+        details.string = lines.joined(separator: "\n")
+        details.textColor = .labelColor
+        details.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        installButton?.isEnabled = release.number != current
+    }
 }
 
 /// A small window with a spinner while the update downloads and installs.
