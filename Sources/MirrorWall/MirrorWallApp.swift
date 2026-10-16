@@ -191,8 +191,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Keeps macOS from napping the app while its windows are hidden, e.g. behind a full-screen
     /// OBS projector: the pictures it draws are still being captured.
     private var noNap: NSObjectProtocol?
+    private let instanceLock = InstanceLock()
+    private var terminating = false
+    private var ownsReceivers = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Check older builds too: they do not yet acquire the advisory lock.
+        if let other = NSWorkspace.shared.runningApplications.first(where: {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier &&
+            ($0.bundleIdentifier == "com.justfortonks.mirrorwall" || $0.executableURL?.lastPathComponent == "MirrorWall")
+        }) {
+            other.activate(options: [])
+            NSApp.terminate(nil)
+            return
+        }
+        let lockFolder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MirrorWall")
+        try? FileManager.default.createDirectory(at: lockFolder, withIntermediateDirectories: true)
+        guard instanceLock.acquire(at: lockFolder.appendingPathComponent("instance.lock")) else {
+            let alert = NSAlert()
+            alert.messageText = "Mirror Wall is already running"
+            alert.informativeText = "Use the open copy. If it is not visible, quit that copy before opening another build."
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
+        ownsReceivers = true
         // Needed when launched with `swift run` rather than from an app bundle.
         NSApp.setActivationPolicy(.regular)
         showAppIcon()
@@ -226,18 +250,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             signal(signalNumber, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
             source.setEventHandler { [weak self] in
-                self?.store.stopAll()
-                exit(0)
+                guard self != nil else { return }
+                NSApp.terminate(nil)
             }
             source.resume()
             signalSources.append(source)
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard ownsReceivers else { return .terminateNow }
+        guard !terminating else { return .terminateLater }
+        terminating = true
         store.prepareForTermination()
-        store.stopAllRecordings(wait: true)
-        store.stopAll()
+        store.stopAll(endingSharing: true)
+        Task { @MainActor in
+            for slot in store.slots { await slot.finishStopping() }
+            store.stopAllRecordings()
+            await SlotRecorder.finishPendingFiles()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     /// Clicking the Dock icon brings back the Stage, the window being shared, not the wall.

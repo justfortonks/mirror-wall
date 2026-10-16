@@ -15,6 +15,14 @@ import MirrorCore
 ///
 /// Not thread-safe: the slot calls it under its own lock.
 final class SlotRecorder {
+    private static let pendingFiles = DispatchGroup()
+    static func finishPendingFiles() async {
+        await withCheckedContinuation { continuation in
+            pendingFiles.notify(queue: .global()) { continuation.resume() }
+        }
+    }
+
+    private let sessionID = UUID().uuidString
     private let folder: URL
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
@@ -33,6 +41,7 @@ final class SlotRecorder {
     private(set) var currentURL: URL?
     /// Called (on any thread) with a message when writing fails.
     var onError: ((String) -> Void)?
+    var onStarted: (() -> Void)?
 
     init(folder: URL, baseName: String) {
         self.folder = folder
@@ -78,9 +87,12 @@ final class SlotRecorder {
         // Keep the last picture on screen until now, e.g. through a still screen that sent no frames.
         writer.endSession(atSourceTime: CMTime(seconds: clock.time(atArrival: arrival), preferredTimescale: Self.timescale))
         let done = DispatchSemaphore(value: 0)
-        writer.finishWriting { [weak self] in
-            if writer.status == .failed { self?.fail(writer) }
+        Self.pendingFiles.enter()
+        let reportError = onError
+        writer.finishWriting {
+            if writer.status == .failed { reportError?("Recording could not be saved: \(writer.error?.localizedDescription ?? "unknown error")") }
             done.signal()
+            Self.pendingFiles.leave()
         }
         // When the app is quitting, wait so the file is complete before it exits.
         if wait { _ = done.wait(timeout: .now() + 3) }
@@ -90,7 +102,7 @@ final class SlotRecorder {
         part += 1
         if part == 1 { startedAt = Date() }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent(Self.fileName(base: baseName, startedAt: startedAt, part: part))
+        let url = folder.appendingPathComponent(Self.fileName(base: baseName, startedAt: startedAt, part: part, sessionID: sessionID))
         do {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
@@ -113,6 +125,7 @@ final class SlotRecorder {
             self.adaptor = adaptor
             size = (width, height)
             currentURL = url
+            onStarted?()
         } catch {
             onError?("couldn't create \(url.lastPathComponent): \(error.localizedDescription)")
         }
@@ -142,12 +155,12 @@ final class SlotRecorder {
     }
 
     /// "iPhone 2026-10-11 21.05.33.mov", then "… part 2.mov" and so on.
-    static func fileName(base: String, startedAt: Date, part: Int) -> String {
+    static func fileName(base: String, startedAt: Date, part: Int, sessionID: String = UUID().uuidString) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         let safe = base.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         let suffix = part > 1 ? " part \(part)" : ""
-        return "\(safe) \(formatter.string(from: startedAt))\(suffix).mov"
+        return "\(safe) \(formatter.string(from: startedAt)) \(sessionID)\(suffix).mov"
     }
 
     /// Where recordings go: Documents › MirrorWall › Recordings, or the folder chosen in Settings.

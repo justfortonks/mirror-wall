@@ -29,7 +29,7 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 - macOS 14 or later, Xcode (or the Swift toolchain).
 - A `uxplay` build that supports `-vrtp` (UxPlay 1.72 or later). Homebrew has no UxPlay
   formula; `scripts/build-uxplay.sh` builds the exact one releases use (UxPlay at a fixed commit
-  with all three patches below) into `build/UxPlay/build/uxplay`, after
+  with all patches below) into `build/UxPlay/build/uxplay`, after
   `brew install cmake pkgconf libplist openssl@3 gstreamer`.
   Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
   `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
@@ -51,10 +51,14 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
   possibly in front of what OBS is capturing. With the patch a crashing uxplay exits quietly
   (it logs that it crashed); the app starts a fresh one either way.
 
+- `patches/uxplay-paused-control.patch` preserves idle RAOP control sockets and avoids reading
+  a removed socket. The app owns liveness with `-reset 0`; validate this together with the
+  screen-off policy using `bash scripts/tests/test-uxplay-idle.sh build/UxPlay`.
+
 ## Build and run
 
 ```sh
-swift test                 # unit tests for RTP parsing and H.264 reassembly
+swift test                 # core + Mac lifecycle, transport and recording tests
 swift run MirrorWall       # run straight from the checkout, using the uxplay on this Mac
 scripts/build-app.sh       # build MirrorWall.app (ad-hoc signed) with uxplay and GStreamer inside
 scripts/make-dmg.sh        # the same, packed into MirrorWall.dmg for another Mac

@@ -104,6 +104,8 @@ if [ -n "$SYPHON" ] && [ -f build/Syphon-Framework/License.txt ]; then
     cp build/Syphon-Framework/License.txt "$APP/Contents/Resources/licenses/syphon/"
 fi
 
+python3 scripts/bundle-compatibility.py "$APP" --write-plist
+
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
 echo "Built $(pwd)/$APP"

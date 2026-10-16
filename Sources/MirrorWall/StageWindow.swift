@@ -265,7 +265,7 @@ struct StageView: View {
                         .frame(width: proxy.size.width)
                         .offset(y: barY - 34)
                         .opacity(controlsVisible ? 1 : 0)
-                        .allowsHitTesting(false)
+                        .allowsHitTesting(controlsVisible)
                 }
                 StageControls(
                     store: store,
@@ -284,7 +284,7 @@ struct StageView: View {
         .contextMenu {
             let sharing = store.sharingSlots
             if !sharing.isEmpty {
-                Button(store.isAnyPaused ? "Resume" : "Pause") { store.togglePauseAll() }
+                Button(store.isAnyPaused ? "Unfreeze Stage" : "Freeze Stage") { store.togglePauseAll() }
                 if sharing.count == 1, let only = sharing.first {
                     Button("Stop Sharing") { store.stopSharing(only) }
                 } else {
@@ -352,7 +352,7 @@ private func stageStatus(_ state: Slot.State) -> String {
 
 /// The Stage's control bar: a chip per phone (its menu has the slot's options), then add slot,
 /// layout, bezels, record and more. Shows while ⌥ is held; see StageControlsPresence.
-private struct StageControls: View {
+struct StageControls: View {
     @ObservedObject var store: SlotStore
     /// Passed in by the Stage, which redraws whenever any slot changes.
     let phones: [Slot]
@@ -362,73 +362,75 @@ private struct StageControls: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(phones) { slot in
-                StageSlotChip(slot: slot, store: store, reconnecting: store.isReconnecting(slot))
-            }
-            if !phones.isEmpty {
-                Rectangle().fill(.white.opacity(0.14)).frame(width: 1, height: 18).padding(.horizontal, 2)
-            }
-            Button { store.addSlot() } label: {
-                HUDLabel(title: "Slot", systemImage: "plus")
-            }
-            .disabled(!store.canAddSlot)
-            .help("Add a slot another phone can mirror to")
-            Menu {
-                StageLayoutItems(store: store)
-                Divider()
-                Button("Fit Window to Phones") { store.fitStageToPhones() }
-            } label: {
-                HUDLabel(title: "Layout", systemImage: "rectangle.split.3x1")
-            }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            if !phones.isEmpty {
-                let paused = phones.contains(where: \.isFrozen)
-                Button { store.togglePauseAll() } label: {
-                    HUDLabel(title: paused ? "Resume" : "Pause", systemImage: paused ? "play.fill" : "pause.fill", isOn: paused)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                ForEach(phones) { slot in
+                    StageSlotChip(slot: slot, store: store, reconnecting: store.isReconnecting(slot))
                 }
-                .help(paused ? "Resume the phones (P)" : "Freeze the phones on the Stage while they keep mirroring (P)")
+                freezeButton
+                recordButton
+                moreMenu
+            }.fixedSize()
+            HStack(spacing: 4) {
+                Menu {
+                    ForEach(phones) { slot in
+                        Menu(slot.displayName) { StageSlotActions(slot: slot, store: store) }
+                    }
+                    if phones.isEmpty { Text("No connected devices") }
+                    Divider()
+                    Button("Add Device Space") { store.addSlot() }.disabled(!store.canAddSlot)
+                } label: { HUDLabel(title: "Devices", systemImage: "iphone") }
+                freezeButton
+                moreMenu
             }
-            Button { store.setBezelsForAllSlots(!store.bezelsForAllSlots) } label: {
-                HUDLabel(title: "Bezels", systemImage: "iphone", isOn: store.bezelsForAllSlots)
-            }
-            .help("Phone frames around every phone")
-            // Outlined until something is recording, so it doesn't read as "on air".
-            Button { recording ? store.stopAllRecordings() : store.startAllRecordings() } label: {
-                HUDLabel(
-                    title: recording ? "Stop" : "Record",
-                    systemImage: recording ? "stop.fill" : "record.circle",
-                    fill: recording ? Brand.red : nil,
-                    outline: recording ? nil : Brand.red
-                )
-            }
-            .help(recording ? "Stop all recordings" : "Record every phone")
-            Menu {
-                Toggle("Caption Bar", isOn: $showsCaption)
-                Toggle("Logo in Caption", isOn: $showsLogo)
-                Button("Screenshot All Phones") { store.screenshotAll() }
-                Divider()
-                Button("Show Wall") { MainWindow.show() }
-                Button("Settings…") {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openSettings()
-                }
-            } label: {
-                HUDLabel(title: nil, systemImage: "gearshape")
-            }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .padding(5)
-        .background(Color(hex: 0x141E2D).opacity(0.92), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.06)))
-        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
-        .fixedSize()
+        .background(Color(hex: 0x141E2D).opacity(0.96), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
     }
+
+    @ViewBuilder private var freezeButton: some View {
+        if !phones.isEmpty {
+            let frozen = phones.contains(where: \.isFrozen)
+            Button { store.togglePauseAll() } label: {
+                HUDLabel(title: frozen ? "Unfreeze Stage" : "Freeze Stage", systemImage: frozen ? "play.fill" : "pause.fill", isOn: frozen)
+            }
+            .help("Stage only (P). Recordings, screenshots and independent OBS feeds stay live.")
+        }
+    }
+
+    private var recordButton: some View {
+        Button { recording ? store.stopAllRecordings() : store.startAllRecordings() } label: {
+            HUDLabel(title: recording ? "Stop Recording" : "Record", systemImage: recording ? "stop.fill" : "record.circle", fill: recording ? Brand.red : nil)
+        }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button("Add Device Space") { store.addSlot() }.disabled(!store.canAddSlot)
+            Menu("Layout") {
+                StageLayoutItems(store: store)
+                Button("Fit Window to Devices") { store.fitStageToPhones() }
+            }
+            Toggle("Device Bezels", isOn: Binding(get: { store.bezelsForAllSlots }, set: { store.setBezelsForAllSlots($0) }))
+            Button(recording ? "Stop All Recordings" : "Record All Devices") {
+                recording ? store.stopAllRecordings() : store.startAllRecordings()
+            }
+            Button("Screenshot All Devices") { store.screenshotAll() }
+            Divider()
+            Toggle("Caption Bar", isOn: $showsCaption)
+            Toggle("Logo in Caption", isOn: $showsLogo)
+            Button("Show Wall") { MainWindow.show() }
+            Button("Settings…") { openSettings() }
+        } label: { HUDLabel(title: nil, systemImage: "ellipsis") }
+        .accessibilityLabel("More presentation controls")
+    }
+
 }
 
 /// One item in the control bar.
@@ -468,46 +470,22 @@ private struct StageSlotChip: View {
 
     var body: some View {
         Menu {
-            if slot.showsPicture {
-                Button(slot.isFrozen ? "Resume" : "Pause") { store.setPaused(slot, !slot.isFrozen) }
-            }
-            Button("Stop Sharing") { store.stopSharing(slot) }
-            Divider()
-            Toggle("On Stage", isOn: Binding(
-                get: { slot.showsOnStage },
-                set: { store.setShowsOnStage(slot, on: $0) }
-            ))
-            Toggle("Phone Bezel", isOn: Binding(
-                get: { slot.showsBezel },
-                set: { store.setBezel(slot, on: $0) }
-            ))
-            Divider()
-            Button("Take Screenshot") { slot.takeScreenshot() }
-                .disabled(!slot.showsPicture)
-            if slot.recordingSince == nil {
-                Button("Start Recording") { slot.startRecording() }
-            } else {
-                Button("Stop Recording") { slot.stopRecording() }
-            }
-            Divider()
-            if store.poppedOutIDs.contains(slot.id) {
-                Button("Close Own Window") { store.closeOwnWindow(slot) }
-            } else {
-                Button("Open in Own Window") { store.openOwnWindow(slot) }
-            }
-            Button("More in the Wall…") { MainWindow.show() }
+            StageSlotActions(slot: slot, store: store)
         } label: {
             HStack(spacing: 6) {
                 Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
-                Text(slot.phoneName ?? slot.name).lineLimit(1)
+                Text(slot.displayName).lineLimit(1).frame(maxWidth: 170)
                 if reconnecting {
                     Text("reconnecting").font(Brand.font(11)).opacity(0.75)
                 } else if slot.isFrozen {
-                    Text("paused").font(Brand.font(11)).opacity(0.75)
+                    Text("Stage frozen").font(Brand.font(11)).opacity(0.85)
+                } else if slot.state == .paused {
+                    Text("Screen off").font(Brand.font(11)).opacity(0.85)
                 }
-                if slot.recordingSince != nil {
-                    // White on red: red text on the dark bar is too faint.
-                    Text("REC")
+                if slot.recordingError != nil {
+                    Label("Recording failed", systemImage: "exclamationmark.triangle.fill").font(Brand.font(10))
+                } else if slot.recordingSince != nil {
+                    Text(slot.recordingHasFrames ? "REC" : "ARMED")
                         .font(Brand.font(10, .bold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
@@ -529,31 +507,70 @@ private struct StageSlotChip: View {
     }
 }
 
+private struct StageSlotActions: View {
+    @ObservedObject var slot: Slot
+    let store: SlotStore
+    var body: some View {
+            if slot.showsPicture {
+                Button(slot.isFrozen ? "Unfreeze Stage" : "Freeze Stage") { store.setPaused(slot, !slot.isFrozen) }
+            }
+            Button("Stop Sharing") { store.stopSharing(slot) }
+            Divider()
+            Toggle("On Stage", isOn: Binding(
+                get: { slot.showsOnStage },
+                set: { store.setShowsOnStage(slot, on: $0) }
+            ))
+            Toggle("Phone Bezel", isOn: Binding(
+                get: { slot.showsBezel },
+                set: { store.setBezel(slot, on: $0) }
+            ))
+            BezelModelPicker(slot: slot)
+            Button("Demo Label…") { DemoLabelEditor.show(for: slot) }
+            Divider()
+            Button("Take Screenshot") { slot.takeScreenshot() }
+                .disabled(!slot.showsPicture)
+            if slot.recordingSince == nil {
+                Button("Start Recording") { slot.startRecording() }
+            } else {
+                Button("Stop Recording") { slot.stopRecording() }
+            }
+            Divider()
+            if store.poppedOutIDs.contains(slot.id) {
+                Button("Close Own Window") { store.closeOwnWindow(slot) }
+            } else {
+                Button("Open in Own Window") { store.openOwnWindow(slot) }
+            }
+            Button("More in the Wall…") { MainWindow.show() }
+    }
+}
+
 /// Slots without a phone, above the control bar while it shows.
 private struct WaitingPills: View {
     let slots: [Slot]
     let pin: String?
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(slots) { slot in
-                HStack(spacing: 7) {
-                    Circle().fill(stageDotColor(slot.state)).frame(width: 7, height: 7)
-                    Text(slot.name).font(Brand.font(12, .semibold))
-                    Text(stageStatus(slot.state)).font(Brand.font(11)).opacity(0.7)
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 11)
-                .frame(height: 26)
-                .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.85)))
-            }
-            if let pin, !slots.isEmpty {
-                Text("PIN \(pin)")
-                    .font(Brand.font(12, .semibold))
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(slots) { slot in
+                    HStack(spacing: 7) {
+                        Circle().fill(stageDotColor(slot.state)).frame(width: 7, height: 7)
+                        Text(slot.name).font(Brand.font(12, .semibold))
+                        Text(stageStatus(slot.state)).font(Brand.font(11)).opacity(0.7)
+                    }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 11)
                     .frame(height: 26)
                     .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.85)))
+                }
+                if let pin, !slots.isEmpty {
+                    Text("PIN \(pin)")
+                        .font(Brand.font(12, .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 11)
+                        .frame(height: 26)
+                        .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.85)))
+                }
             }
         }
     }
@@ -618,7 +635,7 @@ private struct StageCaption: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Brand.teal)
                     .frame(width: 4, height: height * 0.5)
-                Text("Live demo")
+                Text(phones.contains(where: { $0.isFrozen || $0.state != .live || $0.isQuiet }) ? "Demo" : "Live demo")
                     .font(Brand.font(height * 0.36, .bold))
                 Text("· \(names)")
                     .font(Brand.font(height * 0.36))
@@ -642,7 +659,7 @@ private struct StageCaption: View {
     }
 
     private var names: String {
-        phones.map { $0.phoneName ?? $0.name }.formatted(.list(type: .and))
+        phones.map { $0.displayName }.formatted(.list(type: .and))
     }
 }
 
@@ -692,7 +709,10 @@ private struct StagePhone: View {
                 }
             } else if slot.isFrozen {
                 VStack {
-                    Label("Paused", systemImage: "pause.fill")
+                    VStack(spacing: 2) {
+                        Label("Stage frozen", systemImage: "pause.fill")
+                        Text("Other outputs stay live").font(Brand.font(10))
+                    }
                         .font(Brand.font(12, .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)

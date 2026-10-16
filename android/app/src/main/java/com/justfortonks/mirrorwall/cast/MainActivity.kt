@@ -59,9 +59,28 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildViews()
+        savedInstanceState?.let { state ->
+            val host = state.getString("pendingHost")
+            if (host != null) pending = Slot(state.getString("pendingName") ?: host, host, state.getInt("pendingPort"))
+            askedBackground = state.getBoolean("askedBackground")
+            state.getString("typedAddress")?.let { addressField.setText(it) }
+            state.getString("typedName")?.let { nameField.setText(it) }
+        }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pending?.let {
+            outState.putString("pendingHost", it.host)
+            outState.putString("pendingName", it.name)
+            outState.putInt("pendingPort", it.port)
+        }
+        outState.putBoolean("askedBackground", askedBackground)
+        outState.putString("typedAddress", addressField.text.toString())
+        outState.putString("typedName", nameField.text.toString())
     }
 
     override fun onStart() {
@@ -116,9 +135,13 @@ class MainActivity : Activity() {
             if (pending != null) askToCapture()
             return
         }
-        val slot = pending ?: return
+        if (requestCode != 1) return
+        val slot = pending ?: run {
+            CastStatus.set(false, "Choose a receiver and tap Share again.")
+            return
+        }
         pending = null
-        if (requestCode != 1 || resultCode != RESULT_OK || data == null) {
+        if (resultCode != RESULT_OK || data == null) {
             AppLog.write("Screen sharing not allowed on the phone")
             CastStatus.set(false, "Sharing needs Android's permission each time.")
             return

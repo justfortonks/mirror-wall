@@ -164,8 +164,7 @@ final class SlotStore: ObservableObject {
         watchForStage(slot)
     }
 
-    /// Stage-first: a phone that connects always goes on the Stage. It can still be taken off from
-    /// the Stage's control bar; that holds until the phone disconnects and connects again.
+    /// Track reconnects without changing the presenter's saved Stage visibility.
     private func watchForStage(_ slot: Slot) {
         stageWatchers[slot.id] = slot.$state
             .receive(on: DispatchQueue.main)
@@ -177,7 +176,7 @@ final class SlotStore: ObservableObject {
                         self.reconnectingSince[slot.id] = nil
                         if !self.connectedSlotIDs.contains(slot.id) {
                             self.connectedSlotIDs.insert(slot.id)
-                            if !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
+                            // Visibility is presenter intent; a reconnect must not undo Hide.
                         }
                     } else if self.connectedSlotIDs.remove(slot.id) != nil, slot.state != .stopped {
                         // Dropped mid-demo: hold its place on the Stage for a while.
@@ -319,8 +318,8 @@ final class SlotStore: ObservableObject {
         slots.forEach { $0.start(uxplay: uxplayURL) }
     }
 
-    func stopAll() {
-        slots.forEach { $0.stop() }
+    func stopAll(endingSharing: Bool = false) {
+        slots.forEach { $0.stop(endingSharing: endingSharing) }
     }
 
     var isAnyRecording: Bool { slots.contains { $0.recordingSince != nil } }
@@ -359,7 +358,7 @@ final class SlotStore: ObservableObject {
         closeOwnWindow(slot)
         slot.setOBSFeed(false, name: "")
         slot.stopRecording()
-        slot.stop()
+        slot.stop(endingSharing: true)
         StandbyPictures.discard(slot.config.standby)
         standbyWatchers[slot.id] = nil
         awakeWatchers[slot.id] = nil
@@ -529,7 +528,7 @@ final class SlotStore: ObservableObject {
         // Not treated as a drop: the watcher only holds slots it saw connected.
         connectedSlotIDs.remove(slot.id)
         if slot.state == .connecting || slot.state == .live || slot.state == .paused {
-            restart(slot)
+            if let uxplayURL { slot.restart(uxplay: uxplayURL, endingSharing: true) }
         }
     }
 

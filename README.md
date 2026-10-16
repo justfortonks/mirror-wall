@@ -8,9 +8,9 @@ iPhones connect through built-in AirPlay Screen Mirroring. Android phones use th
 
 | Platform | Download | Requirements |
 |---|---|---|
-| macOS | [MirrorWall.dmg](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg) | Apple Silicon, macOS 26 or later |
-| Windows | [MirrorWall-Setup.exe](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe) | Windows 10 version 1809 or later, or Windows 11; x64 build |
-| Android (Mirror Wall Cast) | [MirrorWallCast.apk](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk) | Android 10 or later |
+| macOS | [MirrorWall.dmg](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWall.dmg) | Apple Silicon, macOS 26 or later |
+| Windows | [MirrorWall-Setup.exe](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWall-Setup.exe) | Windows 10 version 1809 or later, or Windows 11; x64 build |
+| Android (Mirror Wall Cast) | [MirrorWallCast.apk](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWallCast.apk) | Android 10 or later |
 
 These requirements apply to the packaged releases.
 
@@ -37,13 +37,13 @@ Nothing needs to be installed on the iPhone.
 
 Requires Android 10 or later.
 
-1. Install [MirrorWallCast.apk](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk) from the latest release (allow installing from your browser or file manager when asked), or deploy it with your device management.
+1. Install [MirrorWallCast.apk](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWallCast.apk) from the latest release (allow installing from your browser or file manager when asked), or deploy it with your device management.
 2. Open the app and choose an available slot.
 3. Approve Android’s screen-sharing prompt.
 
 If no slots appear, enter the computer’s address manually. Slot 1 uses port `7350`, slot 2 uses `7450`, and each following slot adds `100`.
 
-Android builds use a public test signing key unless a separate signing key is configured, so each new version installs over the last one. Test builds between releases are under the **MirrorWallCast** artifact of an [Android workflow run](https://github.com/justfortonks/mirror-wall/actions/workflows/android.yml) (needs a GitHub sign-in; artifacts expire after 90 days).
+Android builds use a public test signing key unless a separate signing key is configured, so each new version installs over the last one. Test builds between releases are under the **MirrorWallCast** artifact of an [Android workflow run](https://github.com/yurtbeer/mirror-wall/actions/workflows/android.yml) (needs a GitHub sign-in; artifacts expire after 90 days).
 
 iPhones and Android phones can share the wall at the same time, with one phone per slot.
 
@@ -74,9 +74,19 @@ Enable **Send to OBS** in the tile’s menu. In OBS, add a **Syphon Client** sou
 
 - No remote control, audio, or USB mirroring.
 - Protected content may appear black or be unavailable.
-- iOS ends Screen Mirroring about a minute after the iPhone's screen turns off, and only the phone can start it again. To keep an iPhone on the wall, set **Settings → Display & Brightness → Auto-Lock** to **Never** and keep it charging. Otherwise, reconnect from Screen Mirroring.
+- On Mac, a screen-off iOS session gets five minutes of silence grace, with idle/wake receiver fixes. iOS can still end sharing; wake the device and reconnect from Screen Mirroring if needed. Keeping a demo device charging with an appropriate Auto-Lock setting helps avoid interruptions.
 - Performance depends on the network, computer, phone, and number of active streams. Selecting 60 fps requests a maximum, not a guaranteed frame rate.
 - Smoother Motion adds some delay; higher picture quality can increase bandwidth and processing requirements.
+
+## SE demo controls (Mac fork)
+
+- **Freeze Stage** holds the presentation picture. Recordings, screenshots, pop-outs and independent OBS feeds remain live; it is not a privacy shield for those outputs.
+- **Stop Sharing** ends Android capture with the updated companion. **Hide from Stage** stays hidden through reconnects.
+- Device menu → **Bezel Model** offers automatic detection or a model preset, including iPhone 12 and later families, SE/e, Zebra HC50/TC53e, and iPad A16/11th generation. Frames work in portrait and landscape.
+- **Demo Label…** changes the local caption without renaming the receiver or device.
+- Use an isolated SE demo network for Android: its current transport is not encrypted and the event PIN applies only to AirPlay.
+
+See the [SE handoff and test checklist](docs/se-handoff.md) for build steps, compatibility and remaining hardware validation. These changes are Mac/Android; Windows does not yet have the new presentation controls and bezel catalog.
 
 ## Development
 

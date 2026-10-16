@@ -17,6 +17,9 @@ enum Brand {
     static let blueDeep = Color(hex: 0x24344A)
     static let blueRaised = Color(hex: 0x33495F)
     static let blueMuted = Color(hex: 0x7C8DA3)
+    static let operatorSurface = blue
+    static let onOperatorSurface = Color.white
+    static let secondaryOnOperatorSurface = ice
 
     static let nsBlue = NSColor(srgbRed: 0x2C / 255, green: 0x3F / 255, blue: 0x57 / 255, alpha: 1)
 

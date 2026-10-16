@@ -17,6 +17,8 @@ public enum CastMessageType: UInt8 {
     // Mac to phone.
     case welcome = 0x81
     case busy = 0x82
+    /// Intentional presenter stop; the companion must not retry.
+    case stopSharing = 0x83
     /// Eight bytes the phone sends straight back in a pong.
     case ping = 0x84
 }
@@ -34,12 +36,15 @@ public struct CastHello: Codable, Equatable {
     public var model: String
     /// A stable ID the app makes for the phone, for the allow-list.
     public var deviceID: String
+    /// New for each deliberate Share action, retained across automatic retries.
+    public var shareID: String?
 
-    public init(protocol: Int = 1, name: String, model: String, deviceID: String) {
+    public init(protocol: Int = 1, name: String, model: String, deviceID: String, shareID: String? = nil) {
         self.protocol = `protocol`
         self.name = name
         self.model = model
         self.deviceID = deviceID
+        self.shareID = shareID
     }
 }
 
@@ -85,6 +90,7 @@ public enum CastMessage: Equatable {
     case pong(UInt64)
     case welcome(CastWelcome)
     case busy(CastBusy)
+    case stopSharing
     case ping(UInt64)
 
     /// The message as sent over the connection.
@@ -99,6 +105,7 @@ public enum CastMessage: Equatable {
         case .video(let micros, let accessUnit):
             type = .video
             payload = withUnsafeBytes(of: micros.bigEndian, Array.init) + accessUnit
+        case .stopSharing: type = .stopSharing
         case .paused: type = .paused
         case .resumed: type = .resumed
         case .heartbeat: type = .heartbeat
@@ -173,6 +180,7 @@ public final class CastReader {
                 guard payload.count >= 8 else { throw Failure.malformed(rawType) }
                 let micros = payload[0..<8].reduce(Int64(0)) { $0 << 8 | Int64($1) }
                 return .video(captureMicros: micros, accessUnit: Array(payload[8...]))
+            case .stopSharing: return .stopSharing
             case .paused: return .paused
             case .resumed: return .resumed
             case .heartbeat: return .heartbeat

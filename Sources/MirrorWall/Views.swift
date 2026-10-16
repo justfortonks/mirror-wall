@@ -18,7 +18,9 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 420)
-        .background(Brand.blue)
+        .background(Brand.operatorSurface)
+        .environment(\.colorScheme, .dark)
+        .foregroundStyle(Brand.onOperatorSurface)
         // Imprivata Blue wall: dark appearance for this window only, so text and controls read
         // on it without changing Settings or alerts.
         .background(DarkWindowAppearance())
@@ -38,10 +40,10 @@ struct ContentView: View {
                 Button {
                     store.addSlot()
                 } label: {
-                    Label("Add Slot", systemImage: "plus")
+                    Label("Add Device Space", systemImage: "plus")
                 }
                 .disabled(!store.canAddSlot || store.uxplayURL == nil)
-                .help("Add a slot another iPhone can mirror to")
+                .help("Add a slot another device can mirror to")
             }
             ToolbarItem {
                 SettingsLink {
@@ -65,7 +67,7 @@ struct ContentView: View {
             ScrollView {
                 LazyVGrid(
                     columns: focused == nil
-                        ? [GridItem(.adaptive(minimum: 220), spacing: 16)]
+                        ? [GridItem(.adaptive(minimum: store.slots.count <= 3 ? 300 : 220), spacing: 16)]
                         : [GridItem(.flexible())],
                     spacing: 16
                 ) {
@@ -223,7 +225,7 @@ struct SlotTile: View {
     private var pausedBanner: some View {
         VStack {
             Spacer()
-            Label("Screen off. Turn it on within about a minute or the iPhone stops mirroring.", systemImage: "moon.fill")
+            Label("Screen off. Wake the device to resume. If sharing ended, reconnect from Screen Mirroring.", systemImage: "moon.fill")
                 .font(.caption)
                 .padding(8)
                 .frame(maxWidth: .infinity)
@@ -321,7 +323,7 @@ struct SlotTile: View {
             }
             HStack(spacing: 6) {
                 // The phone's name gives way when space is short; the status never does.
-                Text(slot.state == .disconnected ? "" : slot.phoneName ?? "")
+                Text(slot.state == .disconnected ? "" : slot.displayName)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
@@ -330,8 +332,13 @@ struct SlotTile: View {
                         if let saved = slot.screenshotSavedAt, context.date.timeIntervalSince(saved) < 2 {
                             Text("Screenshot saved")
                         }
-                        if let since = slot.recordingSince {
-                            Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
+                        if let error = slot.recordingError {
+                            Label("Recording failed", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.white).help(error)
+                        } else if slot.isSavingRecording {
+                            Text("Saving recording…")
+                        } else if let since = slot.recordingSince {
+                            Text(slot.recordingHasFrames ? "● REC \(Self.format(context.date.timeIntervalSince(since)))" : "Recording armed")
                                 .foregroundStyle(Brand.red)
                                 .help(slot.recordingError ?? "Recording to \(SaveFolders.recordings.path)")
                         }
@@ -379,6 +386,8 @@ struct SlotTile: View {
             ))
         }
         Menu("Phone Bezel") {
+            BezelModelPicker(slot: slot)
+            Divider()
             Toggle("On the Wall and Own Window", isOn: Binding(
                 get: { slot.showsBezel },
                 set: { store.setBezel(slot, on: $0) }
@@ -403,7 +412,8 @@ struct SlotTile: View {
             }
         }
         Divider()
-        Button("Rename…") {
+        Button("Demo Label…") { DemoLabelEditor.show(for: slot) }
+        Button("Rename Receiver…") {
             newName = slot.name
             renaming = true
         }

@@ -22,6 +22,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// Whether the slot's picture has a phone frame around it on the wall and in its own window;
     /// nil follows the setting for all slots, which is off by default.
     public var bezel: Bool?
+    /// Nil chooses the detected model; unknown IDs fall back to automatic.
+    public var bezelModel: String?
+    /// Local presenter label, independent of network identity.
+    public var displayAlias: String?
     /// Whether the slot's OBS feed has the phone frame around the picture, with see-through
     /// corners; nil (off) by default.
     public var feedBezel: Bool?
@@ -143,6 +147,7 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
             "-p", String(airplayBasePort),
             "-m", deviceID,
             "-vsync", "no",             // show frames as they arrive; with sync on the picture froze after the phone slept
+            "-reset", "0",             // the app owns liveness, including screen-off grace
             "-as", "0",                 // view only: no audio
             "-d", "1",                  // debug log without packet dumps: reports connects and disconnects
             "-fps", String(maxFrameRate),

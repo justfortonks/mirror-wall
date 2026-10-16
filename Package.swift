@@ -19,6 +19,7 @@ var targets: [Target] = [
         linkerSettings: hasSyphon ? [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])] : []
     ),
     .testTarget(name: "MirrorCoreTests", dependencies: ["MirrorCore"]),
+    .testTarget(name: "MirrorWallTests", dependencies: ["MirrorWall"]),
 ]
 if hasSyphon {
     targets.append(.binaryTarget(name: "Syphon", path: syphonPath))

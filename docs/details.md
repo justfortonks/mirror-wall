@@ -64,12 +64,12 @@ The longer notes on how each Mac feature behaves, and on the Android app. The
   how long the screen has been off.
 - **Screen off:** when an iPhone's screen turns off, its tile keeps the last picture and says
   Screen off. A locked phone whose screen lights up (button, notification) shows its lock
-  screen live. iOS itself ends Screen Mirroring after about a minute with the screen off; the tile then says
-  Disconnected, and the phone has to pick the slot again in Screen Mirroring (only the phone can
-  start AirPlay). A phone on a charger may just go quiet instead of ending the session;
-  the tile says Disconnected once it has gone 10 seconds without checking in.
-  After any disconnect the slot restarts its receiver (uxplay sometimes fails to restart its
-  video output on its own), so the slot's name disappears from Screen Mirroring for a second or two. To keep a phone on the wall, set Auto-Lock to Never and keep it charging.
+  screen live. The Mac keeps a screen-off session through up to five minutes without check-ins or
+  frames. Live sessions still use a short disconnect timeout. The patched receiver accepts wake
+  requests on an idle control socket. If iOS ends sharing, reconnect from Screen Mirroring.
+  A charger does not prevent iOS from ending a session. After a real disconnect the receiver is
+  restarted asynchronously, while the Stage can hold the last picture during recovery.
+
 - **Stats for Nerds** (View menu, ⌥⌘I, or a tile's ⋯ menu) puts each stream's numbers over its
   tile in the main window; the slots' own windows stay clean for OBS. It shows the phone model and
   codec, picture size, frames and bitrate per second, latency, network round trip, frame jitter,

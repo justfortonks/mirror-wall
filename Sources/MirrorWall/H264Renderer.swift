@@ -203,7 +203,10 @@ final class H264Renderer {
     }
 
     private func invalidateSession() {
-        if let session { VTDecompressionSessionInvalidate(session) }
+        if let session {
+            VTDecompressionSessionWaitForAsynchronousFrames(session)
+            VTDecompressionSessionInvalidate(session)
+        }
         session = nil
         waitingForKeyframe = true
     }

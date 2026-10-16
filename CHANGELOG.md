@@ -5,6 +5,18 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 16, 2026: SE demo reliability and device frames
+
+- Mac Stop Sharing now explicitly ends updated Android captures. Old companions cannot automatically rejoin a stopped session; a new Share on the updated companion can start immediately.
+- Pause is now labeled Freeze Stage, with a visible reminder that recordings, screenshots and independent OBS feeds remain live. A freeze follows the same device through recovery and clears for a replacement; hidden devices remain hidden after reconnecting.
+- Restored the UxPlay idle/wake socket fix and five-minute silence grace for screen-off iOS sessions. Late lock-screen frames no longer cancel that grace.
+- Receiver shutdown and Android/AirPlay handoff drain callbacks off the UI thread, reject stale work and wait before resetting the decoder. A second Mac instance cannot take over active receivers.
+- Android restores the chosen receiver across permission-screen recreation, bounds its send queue, releases old sender threads and detects silent connection loss.
+- Recordings use unique filenames, report failed/armed/saving states and finish outstanding files before normal quit.
+- Improved Wall contrast, compact Stage controls, persistent demo labels and manual bezel selection. Added distinct Zebra HC50, TC53e and iPad A16/11th-generation frames plus iPhone SE and 12–18 Pro family presets, including e models, in both orientations.
+- Added transport, lifecycle, recording and model-layout tests, the receiver socket regression harness, and package compatibility checks. Built apps declare the minimum macOS version actually required by their embedded libraries.
+- Updated fork download links and added the SE build/test handoff guide. Windows presentation changes and fleet endurance testing remain separate.
+
 ## October 15, 2026: Windows fixes
 
 - Windows: opening Mirror Wall while it's already running (say, hidden behind its tray icon)
