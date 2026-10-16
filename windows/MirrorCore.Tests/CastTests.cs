@@ -18,7 +18,7 @@ public class CastProtocolTests
             new CastMessage.Paused(), new CastMessage.Resumed(), new CastMessage.Heartbeat(),
             new CastMessage.Busy(new CastBusy("In use")),
             new CastMessage.Welcome(new CastWelcome("Mirror Wall 2", 60, sharpPicture: true)),
-            new CastMessage.Ping(0x0102_0304_0506_0708), new CastMessage.Pong(42),
+            new CastMessage.Ping(0x0102_0304_0506_0708), new CastMessage.Pong(42), new CastMessage.Orientation(2),
             new CastMessage.Bye(),
         };
         var reader = new CastReader();
@@ -47,6 +47,13 @@ public class CastProtocolTests
         var bytes = new byte[] { 0x40, 0, 0, 0, 2, 7, 7 }.Concat(new CastMessage.Heartbeat().Encoded()).ToArray();
         Assert.Equal(new CastMessage[] { new CastMessage.Heartbeat() }, reader.Push(bytes));
         Assert.Throws<CastStreamException>(() => new CastReader().Push(new byte[] { 0x02, 0x7F, 0, 0, 0 }));
+    }
+
+    [Fact]
+    public void OrientationIsOneByteOfQuarterTurns()
+    {
+        Assert.Equal(new byte[] { 0x08, 0, 0, 0, 1, 3 }, new CastMessage.Orientation(3).Encoded());
+        Assert.Equal(new CastMessage[] { new CastMessage.Orientation(1) }, new CastReader().Push(new byte[] { 0x08, 0, 0, 0, 1, 1 }));
     }
 
     /// <summary>

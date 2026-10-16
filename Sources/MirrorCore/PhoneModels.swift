@@ -6,9 +6,10 @@ public func phoneModelName(_ code: String) -> String {
     phoneModels[code]?.name ?? code
 }
 
-/// The phone's screen diagonal in inches, if the model is known.
+/// The phone's screen diagonal in inches, if the model is known: an iPhone, or an Android phone
+/// with its own frame.
 public func phoneScreenDiagonal(_ code: String) -> Double? {
-    phoneModels[code]?.diagonal
+    phoneModels[code]?.diagonal ?? BezelStyle(modelCode: code).artwork?.diagonal
 }
 
 /// The longer side, in points, for a window showing a phone's picture at true-to-life size
