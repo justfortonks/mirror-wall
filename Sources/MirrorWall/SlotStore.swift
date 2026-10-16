@@ -69,6 +69,11 @@ final class SlotStore: ObservableObject {
     private var standbyWatchers: [Int: AnyCancellable] = [:]
     /// Watches each slot's state and recording, to keep the Mac awake while any is in use.
     private var awakeWatchers: [Int: AnyCancellable] = [:]
+    /// Puts a phone on the Stage as it connects (see watchForStage).
+    private var stageWatchers: [Int: AnyCancellable] = [:]
+    /// Slots with a phone connected, so a phone only goes on the Stage when it first connects and
+    /// taking it off mid-demo sticks until it reconnects.
+    private var connectedSlotIDs: Set<Int> = []
     /// True while a phone is connecting, mirroring or has its screen off, or a slot is recording.
     @Published private(set) var anySlotInUse = false
     /// Held while the Mac is being kept awake.
@@ -146,6 +151,26 @@ final class SlotStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateKeepAwake() }
+            }
+        watchForStage(slot)
+    }
+
+    /// Stage-first: a phone that connects always goes on the Stage. It can still be taken off from
+    /// the Stage's control bar; that holds until the phone disconnects and connects again.
+    private func watchForStage(_ slot: Slot) {
+        stageWatchers[slot.id] = slot.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak slot] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let slot else { return }
+                    let connected = slot.state == .connecting || slot.state == .live || slot.state == .paused
+                    if connected, !self.connectedSlotIDs.contains(slot.id) {
+                        self.connectedSlotIDs.insert(slot.id)
+                        if !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
+                    } else if !connected {
+                        self.connectedSlotIDs.remove(slot.id)
+                    }
+                }
             }
     }
 
@@ -307,6 +332,8 @@ final class SlotStore: ObservableObject {
         StandbyPictures.discard(slot.config.standby)
         standbyWatchers[slot.id] = nil
         awakeWatchers[slot.id] = nil
+        stageWatchers[slot.id] = nil
+        connectedSlotIDs.remove(slot.id)
         slots.removeAll { $0 === slot }
         save()
         updateWindowTitles()

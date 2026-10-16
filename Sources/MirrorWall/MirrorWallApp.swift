@@ -78,11 +78,11 @@ struct MenuBarMenu: View {
             MenuBarSlotItem(slot: slot, store: store)
         }
         Divider()
-        Button("Show Mirror Wall Window") {
+        Button("Show Stage") { store.showStage() }
+        Button("Show Wall") {
             MainWindow.open = openWindow
             MainWindow.show()
         }
-        Button("Show Stage") { store.showStage() }
         if store.isAnyRecording {
             Button("Stop All Recordings") { store.stopAllRecordings() }
         } else {
@@ -203,6 +203,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SlotStore.stopLeftoverReceivers()
         store.startAll()
         store.restoreOwnWindows()
+        // Stage-first: open straight to the Stage. SwiftUI opens the wall on its own at launch, so
+        // tuck it away once it's up; it's still in Window › Show Wall.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [store] in
+            MainWindow.hide()
+            store.showStage()
+        }
     }
 
     /// MirrorWall.app gets its icon from the bundle; run with `swift run`, the app sets it itself
@@ -237,8 +243,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Clicking the Dock icon brings back the main window, even when it's minimized and slots'
     /// own windows are open.
+    /// Clicking the Dock icon brings back the Stage, the window being shared, not the wall.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        MainWindow.show()
+        store.showStage()
         return false
     }
 
@@ -309,13 +316,18 @@ enum MainWindow {
         }
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    /// Closes the wall without quitting (the Stage stays open).
+    static func hide() {
+        NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true })?.close()
+    }
 }
 
 struct ShowMainWindowButton: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Show Mirror Wall Window") {
+        Button("Show Wall") {
             MainWindow.open = openWindow
             MainWindow.show()
         }
