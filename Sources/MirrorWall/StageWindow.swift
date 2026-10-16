@@ -28,7 +28,7 @@ final class StageWindow: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        window.backgroundColor = .black
+        window.backgroundColor = Brand.nsBlue
         window.minSize = NSSize(width: 320, height: 180)
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = NSHostingView(rootView: StageView(model: StageModel(store: store), store: store, onClose: { [weak self] in self?.close() }))
@@ -84,34 +84,56 @@ struct StageView: View {
     @ObservedObject var model: StageModel
     @ObservedObject var store: SlotStore
     let onClose: () -> Void
+    /// The "Live demo" strip along the bottom, with the logo when it's installed.
+    @AppStorage("stageCaptionBar") private var showsCaption = true
 
     var body: some View {
         let phones = store.slots.filter { $0.showsPicture && $0.showsOnStage }
         GeometryReader { proxy in
+            let captionHeight = showsCaption ? min(64, max(34, proxy.size.height * 0.085)) : 0
             let frames = stageFrames(
                 sizes: phones.map(Self.size(of:)),
                 layout: store.stageLayout,
                 areaWidth: proxy.size.width,
-                areaHeight: proxy.size.height
+                areaHeight: proxy.size.height - captionHeight
             )
             ZStack(alignment: .topLeading) {
-                Color.black
+                ZStack(alignment: .topTrailing) {
+                    Brand.stageGradient
+                    HexPattern(
+                        colors: [.white, Brand.sky, Brand.teal],
+                        radius: max(16, proxy.size.height * 0.04),
+                        columns: 6,
+                        rows: 7,
+                        density: 0.75,
+                        seed: 21,
+                        opacity: 0.16
+                    )
+                    .frame(width: proxy.size.width * 0.42, height: proxy.size.height * 0.7)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
                 if phones.isEmpty {
                     Text("Phones on stage show up here while they're mirroring.")
-                        .font(.title3)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .font(Brand.font(20, .semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .frame(width: proxy.size.width, height: proxy.size.height - captionHeight)
                 }
                 ForEach(zip(phones, frames).map(Placed.init)) { placed in
                     StagePhone(slot: placed.slot)
                         .frame(width: placed.frame.width, height: placed.frame.height)
                         .offset(x: placed.frame.x, y: placed.frame.y)
                 }
+                if showsCaption {
+                    StageCaption(phones: phones, height: captionHeight)
+                        .frame(width: proxy.size.width, height: captionHeight)
+                        .offset(y: proxy.size.height - captionHeight)
+                }
             }
         }
         .ignoresSafeArea()
         .contextMenu {
             StageLayoutItems(store: store)
+            Toggle("Show Caption Bar", isOn: $showsCaption)
             Divider()
             Menu("Phones on Stage") {
                 StageSlotItems(store: store)
@@ -135,6 +157,46 @@ struct StageView: View {
     private static func size(of slot: Slot) -> (width: Double, height: Double) {
         let picture = picture(of: slot)
         return stagePhoneSize(modelCode: slot.config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height, bezel: slot.showsBezel)
+    }
+}
+
+/// The strip along the stage's bottom: "Live demo · Tom's iPhone & Zebra TC58", and the
+/// official logo on its own at the right (the brand guide wants clear space around it).
+private struct StageCaption: View {
+    let phones: [Slot]
+    let height: CGFloat
+
+    var body: some View {
+        HStack(spacing: height * 0.3) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Brand.red)
+                .frame(width: 4, height: height * 0.5)
+            Text("Live demo")
+                .font(Brand.font(height * 0.36, .bold))
+            if !names.isEmpty {
+                Text("· \(names)")
+                    .font(Brand.font(height * 0.36))
+                    .opacity(0.75)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: height)
+            if let logo = Brand.whiteLogo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(height: height * 0.46)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, height * 0.5)
+        .frame(maxHeight: .infinity)
+        .background(.black.opacity(0.18))
+    }
+
+    private var names: String {
+        phones.map { $0.phoneName ?? $0.name }.formatted(.list(type: .and))
     }
 }
 

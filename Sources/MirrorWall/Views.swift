@@ -16,7 +16,11 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Brand.blue)
+        // Brand Blue wall: dark appearance so text, menus and controls read on it.
+        .preferredColorScheme(.dark)
+        .toolbarBackground(Brand.blueDeep, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -87,7 +91,7 @@ struct SetupView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
             Text("Mirror Wall needs uxplay")
-                .font(.title2.bold())
+                .font(Brand.font(22, .bold))
             Text("It looks in /opt/homebrew/bin, /usr/local/bin and the casting app folder. Point it at the uxplay you built.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -154,15 +158,20 @@ struct SlotTile: View {
         .overlay(alignment: .topTrailing) { popOutButton }
         if slot.showsBezel {
             PhoneBezel(geometry: slot.bezel(for: pictureShape), picture: pictureShape) {
-                picture.background(Color.black)
+                picture.background(pictureBackground)
             }
         } else {
             picture
                 .aspectRatio(pictureShape.width / pictureShape.height, contentMode: .fit)
-                .background(Color.black)
+                .background(pictureBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
         }
+    }
+
+    /// Black behind a phone's picture; deep Brand Blue while the slot waits for one.
+    private var pictureBackground: Color {
+        showsPicture || hasStandbyImage ? .black : Brand.blueDeep
     }
 
     private var pictureShape: CGSize {
@@ -212,15 +221,27 @@ struct SlotTile: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 10) {
-            Image(systemName: placeholderIcon)
-                .font(.system(size: 28))
-            Text(placeholderText)
-                .font(.callout)
-                .multilineTextAlignment(.center)
+        ZStack(alignment: .topTrailing) {
+            HexPattern(radius: 13, columns: 5, rows: 5, density: 0.75, seed: UInt64(slot.id) + 7)
+                .frame(height: 120)
+                .frame(maxHeight: .infinity, alignment: .top)
+            VStack(spacing: 10) {
+                Image(systemName: placeholderIcon)
+                    .font(.system(size: 28))
+                    .foregroundStyle(placeholderIsProblem ? Brand.red : Brand.teal)
+                Text(placeholderText)
+                    .font(Brand.font(13))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .foregroundStyle(.white.opacity(0.75))
-        .padding()
+    }
+
+    private var placeholderIsProblem: Bool {
+        if case .failed = slot.state { return true }
+        return slot.state == .disconnected
     }
 
     private var placeholderIcon: String {
@@ -250,7 +271,7 @@ struct SlotTile: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
                 Text(slot.name)
-                    .font(.headline)
+                    .font(Brand.font(14, .semibold))
                     .lineLimit(1)
                 if let feedName = slot.obsFeedName {
                     Image(systemName: "dot.radiowaves.left.and.right")
@@ -262,7 +283,7 @@ struct SlotTile: View {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
                 } label: {
                     Image(systemName: slot.recordingSince == nil ? "record.circle" : "stop.circle.fill")
-                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
+                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Brand.red)
                 }
                 .buttonStyle(.borderless)
                 .help(slot.recordingSince == nil
@@ -299,7 +320,7 @@ struct SlotTile: View {
                         }
                         if let since = slot.recordingSince {
                             Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
-                                .foregroundStyle(.red)
+                                .foregroundStyle(Brand.red)
                                 .help(slot.recordingError ?? "Recording to \(SaveFolders.recordings.path)")
                         }
                         Text(statusText(now: context.date))
@@ -388,13 +409,15 @@ struct SlotTile: View {
         Toggle(title, isOn: Binding(get: { choice == current }, set: { _ in action() }))
     }
 
+    /// Brand palette: teal live, blues in between, red only for trouble (and recording).
     private var statusColor: Color {
         switch slot.state {
-        case .live: return .green
-        case .waiting, .connecting, .paused: return .yellow
+        case .live: return Brand.teal
+        case .connecting, .paused: return Brand.sky
+        case .waiting: return Brand.blueMuted
         case .disconnected: return .orange
         case .stopped: return .gray
-        case .failed: return .red
+        case .failed: return Brand.red
         }
     }
 
