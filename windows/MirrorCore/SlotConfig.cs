@@ -55,6 +55,10 @@ public sealed record SlotConfig
         return $"Mirror Wall {id}" + (computer.Length == 0 ? "" : " · " + computer);
     }
 
+    /// <summary>Whether the slot has a name someone gave it, rather than "Mirror Wall 1 · &lt;computer&gt;".</summary>
+    [JsonIgnore]
+    public bool HasCustomName => Name != $"Mirror Wall {Id}" && !Name.StartsWith($"Mirror Wall {Id} · ", StringComparison.Ordinal);
+
     /// <summary>"Alex's MacBook Air" → "MacBook Air".</summary>
     internal static string WithoutOwner(string name)
     {
@@ -166,12 +170,13 @@ public sealed record SlotConfig
 
     /// <summary>
     /// Titles for the slots' own windows, which their OBS feeds also go by: "MacMirror-" plus the
-    /// last phone's name, or the slot's name before any phone has connected. Slots whose names would
+    /// slot's name if someone renamed it, else the last phone's name, or the slot's name before any
+    /// phone has connected. Slots whose names would
     /// clash get "-&lt;slot number&gt;". The same names as on the Mac, so OBS scenes match.
     /// </summary>
     public static Dictionary<int, string> WindowTitles(IEnumerable<SlotConfig> slots)
     {
-        var bases = slots.Select(slot => (slot.Id, Title: "MacMirror-" + (string.IsNullOrEmpty(slot.LastPhoneName) ? slot.Name : slot.LastPhoneName))).ToList();
+        var bases = slots.Select(slot => (slot.Id, Title: "MacMirror-" + (slot.HasCustomName || string.IsNullOrEmpty(slot.LastPhoneName) ? slot.Name : slot.LastPhoneName))).ToList();
         var counts = bases.GroupBy(entry => entry.Title).ToDictionary(group => group.Key, group => group.Count());
         return bases.ToDictionary(entry => entry.Id, entry => counts[entry.Title] > 1 ? $"{entry.Title}-{entry.Id}" : entry.Title);
     }

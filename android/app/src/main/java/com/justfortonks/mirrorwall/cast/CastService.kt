@@ -329,6 +329,8 @@ class CastService : Service() {
             keepAwake()
         }
         if (screenOff) link?.outbox?.offer(CastProtocol.message(CastProtocol.PAUSED))
+        sentTurns = -1
+        sendOrientation()
         update(if (screenOff) "Screen off: $slotName shows it as paused" else "Sharing to $slotName")
     }
 
@@ -421,6 +423,8 @@ class CastService : Service() {
     private val heartbeat = object : Runnable {
         override fun run() {
             link?.outbox?.offer(CastProtocol.message(CastProtocol.HEARTBEAT))
+            // A turn the display listener missed is caught here.
+            matchScreenShape()
             main.postDelayed(this, 2000)
         }
     }
@@ -448,18 +452,48 @@ class CastService : Service() {
         }
     }
 
-    /** Turning the phone changes the screen's shape: a new encoder at the new size. */
+    /**
+     * Turning the phone changes the screen's shape: a new encoder at the new size. The display
+     * can report the change before its size has turned (pressing Home in landscape, when the
+     * home screen turns the phone back to portrait), so the shape is checked again a moment later.
+     */
     private val rotationListener = object : DisplayManager.DisplayListener {
         override fun onDisplayChanged(displayId: Int) {
             if (displayId != Display.DEFAULT_DISPLAY) return
-            val old = encoder ?: return
-            val size = captureSize()
-            if (size.width == old.width && size.height == old.height) return
-            replaceEncoder(size)
+            matchScreenShape()
+            main.removeCallbacks(recheckShape)
+            main.postDelayed(recheckShape, 300)
+            main.postDelayed(recheckShape, 1000)
         }
 
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
+    }
+
+    private val recheckShape = Runnable { matchScreenShape() }
+
+    /** Quarter turns left last told to Mirror Wall; -1 when it hasn't been told on this connection. */
+    private var sentTurns = -1
+
+    /** Tells Mirror Wall which way up the phone is, so its frame can turn the same way. */
+    private fun sendOrientation() {
+        @Suppress("DEPRECATION")
+        val turns = getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: return
+        val outbox = link?.outbox ?: return
+        if (turns == sentTurns) return
+        sentTurns = turns
+        outbox.offer(CastProtocol.message(CastProtocol.ORIENTATION, byteArrayOf(turns.toByte())))
+    }
+
+    /** A new encoder if the screen is now a different size from what's being sent. */
+    private fun matchScreenShape() {
+        if (stopped) return
+        sendOrientation()
+        val old = encoder ?: return
+        val size = captureSize()
+        if (size.width == old.width && size.height == old.height) return
+        AppLog.write("Screen turned: ${old.width}×${old.height} → ${size.width}×${size.height}")
+        replaceEncoder(size)
     }
 
     private class CaptureSize(val mime: String, val width: Int, val height: Int, val dpi: Int)
@@ -493,6 +527,7 @@ class CastService : Service() {
         stopped = true
         AppLog.write("Stopped sharing${reason?.let { ": $it" } ?: ""}")
         main.removeCallbacks(heartbeat)
+        main.removeCallbacks(recheckShape)
         if (display != null) {
             getSystemService(DisplayManager::class.java).unregisterDisplayListener(rotationListener)
             try {

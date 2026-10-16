@@ -333,7 +333,21 @@ internal sealed class Slot : Observable
     public void RememberBezel(bool? choice) => Config.Bezel = choice;
 
     /// <summary>The frame for a picture of this size (the phone's shape), styled after the last phone.</summary>
-    public BezelGeometry Bezel(Size picture) => new(Config.LastPhoneModel, picture.Width, picture.Height);
+    public BezelGeometry Bezel(Size picture) => new(Config.LastPhoneModel, picture.Width, picture.Height, PhoneTurns);
+
+    private int? phoneTurns;
+
+    /// <summary>Which way up the Android phone says it's held (see <see cref="CastMessage.Orientation"/>);
+    /// null for an iPhone or an older Android app, which don't say.</summary>
+    public int? PhoneTurns
+    {
+        get => phoneTurns;
+        private set
+        {
+            if (!Set(ref phoneTurns, value)) return;
+            if (spoutFeed != null) spoutFeed.BezelTurns = value;
+        }
+    }
 
     /// <summary>Whether the OBS feed has the phone frame around the picture, with see-through corners.</summary>
     public bool FramesObsFeed => Config.FeedBezel ?? false;
@@ -355,7 +369,9 @@ internal sealed class Slot : Observable
     /// <summary>The feed's frame follows the last phone's model.</summary>
     private void UpdateFeedBezel()
     {
-        if (spoutFeed != null) spoutFeed.Bezel = FramesObsFeed ? BezelGeometry.StyleFor(Config.LastPhoneModel) : null;
+        if (spoutFeed == null) return;
+        spoutFeed.Bezel = FramesObsFeed ? BezelGeometry.StyleFor(Config.LastPhoneModel) : null;
+        spoutFeed.BezelTurns = PhoneTurns;
     }
 
     /// <summary>Whether the phone appears in the Stage window while it's mirroring.</summary>
@@ -635,6 +651,9 @@ internal sealed class Slot : Observable
             case CastMessage.Bye:
                 Append($"{PhoneName ?? "The Android phone"} stopped sharing");
                 break;
+            case CastMessage.Orientation orientation:
+                PhoneTurns = orientation.Turns;
+                break;
         }
     }
 
@@ -658,6 +677,7 @@ internal sealed class Slot : Observable
             return;
         }
         castPhone = phone;
+        PhoneTurns = null;
         Append($"Android phone connecting: {hello.Name} ({hello.Model}) from {phone.RemoteDescription}");
         // Take the slot off iPhones' Screen Mirroring list while the Android phone has it. The
         // generation bump keeps the stopping uxplay's exit, and any pending restart, from touching
@@ -682,6 +702,7 @@ internal sealed class Slot : Observable
     {
         if (phone != castPhone) return;
         castPhone = null;
+        PhoneTurns = null;
         Append($"{PhoneName ?? "The Android phone"} disconnected");
         ConnectedSince = null;
         if (State is not (SlotState.Waiting or SlotState.Disconnected)) PhoneDropped();
