@@ -62,6 +62,10 @@ final class SlotStore: ObservableObject {
     /// Shows Mirror Wall's icon in the menu bar, and keeps the app running (and mirroring) when
     /// the wall's window is closed. On by default.
     static let menuBarIconKey = "showMenuBarIcon"
+    /// Settings › Wall › Stage: open to the Stage at launch, with the wall tucked away.
+    static let opensToStageKey = "opensToStage"
+    /// Settings › Wall › Stage: put each phone on the Stage as it connects.
+    static let addsPhonesToStageKey = "addsPhonesToStage"
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
     private var stageWindow: StageWindow?
@@ -155,8 +159,9 @@ final class SlotStore: ObservableObject {
         watchForStage(slot)
     }
 
-    /// Stage-first: a phone that connects always goes on the Stage. It can still be taken off from
-    /// the Stage's control bar; that holds until the phone disconnects and connects again.
+    /// With Settings › Wall › Stage › "Put phones on the Stage as they connect" on, a phone that
+    /// connects goes on the Stage. It can still be taken off from the Stage's control bar; that
+    /// holds until the phone disconnects and connects again.
     private func watchForStage(_ slot: Slot) {
         stageWatchers[slot.id] = slot.$state
             .receive(on: DispatchQueue.main)
@@ -166,7 +171,7 @@ final class SlotStore: ObservableObject {
                     let connected = slot.state == .connecting || slot.state == .live || slot.state == .paused
                     if connected, !self.connectedSlotIDs.contains(slot.id) {
                         self.connectedSlotIDs.insert(slot.id)
-                        if !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
+                        if self.defaults.bool(forKey: Self.addsPhonesToStageKey), !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
                     } else if !connected {
                         self.connectedSlotIDs.remove(slot.id)
                     }

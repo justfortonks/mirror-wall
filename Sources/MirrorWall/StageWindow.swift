@@ -12,6 +12,7 @@ final class StageWindow: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     var onClose: (() -> Void)?
+    private var themeWatcher: AnyCancellable?
 
     init(store: SlotStore) {
         window = NSWindow(
@@ -28,13 +29,18 @@ final class StageWindow: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        window.backgroundColor = Brand.nsBlue
+        window.backgroundColor = Theme.current.stageWindowColor
         window.minSize = NSSize(width: 320, height: 180)
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = NSHostingView(rootView: StageView(model: StageModel(store: store), store: store, onClose: { [weak self] in self?.close() }))
         window.delegate = self
         window.center()
         window.setFrameAutosaveName("MacMirror stage")
+        themeWatcher = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.window.backgroundColor = Theme.current.stageWindowColor }
+            }
     }
 
     func show() {
@@ -84,8 +90,9 @@ struct StageView: View {
     @ObservedObject var model: StageModel
     @ObservedObject var store: SlotStore
     let onClose: () -> Void
-    /// The "Live demo" strip along the bottom, with the logo when it's installed.
-    @AppStorage("stageCaptionBar") private var showsCaption = true
+    @CurrentTheme private var theme
+    /// The "Live demo" strip along the bottom, with the theme's logo when it's installed.
+    @StageCaptionSetting private var showsCaption
     /// Stage-first: the controls fade in while the mouse moves over the Stage and fade out again
     /// a couple of seconds after it stops, so the shared picture stays clean.
     @State private var controlsVisible = false
@@ -104,17 +111,19 @@ struct StageView: View {
             )
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topTrailing) {
-                    Brand.stageGradient
-                    HexPattern(
-                        colors: [.white, Brand.sky, Brand.teal],
-                        radius: max(16, proxy.size.height * 0.04),
-                        columns: 6,
-                        rows: 7,
-                        density: 0.75,
-                        seed: 21,
-                        opacity: 0.16
-                    )
-                    .frame(width: proxy.size.width * 0.42, height: proxy.size.height * 0.7)
+                    theme.stageBackground
+                    if theme.showsHexPattern {
+                        HexPattern(
+                            colors: [.white, Brand.sky, Brand.teal],
+                            radius: max(16, proxy.size.height * 0.04),
+                            columns: 6,
+                            rows: 7,
+                            density: 0.75,
+                            seed: 21,
+                            opacity: 0.16
+                        )
+                        .frame(width: proxy.size.width * 0.42, height: proxy.size.height * 0.7)
+                    }
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 if phones.isEmpty {
@@ -201,18 +210,6 @@ struct StageView: View {
     }
 }
 
-/// A slot's status dot on the Stage: teal live, blues in between, red for trouble.
-private func stageDotColor(_ state: Slot.State) -> Color {
-    switch state {
-    case .live: return Brand.teal
-    case .connecting, .paused: return Brand.sky
-    case .waiting: return Brand.blueMuted
-    case .disconnected: return .orange
-    case .stopped: return .gray
-    case .failed: return Brand.red
-    }
-}
-
 private func stageStatus(_ state: Slot.State) -> String {
     switch state {
     case .live: return "live"
@@ -232,7 +229,8 @@ private struct StageControls: View {
     /// Passed in by the Stage, which redraws whenever any slot changes.
     let connected: [Slot]
     let recording: Bool
-    @AppStorage("stageCaptionBar") private var showsCaption = true
+    @CurrentTheme private var theme
+    @StageCaptionSetting private var showsCaption
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -259,7 +257,7 @@ private struct StageControls: View {
             }
             .help("Phone frames around every phone")
             Button { recording ? store.stopAllRecordings() : store.startAllRecordings() } label: {
-                HUDLabel(title: recording ? "Stop" : "Record", systemImage: recording ? "stop.fill" : "record.circle", fill: Brand.red)
+                HUDLabel(title: recording ? "Stop" : "Record", systemImage: recording ? "stop.fill" : "record.circle", fill: theme.red)
             }
             .help(recording ? "Stop all recordings" : "Record every phone")
             Menu {
@@ -280,7 +278,7 @@ private struct StageControls: View {
         }
         .buttonStyle(.plain)
         .padding(5)
-        .background(Color(hex: 0x141E2D).opacity(0.85), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(theme.panel.opacity(0.85), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.06)))
         .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
         .fixedSize()
@@ -293,14 +291,15 @@ private struct HUDLabel: View {
     let systemImage: String
     var isOn = false
     var fill: Color? = nil
+    @CurrentTheme private var theme
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
             if let title { Text(title) }
         }
-        .font(Brand.font(12, .semibold))
-        .foregroundStyle(fill != nil || isOn ? Color.white : Brand.ice)
+        .font(theme.font(12, .semibold))
+        .foregroundStyle(fill != nil || isOn ? Color.white : theme.controlText)
         .padding(.horizontal, 9)
         .frame(height: 28)
         .background(
@@ -313,6 +312,7 @@ private struct HUDLabel: View {
 
 /// A connected phone in the control bar; its menu has what the wall tile's ⋯ menu had.
 private struct StageSlotChip: View {
+    @CurrentTheme private var theme
     @ObservedObject var slot: Slot
     let store: SlotStore
 
@@ -342,13 +342,13 @@ private struct StageSlotChip: View {
             Button("More in the Wall…") { MainWindow.show() }
         } label: {
             HStack(spacing: 6) {
-                Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
+                Circle().fill(theme.statusColor(slot.state)).frame(width: 8, height: 8)
                 Text(slot.phoneName ?? slot.name).lineLimit(1)
                 if slot.recordingSince != nil {
-                    Text("REC").foregroundStyle(Brand.red)
+                    Text("REC").foregroundStyle(theme.red)
                 }
             }
-            .font(Brand.font(12, .semibold))
+            .font(theme.font(12, .semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .frame(height: 28)
@@ -365,20 +365,21 @@ private struct StageSlotChip: View {
 
 /// Slots without a phone, along the bottom while the controls show.
 private struct WaitingPills: View {
+    @CurrentTheme private var theme
     let slots: [Slot]
 
     var body: some View {
         HStack(spacing: 8) {
             ForEach(slots) { slot in
                 HStack(spacing: 7) {
-                    Circle().fill(stageDotColor(slot.state)).frame(width: 7, height: 7)
-                    Text(slot.name).font(Brand.font(12, .semibold))
-                    Text(stageStatus(slot.state)).font(Brand.font(11)).opacity(0.7)
+                    Circle().fill(theme.statusColor(slot.state)).frame(width: 7, height: 7)
+                    Text(slot.name).font(theme.font(12, .semibold))
+                    Text(stageStatus(slot.state)).font(theme.font(11)).opacity(0.7)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 11)
                 .frame(height: 26)
-                .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.75)))
+                .background(Capsule().fill(theme.panel.opacity(0.75)))
             }
         }
     }
@@ -387,60 +388,62 @@ private struct WaitingPills: View {
 /// The Stage before any phone is mirroring: how to connect, slot by slot. The meeting may see
 /// this, so it reads as a friendly "about to start" screen.
 private struct StageEmptyState: View {
+    @CurrentTheme private var theme
     let slots: [Slot]
 
     var body: some View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
                 Text("Ready for phones")
-                    .font(Brand.font(28, .bold))
+                    .font(theme.font(28, .bold))
                 Text("Each phone appears here as it connects.")
-                    .font(Brand.font(15))
+                    .font(theme.font(15))
                     .opacity(0.7)
             }
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(slots) { slot in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
+                        Circle().fill(theme.statusColor(slot.state)).frame(width: 8, height: 8)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(slot.name).font(Brand.font(14, .semibold))
+                            Text(slot.name).font(theme.font(14, .semibold))
                             Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast")
-                                .font(Brand.font(12))
+                                .font(theme.font(12))
                                 .opacity(0.65)
                         }
                     }
                 }
             }
             .padding(16)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(hex: 0x141E2D).opacity(0.45)))
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.panel.opacity(0.45)))
         }
         .foregroundStyle(.white)
         .padding()
     }
 }
 
-/// The strip along the stage's bottom: "Live demo · Tom's iPhone & Zebra TC58", and the
-/// official logo on its own at the right (the brand guide wants clear space around it).
+/// The strip along the stage's bottom: "Live demo · Tom's iPhone & Zebra TC58", and the theme's
+/// logo on its own at the right (the Branded brand guide wants clear space around it).
 private struct StageCaption: View {
+    @CurrentTheme private var theme
     let phones: [Slot]
     let height: CGFloat
 
     var body: some View {
         HStack(spacing: height * 0.3) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(Brand.red)
+                .fill(theme.red)
                 .frame(width: 4, height: height * 0.5)
             Text("Live demo")
-                .font(Brand.font(height * 0.36, .bold))
+                .font(theme.font(height * 0.36, .bold))
             if !names.isEmpty {
                 Text("· \(names)")
-                    .font(Brand.font(height * 0.36))
+                    .font(theme.font(height * 0.36))
                     .opacity(0.75)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             Spacer(minLength: height)
-            if let logo = Brand.whiteLogo {
+            if let logo = theme.logo {
                 Image(nsImage: logo)
                     .resizable()
                     .interpolation(.high)

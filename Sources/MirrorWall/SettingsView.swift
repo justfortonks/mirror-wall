@@ -11,6 +11,9 @@ struct SettingsView: View {
     @AppStorage(SaveFolders.Kind.recordings.key) private var recordingsPath = ""
     @AppStorage(SaveFolders.Kind.screenshots.key) private var screenshotsPath = ""
     @AppStorage(Updater.channelKey) private var updateChannel = UpdateChannel.stable.rawValue
+    @AppStorage(Theme.key) private var theme = Theme.standard.rawValue
+    @AppStorage(SlotStore.opensToStageKey) private var opensToStage = false
+    @AppStorage(SlotStore.addsPhonesToStageKey) private var addsPhonesToStage = false
 
     var body: some View {
         TabView {
@@ -25,6 +28,20 @@ struct SettingsView: View {
                     Text("While mirroring")
                 } footer: {
                     Text("Awake also covers recording, and ends once no phone is mirroring. Closing the lid or choosing Sleep still works. With the menu bar icon, closing the wall's window leaves Mirror Wall running, so phones keep mirroring to their own windows and OBS; quit from the icon's menu or with ⌘Q.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Picker("Theme", selection: $theme) {
+                        ForEach(Theme.allCases) { theme in
+                            Text(theme.title).tag(theme.rawValue)
+                        }
+                    }
+                } header: {
+                    Text("Look")
+                } footer: {
+                    Text("Changes the colors and type of the wall and the Stage. Branded uses the Brand Blue wall, brand status colors, Barlow and the hex pattern, and turns on the Stage's \"Live demo\" caption bar, with the Branded logo if it's been added to the app. Phones' pictures, recordings and the OBS feed look the same in every theme.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -98,6 +115,17 @@ struct SettingsView: View {
                     Text("Phone bezels")
                 } footer: {
                     Text("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings and screenshots stay unframed; the OBS (Syphon) feed does too unless a slot's ⋯ menu › Phone Bezel › In the OBS Feed is on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Toggle("Open to the Stage when Mirror Wall starts", isOn: $opensToStage)
+                    Toggle("Put phones on the Stage as they connect", isOn: $addsPhonesToStage)
+                } header: {
+                    Text("Stage")
+                } footer: {
+                    Text("Opening to the Stage keeps the wall closed at launch, and clicking the Dock icon brings back the Stage; the wall is still in Window › Show Wall. A phone taken off the Stage stays off until it reconnects.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

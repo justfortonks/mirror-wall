@@ -203,11 +203,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SlotStore.stopLeftoverReceivers()
         store.startAll()
         store.restoreOwnWindows()
-        // Stage-first: open straight to the Stage. SwiftUI opens the wall on its own at launch, so
-        // tuck it away once it's up; it's still in Window › Show Wall.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [store] in
-            MainWindow.hide()
-            store.showStage()
+        // Settings › Wall › Stage › "Open to the Stage": SwiftUI opens the wall on its own at
+        // launch, so tuck it away once it's up; it's still in Window › Show Wall.
+        if Self.opensToStage {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [store] in
+                MainWindow.hide()
+                store.showStage()
+            }
         }
     }
 
@@ -242,11 +244,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Clicking the Dock icon brings back the main window, even when it's minimized and slots'
-    /// own windows are open.
-    /// Clicking the Dock icon brings back the Stage, the window being shared, not the wall.
+    /// own windows are open. With "Open to the Stage" on, it brings back the Stage instead.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        store.showStage()
+        if Self.opensToStage { store.showStage() } else { MainWindow.show() }
         return false
+    }
+
+    private static var opensToStage: Bool {
+        UserDefaults.standard.bool(forKey: SlotStore.opensToStageKey)
     }
 
     /// Closing the wall quits Mirror Wall, unless its menu bar icon is there to bring it back.
