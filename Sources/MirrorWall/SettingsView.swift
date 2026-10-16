@@ -182,7 +182,7 @@ struct SettingsView: View {
                 } header: {
                     Text("PIN for events")
                 } footer: {
-                    Text("For trade shows and shared networks: an iPhone has to enter this code before it can mirror. The Stage shows it while you hold ⌥. Changing it restarts the slots. Android phones using Mirror Wall Cast don't ask for it.")
+                    Text("For trade shows and shared networks: an iPhone has to enter this code before it can mirror. The Stage shows it with its controls (press C on the Stage). Changing it restarts the slots. Android phones using Mirror Wall Cast don't ask for it.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

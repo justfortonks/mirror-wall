@@ -86,9 +86,10 @@ final class StageWindow: NSObject, NSWindowDelegate {
     }
 }
 
-/// Whether the Stage's controls are showing. They show only while ⌥ Option is held (or the
-/// pointer is on them, or they're pinned from the View menu), so the meeting watching the Stage
-/// doesn't see them every time the presenter moves the mouse.
+/// Whether the Stage's controls are showing. They show only while ⌥ Option (Alt on a PC
+/// keyboard) or Control is held, while the pointer is on them, or while pinned (tap C on the
+/// Stage, or View › Show Stage Controls), so the meeting watching the Stage doesn't see them
+/// every time the presenter moves the mouse.
 @MainActor
 final class StageControlsPresence: ObservableObject {
     static let shared = StageControlsPresence()
@@ -103,12 +104,33 @@ final class StageControlsPresence: ObservableObject {
     private var lingerTask: Task<Void, Never>?
     private var monitor: Any?
 
+    private var keyMonitor: Any?
+
     func start() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let held = event.modifierFlags.contains(.option)
+            let held = !event.modifierFlags.intersection([.option, .control]).isEmpty
             MainActor.assumeIsolated { self?.setOptionHeld(held) }
             return event
+        }
+        // On the Stage itself: C pins or unpins the controls, Esc hides pinned ones. Plain keys,
+        // so they work on any keyboard.
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.window?.title == StageWindow.title,
+                  event.modifierFlags.intersection([.command, .option, .control]).isEmpty else { return event }
+            let handled: Bool = MainActor.assumeIsolated {
+                guard let self else { return false }
+                if event.charactersIgnoringModifiers?.lowercased() == "c" {
+                    self.pinned.toggle()
+                    return true
+                }
+                if event.keyCode == 53, self.pinned { // Esc
+                    self.pinned = false
+                    return true
+                }
+                return false
+            }
+            return handled ? nil : event
         }
     }
 
@@ -516,7 +538,7 @@ private struct StageEmptyState: View {
             VStack(spacing: 6) {
                 Text("Demo starting shortly")
                     .font(Brand.font(30, .bold))
-                Text(showsSteps ? "Connect a phone and it appears here." : "Hold ⌥ Option for controls")
+                Text(showsSteps ? "Connect a phone and it appears here." : "Press C or hold Control for controls")
                     .font(Brand.font(14))
                     .opacity(showsSteps ? 0.7 : 0.35)
             }
