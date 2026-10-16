@@ -130,11 +130,11 @@ public sealed record LatestRelease(BuildNumber Number, string Notes, Uri? Downlo
                     }
                 }
             }
-            string name = root.TryGetProperty("name", out var title) && title.ValueKind == JsonValueKind.String ? title.GetString()! : "";
+            string releaseName = root.TryGetProperty("name", out var title) && title.ValueKind == JsonValueKind.String ? title.GetString()! : "";
             DateTimeOffset? published = root.TryGetProperty("published_at", out var date) && date.ValueKind == JsonValueKind.String
                 && DateTimeOffset.TryParse(date.GetString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsedDate)
                 ? parsedDate : null;
-            return new LatestRelease(number, WhatsNew(body), download, TitleIn(name), published);
+            return new LatestRelease(number, WhatsNew(body), download, TitleIn(releaseName), published);
         }
         catch (InvalidOperationException)
         {
