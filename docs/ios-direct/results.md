@@ -116,3 +116,19 @@ handoff/results. This is source/configuration evidence, not a Built or G1 pass.
 
 Hardware: phone A = iPhone 17 Pro Max (user's Apple Account); phone B = iPhone 17e (no Apple Account).
 Developer Mode enabled on both (user report). G1 device run: **not run**.
+
+## Run 2 — G1b device run, phone A (iPhone 17 Pro Max, iOS 27.0.1), 2026-10-16 22:55–23:01Z
+
+Build `25d4ce2`, Personal Team, no cable during run (user report). Log: `2026-10-16T22-55-55Z-66295C3C.jsonl` (kept locally, not in Git).
+
+| Observation | Result |
+| --- | --- |
+| Full-display picker, consent | Pass — filter style `.display`, delivered 588×1280 (pixel format `420f`) |
+| Background entry | Encoder session invalidated ~100 ms after `didEnterBackground` (nil pixel-buffer pool); one recreate after 0.25 s backoff **succeeded in background** |
+| Background duration | ~4 min 13 s continuous (8155→8407 s monotonic) |
+| Progress in background | capture callbacks 1916→12073; encode completed 981→6363 (~21/s avg); sink drained = encoded; encode errors stayed at 1 (the invalidation) |
+| Gaps | Short frame gaps up to ~11 s (e.g. 8393→8404) with no errors; likely static screen content (SCK only delivers changed frames). Needs changing-content control in the 10-min run. |
+| Thermal / memory | nominal throughout; resident memory 80 MB → 49 MB in background |
+| Indicator UI | Dynamic Island capture indicator stayed on while backgrounded. Control Center's indicator was not red. Indicator disappears while the capturing app itself is foreground. Capture state remained "capturing"; encoder "ok" (user report + log). |
+
+Status: **Hardware pass (partial)** for background screen-only capture + H.264 encode on phone A. Still to do for G1 close: 10-min run with continuously changing content, rotation, system stop, lifecycle cycles; phone B (17e, blocked by MDM pairing restriction).
