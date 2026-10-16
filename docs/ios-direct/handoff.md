@@ -36,3 +36,21 @@ Integration remains gated by standalone G4 evidence and recorded G5 review; no c
 macOS 27.0 SDK. Candidate A proceeds. G0 docs committed and pushed to `feat/ios-direct-poc`.
 Next: G1 capture skeleton (Codex), then human device run on A and B. Pending from human:
 exact iPhone models/iOS builds.
+
+## G1-build — 2026-10-16
+
+The authorized G1 prototype is now authored under `prototypes/ios-direct/`: handwritten
+synchronized Xcode project/shared scheme, iPhone sender, local platform-neutral
+Shared package with five XCTest methods, and run/export instructions. Only the three
+requested `.gitignore` lines and G1-build appendices here/results accompany it. No
+networking, entitlement, production change, signing attempt, commit or push.
+
+**Blocked validation:** both requested commands were attempted without workaround.
+`swift test` failed at manifest evaluation with `sandbox-exec: sandbox_apply: Operation
+not permitted`; `xcodebuild` failed local-package resolution with module-cache and
+manifest-diagnostic writes denied. No sources compiled and no tests executed; exact
+errors are in results. Static plist/project parsing and scope/whitespace checks pass.
+Claude must rerun both original commands outside the sandbox and resolve any compiler
+errors before calling this Built, then provision/install and perform G1 on A/B.
+No entitlement requirement has been demonstrated; stop/report if provisioning requires
+one. Full-display background capture/encode/stub operation remains unproven.

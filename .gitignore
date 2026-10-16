@@ -13,3 +13,6 @@ windows/**/obj/
 windows/dist/
 android/.gradle/
 android/local.properties
+!prototypes/ios-direct/IOSDirectPOC.xcodeproj/
+prototypes/ios-direct/.build-xcode/
+prototypes/ios-direct/Shared/.build/
