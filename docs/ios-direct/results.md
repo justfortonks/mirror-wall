@@ -237,3 +237,17 @@ Build `7750fce`. Topology as run 5 (phone unassociated, Mac on home Wi-Fi). Stre
 | User observation | Very choppy, frequent blinking; latency clocks "pretty close"; rotated picture correct but Mac window did not rotate; latency clock had no exit |
 
 Diagnosis (Claude): receiver backlog policy too strict and recovery blanks the layer; fix in G3a-fix (decode every frame, display newest, no blanking, optional 100 ms smoothing, rotating window, clock exit). Background-send question answered positively.
+
+## Run 9 — G3a-fix stream, phone A → Mac window, direct, 2026-10-17 02:23–02:30Z
+
+Build `a7ebbc0`. Same topology as run 8. ~4.5 min immediate presentation, ~0.5 min smoothing (100 ms).
+
+| Item | Result |
+| --- | --- |
+| Totals (Mac) | received 4,344, decoded 4,344, displayed 4,333, display-skipped 11, **dropped 0, decode errors 0, keyframe requests 0, recoveries 0** |
+| Immediate mode (active seconds) | displayed fps median **30**, mean 24.8, p10 10; inter-arrival p95 ~44 ms; decode queue depth max 4 |
+| Smooth 100 ms (29 s) | displayed fps median 30, mean 29.6, p10 28; queue depth max 2 |
+| User observation | Not choppy or blinking, much smoother. Smoothing marginally better but the extra delay is noticeable watching phone and Mac side by side; user prefers it off. Picture content correct when rotated, but window stays portrait. |
+| Orientation signal | Every frame reported `orientation=1`, buffer always 588×1280 — iOS ScreenCaptureKit delivers panel-oriented pixels; landscape apps appear rotated inside the portrait frame. No rotation signal found in the fields read so far. |
+
+Status: single-phone live stream over direct link **Hardware pass (functional)** with Mac on home Wi-Fi. Open: rotation signal/window rotation, optical latency measurement, Mac-offline stream, 30-min soak, pairing (G3b), two phones (blocked on 17e).
