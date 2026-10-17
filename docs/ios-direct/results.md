@@ -132,3 +132,23 @@ Build `25d4ce2`, Personal Team, no cable during run (user report). Log: `2026-10
 | Indicator UI | Dynamic Island capture indicator stayed on while backgrounded. Control Center's indicator was not red. Indicator disappears while the capturing app itself is foreground. Capture state remained "capturing"; encoder "ok" (user report + log). |
 
 Status: **Hardware pass (partial)** for background screen-only capture + H.264 encode on phone A. Still to do for G1 close: 10-min run with continuously changing content, rotation, system stop, lifecycle cycles; phone B (17e, blocked by MDM pairing restriction).
+
+## Run 3 — G1 10-minute background run, phone A (iPhone 17 Pro Max), 2026-10-17 00:32–00:43Z
+
+Build `25d4ce2`. No cable. Changing content (user), two rotations + Control Center (user report), stopped from Dynamic Island.
+
+| Metric (background interval only) | Result |
+| --- | --- |
+| Continuous background time | **609 s (10 min 9 s)**, appState `background` throughout |
+| Capture → paced → encoded → sink | 22,112 valid frames → 18,053 paced → 17,958 encoded → 17,955 drained |
+| Encoded frame rate | **29.5 fps** mean; per-second median 30, p10 29; 1 second below 5 fps |
+| Longest stretch with no encoded output | **1.0 s** |
+| Encoder errors | 1 (expected invalidation at background entry; recreated after 0.25 s backoff, in background) |
+| Drops | source 87, sink 3; sink queue stayed at 0 bytes / 0 ms |
+| Encoded bitrate | 0.65 Mbit/s mean at 6 Mbit/s target (screen content compresses far below target) |
+| Keyframes | 608 (~1/s as configured) |
+| Thermal / memory / battery | nominal; 45–50 MB resident; battery 50% → 50% (unplugged) |
+| Stop | `SCStreamErrorDomain -3817 "The user stopped the stream"` → `stopped by system`, encoder `unavailable: stopped` |
+| Rotation | Delivered size stayed 588×1280 through both rotations; whether rotated content is correct is **unverified** (needs a visible image, G3) |
+
+**G1 gate (Claude, phone A): Hardware pass.** Screen-only `screen-capture` background mode + full-display picker + VideoToolbox H.264 sustains ~30 fps for 10 minutes in the background on a free Personal Team build, provided the app recreates the compression session after the background-entry invalidation. Open: phone B (17e, MDM pairing block), rotation correctness, lock/Low Power/interruptions characterization, 20-cycle lifecycle.
