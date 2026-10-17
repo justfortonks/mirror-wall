@@ -13,6 +13,9 @@ public final class RadioReceiver {
     private let queue = DispatchQueue(label: "iosdirect.radio.listener")
     private var listener: NWListener?
     private var timer: DispatchSourceTimer?
+    private var listenerGeneration = UUID()
+    private var restartWork: DispatchWorkItem?
+    private var retryDelay = 0.5
     private var channels: [UUID: RadioChannel] = [:]
     private var pending = Set<UUID>()
     private var active: [UUID: UUID] = [:] // Session -> install UUID (self-reported, not G3 identity).
@@ -31,36 +34,67 @@ public final class RadioReceiver {
     public func start(code: RadioCode, advertise: Bool = true, loopbackOnly: Bool = false) {
         queue.async { [self] in
             stopOnQueue(); let run = generation
-            do {
-                let parameters = RadioTLS.parameters(code: code)
-                if loopbackOnly { parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any) }
-                let listener = try NWListener(using: parameters, on: .any)
-                self.listener = listener
-                if advertise { listener.service = NWListener.Service(name: label, type: RadioTLS.service) }
-                listener.stateUpdateHandler = { [weak self] state in
-                    guard let self, self.generation == run else { return }
-                    self.state = String(describing: state); self.event("listener.state", self.state)
-                    self.onState?(self.state, self.listener?.port)
-                    if case .failed = state {
-                        let failure = self.state; self.stopOnQueue()
-                        self.state = failure; self.onState?(failure, nil)
-                    }
-                }
-                listener.serviceRegistrationUpdateHandler = { [weak self] change in self?.event("listener.service", String(describing: change)) }
-                listener.newConnectionHandler = { [weak self] connection in self?.accept(connection, run: run) }
-                let timer = DispatchSource.makeTimerSource(queue: queue)
-                timer.schedule(deadline: .now() + 1, repeating: 1)
-                timer.setEventHandler { [weak self] in
-                    guard let self else { return }
-                    self.event("listener.sample", "state=\(self.state) active=\(self.active.count) pending=\(self.pending.count) thermal=\(radioThermalState()) memoryMB=\(radioMemoryMB().map { String($0) } ?? "unavailable")")
-                }
-                self.timer = timer; timer.resume(); listener.start(queue: queue)
-            } catch { state = "failed: \(error)"; event("listener.error", state); onState?(state, nil) }
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 1, repeating: 1)
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                self.event("listener.sample", "state=\(self.state) active=\(self.active.count) pending=\(self.pending.count) thermal=\(radioThermalState()) memoryMB=\(radioMemoryMB().map { String($0) } ?? "unavailable")")
+            }
+            self.timer = timer; timer.resume()
+            createListener(code: code, advertise: advertise, loopbackOnly: loopbackOnly, run: run)
         }
+    }
+    private func createListener(code: RadioCode, advertise: Bool, loopbackOnly: Bool, run: UUID) {
+        guard generation == run else { return }
+        listenerGeneration = UUID(); let attempt = listenerGeneration
+        do {
+            let parameters = RadioTLS.parameters(code: code)
+            if loopbackOnly { parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any) }
+            let listener = try NWListener(using: parameters, on: .any)
+            self.listener = listener
+            if advertise { listener.service = NWListener.Service(name: label, type: RadioTLS.service) }
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                guard let self, self.generation == run, self.listenerGeneration == attempt else { return }
+                self.state = String(describing: state); self.event("listener.state", self.state)
+                self.onState?(self.state, listener?.port)
+                if case .ready = state { self.retryDelay = 0.5 }
+                if case .failed = state {
+                    self.restartListener(code: code, advertise: advertise, loopbackOnly: loopbackOnly, run: run)
+                }
+            }
+            listener.serviceRegistrationUpdateHandler = { [weak self] change in
+                guard let self, self.generation == run, self.listenerGeneration == attempt else { return }
+                self.event("listener.service", String(describing: change))
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                guard let self, self.listenerGeneration == attempt else { connection.cancel(); return }
+                self.accept(connection, run: run)
+            }
+            listener.start(queue: queue)
+        } catch {
+            state = "failed: \(error)"; event("listener.error", state); onState?(state, nil)
+            restartListener(code: code, advertise: advertise, loopbackOnly: loopbackOnly, run: run)
+        }
+    }
+    private func restartListener(code: RadioCode, advertise: Bool, loopbackOnly: Bool, run: UUID) {
+        listenerGeneration = UUID()
+        listener?.stateUpdateHandler = nil; listener?.cancel(); listener = nil
+        restartWork?.cancel()
+        let delay = retryDelay; retryDelay = min(4, delay * 2)
+        event("listener.restart", "delay=\(delay)s reason=\(state); keeping test credential")
+        state = "restarting in \(delay) s"; onState?(state, nil)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.generation == run else { return }
+            self.restartWork = nil
+            self.createListener(code: code, advertise: advertise, loopbackOnly: loopbackOnly, run: run)
+        }
+        restartWork = work; queue.asyncAfter(deadline: .now() + delay, execute: work)
     }
     public func stop() { queue.async { self.stopOnQueue() } }
     private func stopOnQueue() {
-        generation = UUID(); timer?.cancel(); timer = nil; listener?.cancel(); listener = nil
+        generation = UUID(); listenerGeneration = UUID(); retryDelay = 0.5
+        restartWork?.cancel(); restartWork = nil
+        timer?.cancel(); timer = nil; listener?.stateUpdateHandler = nil; listener?.cancel(); listener = nil
         event("listener.stopped")
         for (id, channel) in channels { channel.queue.async { channel.close("receiver stopped / new code") }; onRemoved?(id) }
         channels.removeAll(); pending.removeAll(); active.removeAll(); state = "stopped"; onState?(state, nil)
@@ -78,15 +112,16 @@ public final class RadioReceiver {
         channel.onMessage = { [weak self, weak channel] message in
             guard let self, let channel else { return }
             if !session.helloSeen {
-                guard case let .hello(install, label, version, rate) = message else { throw RadioError.protocolViolation("hello required") }
+                guard case let .hello(install, label, version, rate, window) = message else { throw RadioError.protocolViolation("hello required") }
                 session.helloSeen = true; channel.snapshot.label = label; channel.snapshot.installID = install
+                channel.snapshot.windowMode = window; channel.snapshot.windowBytes = window.bytes(mbit: Int(rate))
                 self.queue.async {
                     guard self.generation == run, self.pending.contains(id), self.channels[id] === channel else { return }
                     let rejection: String?
                     if version != 1 { rejection = "version" }
                     else if self.active.count >= 2 { rejection = "capacity" }
                     else if self.active.values.contains(install) { rejection = "busy" }
-                    else if ![2, 6, 12, 24].contains(rate) { rejection = "version" }
+                    else if !RadioPacer.rates.contains(Int(rate)) { rejection = "version" }
                     else { rejection = nil }
                     if let rejection {
                         self.event("session.reject", "session=\(id) reason=\(rejection)")
@@ -114,6 +149,17 @@ public final class RadioReceiver {
                 channel.snapshot.deliveredBytes += UInt64(payload.count)
                 channel.send(.ack(seq: seq, time: time, total: channel.snapshot.deliveredBytes))
                 self.onData?(id, payload.count)
+            case .stats(let json):
+                let stats = try JSONDecoder().decode(RadioSnapshot.self, from: json)
+                guard stats.id == id, stats.installID == channel.snapshot.installID,
+                      stats.windowMode == channel.snapshot.windowMode, stats.windowBytes == channel.snapshot.windowBytes,
+                      stats.sendBlockedMS.isFinite, stats.sendBlockedMS >= 0,
+                      let blocked = stats.sendBlockedMSPerSecond, blocked.isFinite, blocked >= 0 else {
+                    throw RadioError.protocolViolation("invalid sender stats")
+                }
+                // Sender-reported pacing counters; throughput/path/RTT stay local.
+                channel.snapshot.sendBlockedMS = stats.sendBlockedMS
+                channel.snapshot.sendBlockedMSPerSecond = blocked
             case .bye(let reason): channel.close("peer bye: \(reason)")
             default: throw RadioError.protocolViolation("unexpected receiver message")
             }
@@ -141,5 +187,5 @@ public final class RadioReceiver {
             channel.queue.async { channel.close("5 s TLS/hello timeout") }
         }
     }
-    deinit { timer?.cancel(); listener?.cancel(); for channel in channels.values { channel.connection.cancel() } }
+    deinit { restartWork?.cancel(); timer?.cancel(); listener?.stateUpdateHandler = nil; listener?.cancel(); for channel in channels.values { channel.connection.cancel() } }
 }

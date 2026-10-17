@@ -60,6 +60,7 @@ final class RadioTests: XCTestCase {
         let data = SyntheticPayload.make(seq: 7, count: RadioFrame.maxData)
         let messages: [RadioMessage] = [
             .hello(install: UUID(), label: "same phone 🧪", version: 1, rate: 12),
+            .hello(install: UUID(), label: "probe", version: 1, rate: 48, window: .capacityProbe),
             .welcome(session: UUID(), label: "Mac"), .reject("capacity"),
             .data(seq: 7, time: 123, payload: data, crc: RadioCRC32.checksum(data)),
             .ack(seq: 7, time: 123, total: 65_516), .ping(88), .pong(88), .stats(Data("{}".utf8)), .bye("stop")]
@@ -87,22 +88,81 @@ final class RadioTests: XCTestCase {
         XCTAssertNotEqual(try RadioCode(bytes: Data(repeating: 1, count: 10)).psk, code.psk)
         let random = try RadioCode.generate(); XCTAssertEqual(try RadioCode(random.formatted).bytes, random.bytes)
     }
-    func testRatePacerNoCatchupAndOutstandingLimit() {
-        for rate in [2, 6, 12, 24] {
-            var p = RadioPacer(mbit: rate)
-            XCTAssertEqual(p.cap, min(150_000, rate * 12_500))
-            XCTAssertTrue(p.canSend(now: 1, outstanding: 0, sending: false))
-            p.sent(now: 1, payloadBytes: p.chunk)
-            XCTAssertFalse(p.canSend(now: 1.00001, outstanding: 0, sending: false))
-            XCTAssertTrue(p.canSend(now: 5, outstanding: 0, sending: false))
-            p.sent(now: 5, payloadBytes: p.chunk)
-            XCTAssertFalse(p.canSend(now: 5.00001, outstanding: 0, sending: false))
-            XCTAssertFalse(p.canSend(now: 6, outstanding: p.cap, sending: false))
-            XCTAssertFalse(p.canSend(now: 6.25, outstanding: p.cap, sending: false))
-            XCTAssertEqual(p.blockedMS(now: 6.25), 250, accuracy: 0.001)
-            XCTAssertTrue(p.canSend(now: 6.5, outstanding: 0, sending: false))
-            XCTAssertEqual(p.blockedMS(now: 7), 500, accuracy: 0.001)
+    func testPacerAchievesTargetRateWithTimerLateness() {
+        // 10 s of virtual time; the sender wakes at the pacer's deadline plus 0-4 ms of jitter.
+        var rng = SystemRandomNumberGenerator()
+        for rate in [6, 12, 24, 48] {
+            var p = RadioPacer(mbit: rate, window: .capacityProbe)
+            var now = 0.0, sent = 0
+            while now < 10 {
+                if p.canSend(now: now, outstanding: 0, sending: false) { p.sent(now: now, payloadBytes: p.chunk); sent += p.chunk }
+                now += p.delay(now: now) + Double.random(in: 0...0.004, using: &rng)
+            }
+            let achieved = Double(sent) * 8 / 10 / 1_000_000
+            XCTAssertEqual(achieved, Double(rate), accuracy: Double(rate) * 0.02, "rate \(rate)")
         }
+    }
+    func testRatePacerBoundedCreditAndOutstandingLimit() {
+        for rate in RadioPacer.rates {
+            for window in RadioWindowMode.allCases {
+                var p = RadioPacer(mbit: rate, window: window)
+                XCTAssertEqual(p.cap, window == .latency ? min(150_000, rate * 12_500) : 2_097_152)
+                XCTAssertTrue(p.canSend(now: 1, outstanding: 0, sending: false))
+                p.sent(now: 1, payloadBytes: p.chunk)
+                XCTAssertFalse(p.canSend(now: 1.00001, outstanding: 0, sending: false))
+                XCTAssertTrue(p.canSend(now: 5, outstanding: 0, sending: false))
+                p.sent(now: 5, payloadBytes: p.chunk)
+                // After the first packet, a multi-second stall permits only the
+                // bounded time credit, regardless of how long the sender was idle.
+                let interval = Double(p.chunk) / p.bytesPerSecond
+                let creditLimit = max(interval, 0.010)
+                let maxCatchupPackets = Int(floor(creditLimit / interval))
+                var catchupPackets = 0
+                while p.canSend(now: 5, outstanding: 0, sending: false), catchupPackets <= maxCatchupPackets {
+                    p.sent(now: 5, payloadBytes: p.chunk)
+                    catchupPackets += 1
+                }
+                XCTAssertEqual(catchupPackets, maxCatchupPackets, "Retain the available bounded credit")
+                XCTAssertLessThanOrEqual(Double(catchupPackets) * interval, creditLimit + 1e-9)
+                XCTAssertFalse(p.canSend(now: 5.00001, outstanding: 0, sending: false))
+                XCTAssertFalse(p.canSend(now: 6, outstanding: p.cap, sending: false))
+                XCTAssertFalse(p.canSend(now: 6.25, outstanding: p.cap, sending: false))
+                XCTAssertEqual(p.blockedMS(now: 6.25), 250, accuracy: 0.001)
+                XCTAssertTrue(p.canSend(now: 6.5, outstanding: 0, sending: false))
+                XCTAssertEqual(p.blockedMS(now: 7), 500, accuracy: 0.001)
+                p.sent(now: 6.5, payloadBytes: p.chunk)
+                XCTAssertFalse(p.canSend(now: 6.50001, outstanding: 0, sending: false), "No catch-up after backpressure")
+            }
+        }
+    }
+    func testTenSecondPayloadRateWithTimerQuantizationAndWork() {
+        for rate in RadioPacer.rates {
+            for window in RadioWindowMode.allCases {
+                var pacer = RadioPacer(mbit: rate, window: window)
+                var now = 1.0, bytes = 0, packet = 0
+                let end = now + 10
+                while now < end {
+                    XCTAssertTrue(pacer.canSend(now: now, outstanding: 0, sending: false))
+                    bytes += pacer.chunk; pacer.sent(now: now, payloadBytes: pacer.chunk)
+                    packet += 1
+                    // Payload/CRC/send completion work and a timer with 1 ms
+                    // granularity + varying dispatch lateness; no network blocking.
+                    now += 0.0002
+                    let deadline = now + max(0.0001, pacer.delay(now: now))
+                    now = ceil(deadline * 1000) / 1000 + Double(packet % 4) * 0.0001
+                }
+                let achieved = Double(bytes) * 8 / 10 / 1e6
+                XCTAssertEqual(achieved, Double(rate), accuracy: Double(rate) * 0.02,
+                               "\(rate) Mbit/s, \(window.label)")
+            }
+        }
+    }
+    func testOriginalHelloDefaultsToLatencyAndInvalidWindowFails() throws {
+        let hello = RadioMessage.hello(install: UUID(), label: "G2", version: 1, rate: 12)
+        let frame = try hello.frame()
+        XCTAssertEqual(try RadioMessage(RadioFrame(.hello, Data(frame.body.dropLast()))), hello)
+        var invalid = frame.body; invalid[invalid.count - 1] = 2
+        XCTAssertThrowsError(try RadioMessage(RadioFrame(.hello, invalid)))
     }
     func testBlockedTimeStartsAtPacingDeadlineEvenWithoutPolling() {
         var pacer = RadioPacer(mbit: 2)

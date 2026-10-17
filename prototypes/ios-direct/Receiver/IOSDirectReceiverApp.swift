@@ -68,6 +68,7 @@ struct IOSDirectReceiverApp: App {
                             Text("\(m.label) · \(m.id.uuidString.prefix(8)) · \(m.state)").font(.headline)
                             Text(String(format: "Delivered %.2f Mbit/s · RTT p50 %@ / p95 %@ ms · gaps %llu · CRC %llu",
                                 m.deliveredMbit, number(m.rttMedianMS), number(m.rttP95MS), m.seqGaps, m.crcFailures))
+                            Text("Window: \(m.windowMode?.label ?? "pending") · \(m.windowBytes ?? 0) bytes · sender blocked \(number(m.sendBlockedMSPerSecond)) ms / s")
                             Text(m.path?.availableInterfaces.joined(separator: ", ") ?? "path unavailable").font(.caption)
                         }.textSelection(.enabled)
                     }

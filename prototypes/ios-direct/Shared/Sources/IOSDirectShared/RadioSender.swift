@@ -11,33 +11,48 @@ public final class RadioSender {
     private var outstanding: [UInt64: Outstanding] = [:]
     private var lastAck: UInt64?
     private var total: UInt64 = 0
+    private var welcomed = false
+    private var lastBlockedMS: Double = 0
+    private var lastPacerSample = radioNow()
     public var onState: ((String) -> Void)?
     public var onSample: ((RadioSnapshot) -> Void)?
     public var onReceiverStats: ((RadioSnapshot) -> Void)?
-    public init(endpoint: NWEndpoint, code: RadioCode, rate: Int, install: UUID, label: String, log: RadioLog? = nil) {
+    public init(endpoint: NWEndpoint, code: RadioCode, rate: Int, window: RadioWindowMode = .latency, install: UUID, label: String, log: RadioLog? = nil) {
         channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)), log: log)
-        pacer = RadioPacer(mbit: rate)
+        pacer = RadioPacer(mbit: rate, window: window)
         channel.snapshot.installID = install; channel.snapshot.label = String(label.prefix(60))
+        channel.snapshot.windowMode = window; channel.snapshot.windowBytes = pacer.cap
+        channel.snapshot.sendBlockedMSPerSecond = 0
         channel.onReady = { [weak self] in
             guard let self else { return }
             self.onState?("TLS ready; awaiting welcome")
-            self.channel.send(.hello(install: install, label: String(label.prefix(60)), version: 1, rate: UInt32(rate)))
+            self.channel.send(.hello(install: install, label: String(label.prefix(60)), version: 1, rate: UInt32(rate), window: window))
         }
         channel.onMessage = { [weak self] in try self?.receive($0) }
         channel.onClosed = { [weak self] reason in
             guard let self else { return }; self.timer?.cancel(); self.timer = nil
             self.outstanding.removeAll(); self.channel.snapshot.outstandingBytes = 0
-            let text = self.channel.snapshot.tlsVersion == nil && reason != "stopped" ? "wrong code / handshake failed: \(reason)" : reason
+            let text = !self.welcomed && reason != "stopped" && !reason.hasPrefix("reject ")
+                ? "Wrong code or handshake failed: \(reason)" : reason
+            if text != reason { self.channel.event("sender.handshakeFailed", text) }
             self.onState?(text)
         }
         channel.onSample = { [weak self] in self?.onSample?($0) }
-        channel.onTick = { [weak self] in self?.pump(); self?.samplePacer() }
+        channel.onTick = { [weak self] in
+            guard let self else { return }
+            self.pump(); self.samplePacer()
+            if self.channel.active, let json = try? JSONEncoder().encode(self.channel.snapshot) {
+                self.channel.send(.stats(json))
+            }
+        }
     }
     public func start() {
         channel.start()
-        channel.queue.asyncAfter(deadline: .now() + 10) { [weak self] in
+        // NWConnection may remain preparing while racing paths after a peer TLS
+        // rejection. Bound that silent case as well as handling explicit errors.
+        channel.queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self, !self.channel.active, !self.channel.closed else { return }
-            self.channel.close("TLS/welcome timeout")
+            self.channel.close("TLS/welcome deadline (1.5 s)")
         }
     }
     public func stop() {
@@ -51,7 +66,8 @@ public final class RadioSender {
         switch message {
         case let .welcome(id, _):
             guard !channel.active else { throw RadioError.protocolViolation("duplicate welcome") }
-            channel.active = true; channel.snapshot.id = id; onState?("sending synthetic payload")
+            welcomed = true; channel.active = true; channel.snapshot.id = id
+            lastPacerSample = radioNow(); onState?("sending synthetic payload")
             let timer = DispatchSource.makeTimerSource(queue: channel.queue)
             timer.schedule(deadline: .now(), leeway: .microseconds(100))
             timer.setEventHandler { [weak self] in self?.pump() }; self.timer = timer; timer.resume()
@@ -95,6 +111,12 @@ public final class RadioSender {
         seq += 1; sending = true; pacer.sent(now: now, payloadBytes: payload.count)
         channel.send(message) { [weak self] in self?.sending = false; self?.pump() }
     }
-    private func samplePacer() { channel.snapshot.sendBlockedMS = pacer.blockedMS(now: Double(radioNow()) / 1e9) }
+    private func samplePacer() {
+        let now = radioNow(), blocked = pacer.blockedMS(now: Double(now) / 1e9)
+        let seconds = Double(now - lastPacerSample) / 1e9
+        channel.snapshot.sendBlockedMS = blocked
+        if seconds > 0 { channel.snapshot.sendBlockedMSPerSecond = (blocked - lastBlockedMS) / seconds }
+        lastBlockedMS = blocked; lastPacerSample = now
+    }
     deinit { timer?.cancel(); channel.connection.cancel() }
 }

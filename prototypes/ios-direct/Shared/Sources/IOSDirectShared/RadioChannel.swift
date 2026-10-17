@@ -49,10 +49,15 @@ public final class RadioChannel {
                 }
                 self.event("tls.negotiated", "version=\(version.rawValue) cipher=\(cipher.rawValue)")
                 self.snapshot.path = self.connection.currentPath.map(RadioPath.init)
-                self.onReady?(); self.receive()
+                self.onReady?()
             // A TLS error (e.g. wrong code) leaves the connection waiting to retry; treat it as final.
             case .waiting(let error):
-                if case .tls = error { self.close("handshake failed: \(error)") }
+                switch error {
+                case .tls: self.close("handshake failed: \(error)")
+                case .posix(.ECONNRESET), .posix(.ECONNABORTED), .posix(.EPIPE), .posix(.ENOTCONN):
+                    if !self.active { self.close("handshake peer closed: \(error)") }
+                default: break
+                }
             case .failed(let error): self.close("connection failed: \(error)")
             case .cancelled: self.close("connection cancelled")
             default: break
@@ -79,6 +84,9 @@ public final class RadioChannel {
         }
         self.timer = timer; timer.resume()
         connection.start(queue: queue)
+        // Register before ready so a peer close/reset while negotiating TLS can
+        // complete this receive instead of waiting for a welcome timeout.
+        receive()
     }
     private func receive() {
         guard !closed, !draining else { return }
