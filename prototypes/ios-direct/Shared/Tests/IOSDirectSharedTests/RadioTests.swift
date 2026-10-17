@@ -18,7 +18,7 @@ final class RadioTests: XCTestCase {
     }
     func testParserRejectsHeaderBeforeBodyAllocation() throws {
         let valid = try RadioMessage.ping(5).frame().encoded()
-        for (offset, byte, reason) in [(0, UInt8(0), "bad magic"), (4, 2, "bad version"), (5, 255, "unknown type")] {
+        for (offset, byte, reason) in [(0, UInt8(0), "bad magic"), (4, 3, "bad version"), (5, 255, "unknown type")] {
             var invalid = valid; invalid[offset] = byte
             var parser = RadioParser()
             XCTAssertThrowsError(try parser.feed(invalid) { _ in XCTFail("invalid frame delivered") }) {

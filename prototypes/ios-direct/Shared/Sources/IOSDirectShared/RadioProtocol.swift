@@ -7,18 +7,23 @@ public enum RadioError: Error, Equatable, CustomStringConvertible {
 
 public enum RadioType: UInt8, CaseIterable {
     case hello = 1, welcome, reject, data, ack, ping, pong, stats, bye
+    case videoConfig, videoFragment, keyframeRequest, videoAck
 }
 
 public struct RadioFrame: Equatable {
     public static let headerSize = 10
     public static let maxBody = 65_536
     public static let maxData = maxBody - 20
+    public let version: UInt8
     public let type: RadioType
     public let body: Data
-    public init(_ type: RadioType, _ body: Data = Data()) { self.type = type; self.body = body }
+    public init(_ type: RadioType, _ body: Data = Data(), version: UInt8 = 1) {
+        self.version = version; self.type = type; self.body = body
+    }
     public func encoded() throws -> Data {
         guard body.count <= Self.maxBody else { throw RadioError.protocolViolation("oversize length") }
-        var result = Data([0x4d, 0x57, 0x50, 0x44, 1, type.rawValue])
+        guard version == 1 || version == 2 else { throw RadioError.protocolViolation("bad version") }
+        var result = Data([0x4d, 0x57, 0x50, 0x44, version, type.rawValue])
         result.put(UInt32(body.count)); result.append(body); return result
     }
 }
@@ -43,7 +48,7 @@ public struct RadioParser {
                     header.append(bytes[offset..<offset + count]); offset += count
                     guard header.count == 10 else { continue }
                     guard header.prefix(4) == Data("MWPD".utf8) else { throw RadioError.protocolViolation("bad magic") }
-                    guard header[4] == 1 else { throw RadioError.protocolViolation("bad version") }
+                    guard header[4] == 1 || header[4] == 2 else { throw RadioError.protocolViolation("bad version") }
                     guard let parsed = RadioType(rawValue: header[5]) else { throw RadioError.protocolViolation("unknown type") }
                     let length: UInt32 = header.integer(at: 6)
                     guard length <= RadioFrame.maxBody else { throw RadioError.protocolViolation("oversize length") }
@@ -52,7 +57,7 @@ public struct RadioParser {
                 let count = min(expected! - body.count, bytes.endIndex - offset)
                 body.append(bytes[offset..<offset + count]); offset += count
                 if body.count == expected! {
-                    let frame = RadioFrame(type!, body)
+                    let frame = RadioFrame(type!, body, version: header[4])
                     header.removeAll(keepingCapacity: true); body = Data(); expected = nil; type = nil
                     try onFrame(frame)
                 }
@@ -75,7 +80,7 @@ extension Data {
     }
 }
 
-private struct BodyReader {
+struct BodyReader {
     let data: Data
     var offset = 0
     mutating func number<T: FixedWidthInteger>() throws -> T {
@@ -92,7 +97,7 @@ private struct BodyReader {
     }
     func end() throws { guard offset == data.count else { throw RadioError.protocolViolation("trailing body bytes") } }
 }
-private extension Data {
+extension Data {
     mutating func text(_ value: String) throws {
         let bytes = Data(value.utf8)
         guard bytes.count <= 256 else { throw RadioError.protocolViolation("text too long") }
@@ -101,7 +106,7 @@ private extension Data {
 }
 
 public enum RadioMessage: Equatable {
-    case hello(install: UUID, label: String, version: UInt8, rate: UInt32, window: RadioWindowMode = .latency)
+    case hello(install: UUID, label: String, version: UInt8, rate: UInt32, window: RadioWindowMode = .latency, mode: RadioMode = .synthetic)
     case welcome(session: UUID, label: String)
     case reject(String)
     case data(seq: UInt64, time: UInt64, payload: Data, crc: UInt32)
@@ -110,12 +115,20 @@ public enum RadioMessage: Equatable {
     case stats(Data)
     case bye(String)
 
-    public func frame() throws -> RadioFrame {
+    case videoConfig(VideoConfig)
+    case videoFragment(VideoFragment)
+    case keyframeRequest(String)
+    case videoAck(seq: UInt64, ptsNs: UInt64, status: VideoDecodeStatus)
+
+    public func frame(version wireVersion: UInt8? = nil) throws -> RadioFrame {
+        var version: UInt8 = wireVersion ?? 1
         var b = Data(); let type: RadioType
         switch self {
-        case let .hello(install, label, version, rate, window):
-            type = .hello; try b.text(install.uuidString); try b.text(label); b.put(version); b.put(rate)
+        case let .hello(install, label, helloVersion, rate, window, mode):
+            version = helloVersion
+            type = .hello; try b.text(install.uuidString); try b.text(label); b.put(helloVersion); b.put(rate)
             b.put(UInt8(window == .latency ? 0 : 1))
+            if helloVersion == 2 { try b.text(mode.rawValue) }
         case let .welcome(session, label): type = .welcome; try b.text(session.uuidString); try b.text(label)
         case .reject(let reason): type = .reject; try b.text(reason)
         case let .data(seq, time, payload, crc):
@@ -125,12 +138,20 @@ public enum RadioMessage: Equatable {
         case .pong(let echo): type = .pong; b.put(echo)
         case .stats(let json): type = .stats; b = json
         case .bye(let reason): type = .bye; try b.text(reason)
+        case .videoConfig(let config): type = .videoConfig; version = 2; b = try config.body()
+        case .videoFragment(let fragment): type = .videoFragment; version = 2; b = try fragment.body()
+        case .keyframeRequest(let reason): type = .keyframeRequest; version = 2; try b.text(reason)
+        case let .videoAck(seq, ptsNs, status):
+            type = .videoAck; version = 2; b.put(seq); b.put(ptsNs); b.put(status.rawValue)
         }
         guard b.count <= RadioFrame.maxBody else { throw RadioError.protocolViolation("oversize length") }
-        return RadioFrame(type, b)
+        return RadioFrame(type, b, version: version)
     }
     public init(_ frame: RadioFrame) throws {
         var r = BodyReader(data: frame.body)
+        if frame.type.rawValue >= RadioType.videoConfig.rawValue, frame.version != 2 {
+            throw RadioError.protocolViolation("video requires v2")
+        }
         switch frame.type {
         case .hello:
             guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad install UUID") }
@@ -144,7 +165,13 @@ public enum RadioMessage: Equatable {
             case 1: window = .capacityProbe
             default: throw RadioError.protocolViolation("invalid window")
             }
-            self = .hello(install: id, label: label, version: version, rate: rate, window: window)
+            guard version == frame.version else { throw RadioError.protocolViolation("hello framing mismatch") }
+            let mode: RadioMode
+            if version == 2 {
+                guard let parsed = RadioMode(rawValue: try r.text()) else { throw RadioError.protocolViolation("invalid mode") }
+                mode = parsed
+            } else { mode = .synthetic }
+            self = .hello(install: id, label: label, version: version, rate: rate, window: window, mode: mode)
         case .welcome:
             guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad session UUID") }
             self = .welcome(session: id, label: try r.text())
@@ -164,6 +191,13 @@ public enum RadioMessage: Equatable {
             }
             self = .stats(frame.body); r.offset = frame.body.count
         case .bye: self = .bye(try r.text())
+        case .videoConfig: self = .videoConfig(try VideoConfig(frame.body)); r.offset = frame.body.count
+        case .videoFragment: self = .videoFragment(try VideoFragment(frame.body)); r.offset = frame.body.count
+        case .keyframeRequest: self = .keyframeRequest(try r.text())
+        case .videoAck:
+            let seq: UInt64 = try r.number(), pts: UInt64 = try r.number(), raw: UInt8 = try r.number()
+            guard let status = VideoDecodeStatus(rawValue: raw) else { throw RadioError.protocolViolation("bad decode status") }
+            self = .videoAck(seq: seq, ptsNs: pts, status: status)
         }
         try r.end()
     }

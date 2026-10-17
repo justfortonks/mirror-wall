@@ -4,6 +4,7 @@ import IOSDirectShared
 @main
 struct IOSDirectSenderApp: App {
     @StateObject private var experiment = CaptureExperiment()
+    @StateObject private var stream = StreamExperiment()
     var body: some Scene {
         WindowGroup {
             TabView {
@@ -13,7 +14,7 @@ struct IOSDirectSenderApp: App {
                         Text(experiment.state).accessibilityIdentifier("captureState")
                         Text("Encoder: \(experiment.counters.encoderState)").accessibilityIdentifier("encoderState")
                         if let failure = experiment.logFailure { Text("Log write failed: \(failure)") }
-                        Button("Share full display") { experiment.shareDisplay() }.disabled(experiment.busy)
+                        Button("Share full display") { experiment.shareDisplay() }.disabled(experiment.busy || stream.capture.busy)
                         Button("Stop") { experiment.stop() }.disabled(!experiment.busy)
                         Button("Reset counters") { experiment.reset() }
                         if let url = experiment.logURL { ShareLink("Export log", item: url) }
@@ -50,6 +51,7 @@ struct IOSDirectSenderApp: App {
                 .navigationTitle("Capture experiment")
             }.tabItem { Label("Capture", systemImage: "record.circle") }
             RadioExperimentView().tabItem { Label("Radio", systemImage: "antenna.radiowaves.left.and.right") }
+            StreamExperimentView(experiment: stream, capture: stream.capture, otherCaptureBusy: experiment.busy).tabItem { Label("Stream", systemImage: "tv") }
             }
         }
     }
