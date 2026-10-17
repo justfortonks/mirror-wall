@@ -268,3 +268,19 @@ Build `38621a7`. Topology as run 5.
 Security property held (revoked phone never got past TLS). UX fixes in G3b-fix: no auto-retry after auth failure, clear "Mac didn't accept this phone" state with Pair again / Forget, auto-delete credential on authenticated `bye revoked`, scanner always available with invitation validation errors, re-share on the live session, one Mac window per verified device.
 
 Run 10 stream quality (user: "very laggy"): Mac displayed fps median 14–18 (p10 7–12), display-skipped 445 total, dropped 0, keyframe requests 0; **inter-arrival p95 ~280 ms** (run 9: 44 ms); phone sink queue age 0 ms (no sender backlog); TLS 0xCCAC on all sessions. Cause: bursty AWDL delivery while the Mac is associated to home Wi-Fi (same signature as runs 5–6), not the cipher or sender. Run 9 was a quiet period. Product implication: Mac on Ethernet/offline for best results; otherwise a larger (~300 ms) smoothing buffer.
+
+## Run 11 — G3b-fix pairing UX + Mac-offline stream, 2026-10-17 03:16–03:35Z
+
+Build `afab209`. Pairing checks (user report):
+
+| Check | Result |
+| --- | --- |
+| Re-share after Dynamic Island stop, same Mac window | Pass |
+| Mac Forget → phone stops retrying with clear message | Pass |
+| Pair again | **Fail (UX)**: first tap black flash; second tap camera flashes on/off; after scan + Allow the phone still showed Not paired until force quit (Mac: paired) |
+| Expired QR | Mac hides the QR at expiry (by design); phone expiry message covered by unit tests only |
+| Scan after Forget | **Fail**: scan produced no action on either device, repeatable; force quit required |
+| Deny | Pass |
+
+Stream (session 03:29:34–03:34:47; Mac lost its infrastructure route at 03:31:30, i.e. Mac offline for the last ~3 min; smoothing off): user — better than the online test; laggy for the first ~20 s, then better.
+Logs: phone paced/encoded/sent/acked **30 fps**, sink queue 0; Mac received ≈30 fps but **displayed ≈19 fps with ≈10 frames/s display-skipped throughout**, inter-arrival p95 metric stuck ≈270 ms. Run 9 (`a7ebbc0`) displayed 30 fps with 11 skips total → **receiver presentation regression introduced in G3b/G3b-fix**, not the link. Fix in G3c.
