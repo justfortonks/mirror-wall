@@ -266,3 +266,5 @@ Build `38621a7`. Topology as run 5.
 | Re-share after system stop | **Fail (UX)**: had to Disconnect → Connect before sharing again; Mac opened a second window per new session |
 
 Security property held (revoked phone never got past TLS). UX fixes in G3b-fix: no auto-retry after auth failure, clear "Mac didn't accept this phone" state with Pair again / Forget, auto-delete credential on authenticated `bye revoked`, scanner always available with invitation validation errors, re-share on the live session, one Mac window per verified device.
+
+Run 10 stream quality (user: "very laggy"): Mac displayed fps median 14–18 (p10 7–12), display-skipped 445 total, dropped 0, keyframe requests 0; **inter-arrival p95 ~280 ms** (run 9: 44 ms); phone sink queue age 0 ms (no sender backlog); TLS 0xCCAC on all sessions. Cause: bursty AWDL delivery while the Mac is associated to home Wi-Fi (same signature as runs 5–6), not the cipher or sender. Run 9 was a quiet period. Product implication: Mac on Ethernet/offline for best results; otherwise a larger (~300 ms) smoothing buffer.
