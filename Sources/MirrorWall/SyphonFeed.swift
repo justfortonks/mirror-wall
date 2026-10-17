@@ -36,6 +36,7 @@ final class SyphonFeed {
 
     private struct OverlayKey: Equatable {
         let style: BezelStyle
+        let aspect: Double?
         let turns: Int?
         let width: Int
         let height: Int
@@ -47,6 +48,7 @@ final class SyphonFeed {
     private var busy = false
     private var framesOn = true
     private var frameStyle: BezelStyle?
+    private var frameAspect: Double?
     private var frameTurns: Int?
 
     /// The phone frame drawn around each picture, with see-through corners; nil for the bare
@@ -54,6 +56,10 @@ final class SyphonFeed {
     var bezelStyle: BezelStyle? {
         get { lock.lock(); defer { lock.unlock() }; return frameStyle }
         set { lock.lock(); frameStyle = newValue; lock.unlock() }
+    }
+
+    func setBezel(style: BezelStyle?, portraitAspect: Double?) {
+        lock.withLock { frameStyle = style; frameAspect = portraitAspect }
     }
 
     /// Which way up the phone says it's held, for the frame (see `BezelGeometry`); nil if it
@@ -120,18 +126,19 @@ final class SyphonFeed {
             }
             waiting = nil
             let style = frameStyle
+            let aspect = frameAspect
             let turns = frameTurns
             lock.unlock()
-            send(image, style: style, turns: turns)
+            send(image, style: style, aspect: aspect, turns: turns)
         }
     }
 
-    private func send(_ image: CVImageBuffer, style: BezelStyle?, turns: Int?) {
+    private func send(_ image: CVImageBuffer, style: BezelStyle?, aspect: Double?, turns: Int?) {
         // Sent even with no OBS source listening: the server keeps the latest frame, so a source
         // added later shows the current picture at once, even if the phone's screen is still.
         guard var bgra = convert(image), let textureCache else { return }
         if let style {
-            guard let framed = framed(bgra, style: style, turns: turns) else { return }
+            guard let framed = framed(bgra, style: style, aspect: aspect, turns: turns) else { return }
             bgra = framed
         }
         let width = CVPixelBufferGetWidth(bgra)
@@ -158,10 +165,10 @@ final class SyphonFeed {
     }
 
     /// The picture inside its phone frame, on the GPU, with see-through corners.
-    private func framed(_ picture: CVPixelBuffer, style: BezelStyle, turns: Int?) -> CVPixelBuffer? {
-        let key = OverlayKey(style: style, turns: turns, width: CVPixelBufferGetWidth(picture), height: CVPixelBufferGetHeight(picture))
+    private func framed(_ picture: CVPixelBuffer, style: BezelStyle, aspect: Double?, turns: Int?) -> CVPixelBuffer? {
+        let key = OverlayKey(style: style, aspect: aspect, turns: turns, width: CVPixelBufferGetWidth(picture), height: CVPixelBufferGetHeight(picture))
         if overlayFor != key {
-            overlay = PhoneBezelDrawing.overlay(style: style, width: key.width, height: key.height, turns: turns)
+            overlay = PhoneBezelDrawing.overlay(style: style, width: key.width, height: key.height, portraitAspect: key.aspect, turns: key.turns)
             overlayFor = key
         }
         guard let overlay,
@@ -206,6 +213,7 @@ final class SyphonFeed {
     var name = ""
     var passesFrames = true
     var bezelStyle: BezelStyle?
+    func setBezel(style: BezelStyle?, portraitAspect: Double?) { bezelStyle = style }
     var bezelTurns: Int?
     func publish(_ image: CVImageBuffer) {}
     func publishFrame(_ image: CVImageBuffer) {}

@@ -1,0 +1,21 @@
+--- a/lib/httpd.c
++++ b/lib/httpd.c
+@@ -470,11 +470,17 @@
+             if (!FD_ISSET(connection->socket_fd, &rfds)) {
+                 continue;
+             }
+-            if (now - connection->last_active > timeout_limit) {
++            /* A locked iOS device can leave its RAOP control socket quiet, then
++             * resume on that same socket. Do not discard its first request on
++             * wake: Mirror Wall owns session liveness (-reset 0). EOF/errors and
++             * explicit teardown still close RAOP connections normally. */
++            if (connection->type != CONNECTION_TYPE_RAOP &&
++                now - connection->last_active > timeout_limit) {
+                 logger_log(httpd->logger, LOGGER_WARNING,
+                            "httpd closing dead connection on socket %d after timeout_limit = %d seconds of inactivity",
+                             connection->socket_fd, timeout_limit);
+                 httpd_remove_connection(httpd, connection, 0);
++                continue; /* The socket and request were destroyed. */
+             }
+             /* If not in the middle of request, allocate one */
+             if (!connection->request) {

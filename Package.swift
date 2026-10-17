@@ -15,10 +15,11 @@ var targets: [Target] = [
     .executableTarget(
         name: "MirrorWall",
         dependencies: ["MirrorCore"] + (hasSyphon ? ["Syphon"] : []),
-        resources: [.copy("Resources/AppIcon.png"), .copy("Resources/Bezels")],
+        resources: [.copy("Resources/AppIcon.png"), .copy("Resources/Brand"), .copy("Resources/Bezels")],
         linkerSettings: hasSyphon ? [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])] : []
     ),
     .testTarget(name: "MirrorCoreTests", dependencies: ["MirrorCore"]),
+    .testTarget(name: "MirrorWallTests", dependencies: ["MirrorWall"]),
 ]
 if hasSyphon {
     targets.append(.binaryTarget(name: "Syphon", path: syphonPath))

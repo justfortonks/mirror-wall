@@ -4,6 +4,9 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.nsd.NsdManager
@@ -13,11 +16,14 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -30,6 +36,7 @@ import android.widget.TextView
 class MainActivity : Activity() {
     private data class Slot(val name: String, val host: String, val port: Int)
 
+    private lateinit var headline: TextView
     private lateinit var status: TextView
     private lateinit var stopButton: Button
     private lateinit var slotList: LinearLayout
@@ -52,9 +59,28 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildViews()
+        savedInstanceState?.let { state ->
+            val host = state.getString("pendingHost")
+            if (host != null) pending = Slot(state.getString("pendingName") ?: host, host, state.getInt("pendingPort"))
+            askedBackground = state.getBoolean("askedBackground")
+            state.getString("typedAddress")?.let { addressField.setText(it) }
+            state.getString("typedName")?.let { nameField.setText(it) }
+        }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pending?.let {
+            outState.putString("pendingHost", it.host)
+            outState.putString("pendingName", it.name)
+            outState.putInt("pendingPort", it.port)
+        }
+        outState.putBoolean("askedBackground", askedBackground)
+        outState.putString("typedAddress", addressField.text.toString())
+        outState.putString("typedName", nameField.text.toString())
     }
 
     override fun onStart() {
@@ -109,9 +135,13 @@ class MainActivity : Activity() {
             if (pending != null) askToCapture()
             return
         }
-        val slot = pending ?: return
+        if (requestCode != 1) return
+        val slot = pending ?: run {
+            CastStatus.set(false, "Choose a receiver and tap Share again.")
+            return
+        }
         pending = null
-        if (requestCode != 1 || resultCode != RESULT_OK || data == null) {
+        if (resultCode != RESULT_OK || data == null) {
             AppLog.write("Screen sharing not allowed on the phone")
             CastStatus.set(false, "Sharing needs Android's permission each time.")
             return
@@ -246,124 +276,228 @@ class MainActivity : Activity() {
     // MARK: Views
 
     private fun showStatus() {
-        status.text = CastStatus.text.ifEmpty { "Pick a Mirror Wall slot to share this screen." }
+        headline.text = if (CastStatus.sharing) "Sharing this screen" else "Pick a slot"
+        status.text = CastStatus.text.ifEmpty { "Mirror Wall slots on this Wi-Fi appear below." }
         stopButton.visibility = if (CastStatus.sharing) View.VISIBLE else View.GONE
         slotList.isEnabled = !CastStatus.sharing
-        for (index in 0 until slotList.childCount) slotList.getChildAt(index).isEnabled = !CastStatus.sharing
+        for (index in 0 until slotList.childCount) {
+            val card = slotList.getChildAt(index)
+            card.isEnabled = !CastStatus.sharing
+            card.alpha = if (CastStatus.sharing) 0.5f else 1f
+        }
     }
 
     private fun showSlots() {
         slotList.removeAllViews()
         emptyHint.visibility = if (slots.isEmpty()) View.VISIBLE else View.GONE
         for (slot in slots.values) {
-            slotList.addView(Button(this).apply {
-                text = slot.name
-                isAllCaps = false
-                isEnabled = !CastStatus.sharing
-                setOnClickListener { share(slot) }
-            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            slotList.addView(slotCard(slot), LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                bottomMargin = Brand.dp(this@MainActivity, 10f)
+            })
+        }
+        showStatus()
+    }
+
+    /** A white card per slot: a teal dot (slots only show while free), its name, tap to share. */
+    private fun slotCard(slot: Slot): View {
+        val radius = Brand.dp(this, 14f).toFloat()
+        val pad = Brand.dp(this, 16f)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = Brand.pressable(Brand.rounded(Color.WHITE, radius, Brand.line, Brand.dp(this@MainActivity, 1f)), radius)
+            setPadding(pad, pad, pad, pad)
+            isClickable = true
+            isEnabled = !CastStatus.sharing
+            setOnClickListener { share(slot) }
+            addView(View(this@MainActivity).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Brand.teal)
+                }
+            }, LinearLayout.LayoutParams(Brand.dp(this@MainActivity, 10f), Brand.dp(this@MainActivity, 10f)).apply {
+                marginEnd = Brand.dp(this@MainActivity, 14f)
+            })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(Brand.body(this@MainActivity, slot.name, 16f).apply { typeface = Brand.semibold(this@MainActivity) })
+                addView(Brand.body(this@MainActivity, "Tap to share this screen", 13f, Brand.muted))
+            }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(Brand.body(this@MainActivity, "›", 24f, Brand.red))
         }
     }
 
-    private fun buildViews() {
-        val pad = (16 * resources.displayMetrics.density).toInt()
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
-        }
-        fun heading(text: String) = TextView(this).apply {
-            this.text = text
-            textSize = 14f
-            setPadding(0, pad, 0, pad / 4)
-        }
+    private fun field(hintText: String? = null) = EditText(this).apply {
+        hint = hintText
+        typeface = Brand.regular(this@MainActivity)
+        textSize = 16f
+        setTextColor(Brand.blue)
+        setHintTextColor(Brand.muted)
+        val radius = Brand.dp(this@MainActivity, 12f).toFloat()
+        background = Brand.rounded(Color.WHITE, radius, Brand.line, Brand.dp(this@MainActivity, 1f))
+        val pad = Brand.dp(this@MainActivity, 14f)
+        setPadding(pad, pad, pad, pad)
+        setSingleLine()
+    }
 
-        status = TextView(this).apply { textSize = 18f }
-        column.addView(status)
+    private fun buildViews() {
+        val pad = Brand.dp(this, 16f)
+
+        // Header: Imprivata Blue, a teal eyebrow, the hex pattern in the corner.
+        val header = FrameLayout(this).apply { setBackgroundColor(Brand.blue) }
+        header.addView(
+            HexPatternView(this, intArrayOf(Brand.blueRaised, Brand.midBlue, Brand.teal), 210),
+            FrameLayout.LayoutParams(Brand.dp(this, 170f), Brand.dp(this, 140f), Gravity.TOP or Gravity.END),
+        )
+        val headerColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad + pad / 4, pad, pad + pad / 4, pad + pad / 2)
+        }
+        headerColumn.addView(TextView(this).apply {
+            text = "MIRROR WALL CAST"
+            typeface = Brand.bold(this@MainActivity)
+            textSize = 12f
+            letterSpacing = 0.08f
+            setTextColor(Brand.teal)
+        })
+        headline = TextView(this).apply {
+            typeface = Brand.bold(this@MainActivity)
+            textSize = 28f
+            setTextColor(Color.WHITE)
+            setPadding(0, pad / 4, 0, 0)
+        }
+        headerColumn.addView(headline)
+        status = Brand.body(this, "", 15f, Brand.ice)
+        headerColumn.addView(status)
         stopButton = Button(this).apply {
             text = "Stop sharing"
             setOnClickListener { stopSharing() }
+            Brand.pill(this)
         }
-        column.addView(stopButton)
+        headerColumn.addView(stopButton, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = pad })
+        header.addView(headerColumn, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad * 2)
+        }
 
         backgroundRow = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, pad / 2, 0, 0)
-            addView(TextView(this@MainActivity).apply {
-                text = "Battery saving can stop sharing while the phone is idle."
-            })
+            val radius = Brand.dp(this@MainActivity, 14f).toFloat()
+            background = Brand.rounded(Color.WHITE, radius, Brand.line, Brand.dp(this@MainActivity, 1f))
+            setPadding(pad, pad, pad, pad)
+            addView(Brand.body(this@MainActivity, "Battery saving can stop sharing while the phone is idle.", 14f))
             addView(Button(this@MainActivity).apply {
                 text = "Allow running in the background"
-                isAllCaps = false
+                Brand.outline(this)
                 setOnClickListener {
                     @Suppress("DEPRECATION")
                     startActivityForResult(Background.requestIntent(this@MainActivity), 3)
                 }
-            })
+            }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = pad / 2 })
         }
-        column.addView(backgroundRow)
+        column.addView(backgroundRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = pad })
 
-        column.addView(heading("Mirror Wall slots on this network"))
-        emptyHint = TextView(this).apply {
-            text = "Looking… Mirror Wall must be open on a Mac or PC on the same Wi-Fi."
-        }
+        column.addView(Brand.label(this, "Slots on this network"))
+        emptyHint = Brand.body(this, "Looking… Mirror Wall must be open on a Mac or PC on the same Wi-Fi.", 14f, Brand.muted)
         column.addView(emptyHint)
         slotList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(slotList)
 
-        column.addView(heading("Or connect by address"))
+        column.addView(Brand.label(this, "Or connect by address"))
         val addressRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        addressField = EditText(this).apply {
-            hint = "192.168.1.20"
+        addressField = field("192.168.1.20").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             imeOptions = EditorInfo.IME_ACTION_GO
-            setSingleLine()
             setOnEditorActionListener { _, _, _ -> shareToTypedAddress(); true }
         }
         addressRow.addView(addressField, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         addressRow.addView(Button(this).apply {
             text = "Share"
+            Brand.pill(this)
             setOnClickListener { shareToTypedAddress() }
-        })
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = pad / 2 })
         column.addView(addressRow)
 
-        column.addView(heading("This phone's name on Mirror Wall"))
-        nameField = EditText(this).apply {
-            setText(Phone.name(this@MainActivity))
-            setSingleLine()
-        }
+        column.addView(Brand.label(this, "This phone's name on Mirror Wall"))
+        nameField = field().apply { setText(Phone.name(this@MainActivity)) }
         column.addView(nameField)
 
         column.addView(Switch(this).apply {
             text = "Keep the screen on while sharing"
+            typeface = Brand.regular(this@MainActivity)
+            textSize = 15f
+            setTextColor(Brand.blue)
+            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+            thumbTintList = ColorStateList(states, intArrayOf(Brand.teal, Color.WHITE))
+            trackTintList = ColorStateList(states, intArrayOf(Color.argb(110, 44, 213, 196), Brand.line))
             isChecked = Phone.keepsScreenOn(this@MainActivity)
             setPadding(0, pad, 0, 0)
             setOnCheckedChangeListener { _, on -> Phone.setKeepsScreenOn(this@MainActivity, on) }
         })
 
-        column.addView(heading("Troubleshooting"))
+        column.addView(Brand.label(this, "Troubleshooting"))
         val logRow = LinearLayout(this)
         logRow.addView(Button(this).apply {
             text = "Show Log"
-            isAllCaps = false
+            Brand.outline(this)
             setOnClickListener { showLog() }
         })
         logRow.addView(Button(this).apply {
             text = "Share Log"
-            isAllCaps = false
+            Brand.outline(this)
             setOnClickListener { shareLog() }
-        })
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = pad / 2 })
         column.addView(logRow)
 
-        column.addView(TextView(this).apply {
-            text = "Version ${packageManager.getPackageInfo(packageName, 0).versionName}"
-            textSize = 12f
+        column.addView(Brand.body(this, "Version ${packageManager.getPackageInfo(packageName, 0).versionName}", 12f, Brand.muted).apply {
             setPadding(0, pad, 0, 0)
         })
 
-        setContentView(ScrollView(this).apply {
-            fitsSystemWindows = true
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Brand.page)
             addView(column)
-        })
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Brand.page)
+            addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        }
+        // Edge to edge: the Blue header runs up behind the status bar; the list clears the
+        // navigation bar and the keyboard.
+        val headerTop = headerColumn.paddingTop
+        val columnBottom = column.paddingBottom
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            val top: Int
+            val bottom: Int
+            if (Build.VERSION.SDK_INT >= 30) {
+                top = insets.getInsets(WindowInsets.Type.statusBars()).top
+                bottom = insets.getInsets(WindowInsets.Type.navigationBars() or WindowInsets.Type.ime()).bottom
+            } else {
+                @Suppress("DEPRECATION")
+                top = insets.systemWindowInsetTop
+                @Suppress("DEPRECATION")
+                bottom = insets.systemWindowInsetBottom
+            }
+            headerColumn.setPadding(headerColumn.paddingLeft, headerTop + top, headerColumn.paddingRight, headerColumn.paddingBottom)
+            column.setPadding(column.paddingLeft, column.paddingTop, column.paddingRight, columnBottom + bottom)
+            insets
+        }
+        setContentView(root)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Brand.blue
+        if (Build.VERSION.SDK_INT >= 30) {
+            // Light status bar icons on the Blue header, dark navigation icons on the light page.
+            window.insetsController?.setSystemBarsAppearance(
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+        }
         showSlots()
     }
 }

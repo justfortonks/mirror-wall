@@ -22,6 +22,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// Whether the slot's picture has a phone frame around it on the wall and in its own window;
     /// nil follows the setting for all slots, which is off by default.
     public var bezel: Bool?
+    /// Nil chooses the detected model; unknown IDs fall back to automatic.
+    public var bezelModel: String?
+    /// Local presenter label, independent of network identity.
+    public var displayAlias: String?
     /// Whether the slot's OBS feed has the phone frame around the picture, with see-through
     /// corners; nil (off) by default.
     public var feedBezel: Bool?
@@ -134,13 +138,16 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// second the phone is asked to send; it may send fewer. With `allowedDevices`, only phones
     /// with those device IDs may connect. With `sharpPicture`, phones are offered H.265 at up to
     /// 3840×2160, and send portrait pictures twice as tall and wide as with H.264's 1920×1080.
-    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false) -> [String] {
+    /// With `pin`, an iPhone has to enter that 4-digit code before it can mirror (for events and
+    /// shared networks).
+    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false, pin: String? = nil) -> [String] {
         var arguments = [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
             "-p", String(airplayBasePort),
             "-m", deviceID,
             "-vsync", "no",             // show frames as they arrive; with sync on the picture froze after the phone slept
+            "-reset", "0",             // the app owns liveness, including screen-off grace
             "-as", "0",                 // view only: no audio
             "-d", "1",                  // debug log without packet dumps: reports connects and disconnects
             "-fps", String(maxFrameRate),
@@ -155,6 +162,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         ]
         if sharpPicture {
             arguments.append("-h265")
+        }
+        if let pin, pin.count == 4, pin.allSatisfy(\.isNumber) {
+            arguments += ["-pin", pin]  // a fixed code, asked once per iPhone
         }
         if let allowedDevices {
             arguments.append("-restrict")

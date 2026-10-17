@@ -3,9 +3,9 @@
 # Run it from the Actions tab (Release › Run workflow) with "Publish" ticked to make a release
 # with the DMG, the installer, the APK and the UxPlay source attached; the newest release's
 # downloads are always at
-# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg,
-# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe and
-# https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk
+# https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWall.dmg,
+# https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWall-Setup.exe and
+# https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWallCast.apk
 # Pull requests that change the Mac app or its packaging build the DMG too (kept as a workflow
 # artifact only). Release notes start with the CHANGELOG.md entries new since the last release.
 name: Release
@@ -67,7 +67,10 @@ jobs:
           scripts/build-syphon.sh
 
       - name: Test
-        run: swift test
+        run: |
+          swift test
+          bash scripts/tests/test-uxplay-idle.sh build/UxPlay
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
       - name: Build the DMG
         run: |

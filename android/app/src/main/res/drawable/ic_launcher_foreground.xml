@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The brand hex pattern: full hexagons above, chevrons below, upright as the guide shows them. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#CC0033" android:pathData="M54.00,42.83 L61.08,46.91 L61.08,55.09 L54.00,59.17 L46.92,55.09 L46.92,46.91 Z"/>
+    <path android:fillColor="#4698CB" android:pathData="M68.90,42.83 L75.97,46.91 L75.97,55.09 L68.90,59.17 L61.82,55.09 L61.82,46.91 Z"/>
+    <path android:fillColor="#3A5170" android:pathData="M39.10,42.83 L46.18,46.91 L46.18,55.09 L39.10,59.17 L32.03,55.09 L32.03,46.91 Z"/>
+    <path android:fillColor="#2CD5C4" android:pathData="M61.45,29.93 L68.52,34.02 L68.52,42.19 L61.45,46.27 L54.37,42.19 L54.37,34.02 Z"/>
+    <path android:fillColor="#426DA9" android:pathData="M46.55,29.93 L53.63,34.02 L53.63,42.19 L46.55,46.27 L39.48,42.19 L39.48,34.02 Z"/>
+    <path android:fillColor="#4698CB" android:pathData="M54.37,59.81 L61.45,63.90 L68.52,59.81 L68.52,67.98 L61.45,72.07 L54.37,67.98 Z"/>
+    <path android:fillColor="#CCCCCC" android:pathData="M39.48,59.81 L46.55,63.90 L53.63,59.81 L53.63,67.98 L46.55,72.07 L39.48,67.98 Z"/>
+</vector>

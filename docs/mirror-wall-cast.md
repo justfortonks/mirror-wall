@@ -69,3 +69,23 @@ different times. So:
 
 The Mac tests (`CastProtocolTests`) and the Windows tests hold the version 1 messages exactly
 as 0.90 sent them, so a change that breaks an older peer fails the build.
+
+
+## Intentional stop extension (Mac SE fork)
+
+Protocol 1 retains its framing. The phone's hello may include `shareID`, a UUID created for each
+user-started share and retained across automatic retries. Older receivers ignore the field.
+The Mac sends `0x83` with an empty payload to intentionally end sharing. Updated companions stop
+capture and do not retry; unknown message types remain skippable for older companions.
+The Mac also refuses the stopped device/share pair for 70 seconds, covering the legacy 60-second
+retry window if the stop message is lost. Older clients without `shareID` are refused by device
+ID during that cooldown. A fresh Share from an updated companion uses a new share ID immediately.
+
+Current Mac and Windows receivers send pings in response to heartbeats. The companion allows
+15 seconds without a response after welcome before treating the connection as lost. Its outbound
+queue is bounded and closing it wakes a waiting sender. No protocol version bump is needed for
+these optional, backward-compatible additions.
+
+This transport still uses plain TCP and self-reported IDs. Deploy on a dedicated/trusted SE demo
+network; the AirPlay PIN does not protect Android connections. Authenticated encrypted pairing
+is a separate future change, not implied by the stop-sharing extension.

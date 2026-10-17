@@ -30,6 +30,7 @@ object CastProtocol {
     // Mirror Wall to phone.
     const val WELCOME = 0x81
     const val BUSY = 0x82
+    const val STOP_SHARING = 0x83
     const val PING = 0x84
 
     const val SERVICE_TYPE = "_mirrorwall._tcp"

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Imprivata 2026 brand palette -->
+    <color name="brand_blue">#2C3F57</color>
+    <color name="brand_red">#CC0033</color>
+    <color name="brand_teal">#2CD5C4</color>
+</resources>

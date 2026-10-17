@@ -1,100 +1,270 @@
-# Mirror Wall
+# Mirror Wall (Imprivata SE edition)
 
-View up to eight iPhone and Android phone screens together on a Mac or Windows PC. Keep them in a tiled wall, focus on one phone, or open individual screens in separate windows.
+Share iPhone, iPad and Android demo devices in a Teams or Zoom meeting from a Mac. Phones mirror
+wirelessly into one branded **Stage** window that you share like any other app window, at their
+true relative sizes, in a phone frame that matches the real device.
 
-iPhones connect through built-in AirPlay Screen Mirroring. Android phones use the Mirror Wall Cast companion app. Mirror Wall supports screenshots and video recording; it does not control phones or capture audio.
+This is the Imprivata Solutions Engineering fork of
+[justfortonks/mirror-wall](https://github.com/justfortonks/mirror-wall). The working branch is
+**`cody-changes`**; `main` tracks the upstream project and is left alone. Built for SE demos run
+from home offices and at events.
 
-## Download
+---
+
+## What it does
+
+- **Stage-first window** - the app opens straight to the Stage: a single Imprivata-branded window
+  (Blue gradient, hex pattern, "Live demo" caption bar) showing every mirroring phone. Share that
+  one window in the meeting. Phones are added to the Stage automatically as they connect.
+- **iPhone and iPad over AirPlay** - nothing to install. Control Center › Screen Mirroring › pick
+  a Mirror Wall slot.
+- **Android over Mirror Wall Cast** - a small companion app (`com.imprivata.mirrorwallcast`) that
+  finds the Mac's slots on the network and streams the screen. Works on any Android 10+ device,
+  including the Zebra, Honeywell and Spectralink devices we demo on.
+- **Up to eight devices at once** - iPhones and Android phones mix freely, one device per slot.
+- **Device frames** - every device can wear a frame on the Stage, in its own window and in the OBS
+  feed:
+  - *Photo frames* of the real front for Zebra HC50, Honeywell CT37 (white), Spectralink Versity
+    95/96 and Versity 97, picked automatically when the phone reports its model.
+  - *Drawn frames* for iPhone 12 through 18 Pro (including mini, Plus, Pro Max, Air, SE and e
+    models), Zebra TC53e and iPad (A16 / 11th generation).
+  - A **Bezel Model** picker on each device to choose a frame by hand when the model isn't
+    recognized.
+  - Frames turn with the phone in portrait and landscape. Android phones on the current Cast app
+    also report upside-down and which way they're turned.
+- **Presenter controls** - hidden until you want them, so the audience sees only phones:
+  - **C** pins or unpins the control bar; hold **Control** or **Option** to peek; **Esc** hides it.
+  - **P** or **Freeze Stage** holds the Stage on the current picture while you do something
+    private on the phone. Recordings, screenshots, own windows and OBS feeds stay live.
+  - **Stop Sharing** (right-click a device, or the Devices chip) ends an Android share from the
+    Mac.
+  - **Demo Label…** changes the caption under a device without renaming it.
+  - **On Stage** hides or shows a device; a hidden device stays hidden through reconnects.
+- **Reconnect grace** - if a phone drops (Wi-Fi blip, airplane mode), the Stage dims its last
+  picture and says *reconnecting* after about 4.5 seconds, and holds its place for 45 seconds
+  instead of the layout jumping.
+- **Optional PIN for events** - Settings can require a 4-digit PIN before an iPhone can mirror. Off
+  by default for home-office demos. The PIN shows on the Stage's waiting screen. It does not apply
+  to Android.
+- **Stage layouts** - Side by Side, Stacked or Grid, plus **Fit Window to Devices**.
+- **Screenshots and recordings** - per device or all at once, saved to
+  `~/Documents/MirrorWall/Screenshots` and `~/Documents/MirrorWall/Recordings` (video only, never
+  framed).
+- **OBS output** - each device can publish straight to OBS through Syphon, framed or unframed, or
+  open in its own window titled `MacMirror-<name>` for window capture. The Stage itself is
+  `MacMirror-Stage`.
+- **Wall view** - the original tiled grid of every slot with status, logs and troubleshooting.
+  Open it from **Show Wall** in the Stage's More menu or the menu bar icon.
+- **Updates from this fork** - Check for Update looks at
+  [yurtbeer/mirror-wall releases](https://github.com/yurtbeer/mirror-wall/releases), never
+  upstream, so an upstream release can't overwrite the SE changes.
+
+Not included: controlling the phone from the Mac, audio, or USB mirroring. DRM-protected video
+(Netflix and similar) shows black.
+
+---
+
+## How it works
+
+```
+iPhone / iPad ── AirPlay ──▶ uxplay (one per slot, patched) ── RTP over localhost ─┐
+                                                                                    ├─▶ Mirror Wall (SwiftUI/AppKit)
+Android phone ── Mirror Wall Cast (TCP, H.264) ──▶ CastServer (one port per slot) ──┘     │
+                                                                                          ├─ Stage window  (share this)
+                                                                                          ├─ Wall window   (grid, status, logs)
+                                                                                          ├─ Own windows   (MacMirror-<name>)
+                                                                                          ├─ Syphon feeds  (OBS)
+                                                                                          └─ Recordings and screenshots
+```
+
+Each slot runs its own patched [UxPlay](https://github.com/FDH2/UxPlay) receiver, which forwards
+the iPhone's H.264 or H.265 video to the app. The app decodes it once with VideoToolbox and shows
+it everywhere it's needed. Android uses a small protocol of its own, described in
+[docs/mirror-wall-cast.md](docs/mirror-wall-cast.md).
+
+| Slot | AirPlay ports | Android Cast port |
+|------|---------------|-------------------|
+| 1    | 7300-7302     | 7350              |
+| 2    | 7400-7402     | 7450              |
+| n    | 7200+100n …   | 7250+100n         |
+
+### Repository structure
+
+```
+mirror-wall/
+├── Sources/
+│   ├── MirrorCore/          # Platform-free logic: bezels and presets, Stage layout, Cast protocol,
+│   │                        #   RTP/H.264 parsing, session policy, release lookup, changelog
+│   └── MirrorWall/          # The Mac app
+│       ├── StageWindow.swift        # The branded Stage, presenter controls, keys
+│       ├── Views.swift              # The Wall grid and each slot's ⋯ menu
+│       ├── Slot.swift / SlotStore.swift   # Per-slot receiver, state, reconnect grace, PIN
+│       ├── CastServer.swift         # Android Cast receiver
+│       ├── PhoneBezelDrawing.swift / PhoneBezelView.swift / BezelModelPicker.swift
+│       ├── SyphonFeed.swift         # OBS output
+│       ├── Brand.swift              # Imprivata colors, Barlow, hex pattern, logo lookup
+│       └── Resources/               # App icon, Brand (fonts; logo kept out of git), Bezels (photo frames)
+├── Tests/                   # MirrorCoreTests and MirrorWallTests (swift test)
+├── android/                 # Mirror Wall Cast (Kotlin), app ID com.imprivata.mirrorwallcast
+├── windows/                 # Upstream Windows app (C#/WPF); not updated for the SE changes
+├── patches/                 # UxPlay patches the receiver needs (idle/wake and others)
+├── scripts/                 # build-uxplay, build-syphon, build-app, make-dmg, compatibility checks
+└── docs/                    # Project docs; start at docs/PROJECT_INDEX.md
+```
+
+---
+
+## Installing
+
+**Releases:** the fork has not published a release yet, so the download links below will work only
+after the first one. Until then, build from source (next section) or get a build from Cody.
 
 | Platform | Download | Requirements |
 |---|---|---|
-| macOS | [MirrorWall.dmg](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall.dmg) | Apple Silicon, macOS 26 or later |
-| Windows | [MirrorWall-Setup.exe](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWall-Setup.exe) | Windows 10 version 1809 or later, or Windows 11; x64 build |
-| Android (Mirror Wall Cast) | [MirrorWallCast.apk](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk) | Android 10 or later |
+| macOS | [MirrorWall.dmg](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWall.dmg) | Apple Silicon; the minimum macOS is set from the bundled libraries (see `Contents/Info.plist`) |
+| Android | [MirrorWallCast.apk](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWallCast.apk) | Android 10 or later |
 
-These requirements apply to the packaged releases.
+**Mac:** drag Mirror Wall to Applications. It's ad-hoc signed and not notarized, so the first open
+may need System Settings › Privacy & Security › **Open Anyway**. Allow local-network access when
+asked.
 
-**Mac:** Open the DMG and drag Mirror Wall to Applications. The app is ad-hoc signed and not notarized. If macOS blocks opening it, use System Settings → Privacy & Security → **Open Anyway**. Allow local-network access when prompted.
+**Android:** install the APK or push it through MDM (Intune, Workspace ONE, SOTI). The app ID is
+`com.imprivata.mirrorwallcast`, which is different from the upstream app and the old DemoCast
+pilot, so MDM assignments need to target this ID. Builds use the repository's public test key
+until a team key is set up; each build installs over the last as long as the key doesn't change.
 
-**Windows:** Run the installer. It is unsigned, so SmartScreen may show a warning. Installation requires administrator access to add firewall rules. It works on Private and Public networks. See the [Windows guide](windows/README.md) for details.
+### Connecting devices
 
-**Updating:** Mirror Wall › Check for Update… on a Mac, or Help › Check for Update… on Windows (also in the menu bar or notification area icon's menu), downloads the newest release, installs it and reopens Mirror Wall. It only checks when you ask. Settings › General › Updates can switch it to Beta, which lists every test build on offer (published as pre-releases) and the newest release, to install whichever you choose. Actions › Beta builds withdraws a test build from that list or offers it again. A Mac doesn't need Open Anyway again for an update installed this way; Windows asks once to let the installer make changes.
+Keep the Mac and the phones on the same network with device-to-device traffic allowed.
 
-## Connect your phones
+- **iPhone or iPad:** Control Center › Screen Mirroring › choose a Mirror Wall slot. Enter the PIN
+  if the Stage shows one.
+- **Android:** open Mirror Wall Cast, tap a slot, approve Android's screen-sharing prompt. If no
+  slots appear (multicast blocked), type the Mac's address and the slot's Cast port.
 
-Keep the computer and phones on the same local network, with device-to-device communication allowed.
+---
 
-### iPhone
+## Running locally
 
-1. Open Mirror Wall.
-2. On the iPhone, open **Control Center → Screen Mirroring**.
-3. Choose an available Mirror Wall slot.
-4. Repeat with a different slot for each phone.
+Mac (Xcode command-line tools, Homebrew, and Apple's Metal Toolchain for Syphon):
 
-Nothing needs to be installed on the iPhone.
+```sh
+brew install cmake pkgconf libplist openssl@3 gstreamer
+xcodebuild -downloadComponent MetalToolchain
+scripts/build-uxplay.sh      # patched receiver; all patches are required
+scripts/build-syphon.sh      # optional, for OBS output
+scripts/build-app.sh         # builds MirrorWall.app
+scripts/make-dmg.sh          # optional disk image
+```
 
-### Android
+The Imprivata white logo is deliberately not in git. Put the approved file at
+`Sources/MirrorWall/Resources/Brand/imprivata-logo-white.png` before building to show it in the
+Stage caption; without it the caption simply has no logo. Barlow fonts and their license are
+included.
 
-Requires Android 10 or later.
+Android (Java 17, Android SDK 35):
 
-1. Install [MirrorWallCast.apk](https://github.com/justfortonks/mirror-wall/releases/latest/download/MirrorWallCast.apk) from the latest release (allow installing from your browser or file manager when asked), or deploy it with your device management.
-2. Open the app and choose an available slot.
-3. Approve Android’s screen-sharing prompt.
+```sh
+cd android
+export MIRROR_WALL_BUILD=$(git rev-list --count HEAD)
+./gradlew --no-daemon assembleRelease
+# APK: android/app/build/outputs/apk/release/app-release.apk
+```
 
-If no slots appear, enter the computer’s address manually. Slot 1 uses port `7350`, slot 2 uses `7450`, and each following slot adds `100`.
+More detail: [Building the Mac app](docs/building-mac.md) and the
+[SE handoff and test checklist](docs/se-handoff.md).
 
-Android builds use a public test signing key unless a separate signing key is configured, so each new version installs over the last one. Test builds between releases are under the **MirrorWallCast** artifact of an [Android workflow run](https://github.com/justfortonks/mirror-wall/actions/workflows/android.yml) (needs a GitHub sign-in; artifacts expire after 90 days).
+## Validating changes
 
-iPhones and Android phones can share the wall at the same time, with one phone per slot.
+Run the smallest relevant set before pushing:
 
-## Using Mirror Wall
+```sh
+swift build && swift test
+bash scripts/tests/test-uxplay-idle.sh build/UxPlay           # receiver idle/wake patch
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'  # packaging scripts
+cd android && ./gradlew --no-daemon assembleRelease
+```
 
-- **Add a slot:** Click **+** or right-click an empty area of the wall. The app starts with two slots and supports up to eight.
-- **Focus on one phone:** Double-click its picture; double-click again to return to the wall.
-- **Open a separate window:** Click the arrow on a tile or choose **Open in Own Window** from its **⋯** menu. Adjust sizing under **View → Pop-out Window Size**.
-- **Stage window:** Choose **View → Show Stage** (or **Show Stage** from the menu bar / tray icon) for one window with every mirroring phone at its true relative size, ready to share in Teams, Zoom or OBS (it's listed as **MacMirror-Stage**). Pick **Side by Side**, **Stacked** or **Grid** under **View → Stage Layout** or by right-clicking the stage. To leave a phone off the stage, untick **Show on Stage** in its **⋯** menu, or use **Phones on Stage** in the View menu or the stage's right-click menu.
-- **Take a screenshot or record:** Use the camera and record buttons, or the tile’s menu. Files go to `Documents/MirrorWall/Screenshots` and `Documents/MirrorWall/Recordings` by default; change these in Settings.
-- **Customize a slot:** Rename it or choose a standby picture from the **⋯** menu; its **Troubleshooting** submenu shows the log and restarts the receiver.
-- **Phone bezels:** Draw a phone-shaped frame around every slot from Settings → **Wall** → **Phone bezels**, or around one slot from its **⋯** menu → **Phone Bezel** → **On the Wall and Own Window**. **Phone Bezel** → **In the OBS Feed** sends OBS the framed phone, with see-through corners, whether or not the wall shows it. Recordings and screenshots stay unframed. A Zebra HC50, white Honeywell CT37 or Spectralink Versity 95/96 or 97 gets a photo of its own front; other Android phones a plain frame.
-- **Menu bar or tray icon:** Lists every slot and its status. While it's shown, closing the wall leaves Mirror Wall running; quit from the icon's menu. Turn it off in Settings.
-- **Staying awake:** The computer and its screen stay awake while a phone is mirroring or a slot is recording. Turn this off in Settings.
-- **Adjust the picture:** The View menu includes frame-rate limits, **Smoother Motion**, **Sharper Picture (H.265)**, and **Stats for Nerds**.
+Offscreen previews of every frame and layout:
 
-Recordings contain video only. Rotation or reconnection can start a new recording file.
+```sh
+MIRRORWALL_REVIEW_RENDERS=/tmp/mirror-wall-previews swift test --filter VisualReviewTests
+```
 
-For how each feature behaves in detail, see [Mirror Wall in detail](docs/details.md).
+Before a big demo, rehearse on the real devices: see the checklist at the end of
+[docs/se-handoff.md](docs/se-handoff.md).
 
-## Optional OBS output
+---
 
-Each slot can publish video directly through **Syphon on macOS** or **Spout on Windows**, without opening a separate window.
+## Configuration
 
-Enable **Send to OBS** in the tile’s menu. In OBS, add a **Syphon Client** source on Mac or a **Spout2 Capture** source on Windows. Windows requires the [Spout2 plugin](https://github.com/Off-World-Live/obs-spout2-plugin).
+Everything is in **Settings** (Stage › More › Settings…, or ⌘,):
+
+| Setting | Default | Notes |
+|---|---|---|
+| Require a PIN to mirror an iPhone | Off | For events. Restarts the slots. New PIN generates another code. |
+| Who can mirror | Off (any iPhone) | Allow-list phones that have mirrored before. |
+| Phone bezels | Off | Frame every slot; each device can still override. |
+| Standby picture | Waiting message | Or blank, or your own image. |
+| Save to | `~/Documents/MirrorWall/…` | Folders for recordings and screenshots. |
+| Send every slot to OBS (Syphon) | Off | Needs a build with Syphon. |
+| Keep the Mac awake while mirroring | On | |
+| Show in the menu bar | On | |
+| Updates | Releases (Stable) | Beta also lists test builds. |
+
+Stage-only toggles (More menu): Caption Bar, Logo in Caption, Device Bezels, Layout.
+
+Android signing for a team key, set outside the repository: `ANDROID_KEYSTORE_PATH`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Switching from the test key
+to a team key means uninstalling the app once on every device.
+
+## Releases and updates
+
+Releases are published from GitHub Actions on this fork: **Actions › Release › Run workflow** with
+**Publish** ticked builds the Mac DMG, the Windows installer and the Android APK and publishes
+`v0.<build number>`. The build number is the commit count, so versions always go up. Add a line to
+[CHANGELOG.md](CHANGELOG.md) for anything people will notice; the About box and release notes come
+from it.
+
+---
 
 ## Limitations
 
-- No remote control, audio, or USB mirroring.
-- Protected content may appear black or be unavailable.
-- iOS ends Screen Mirroring about a minute after the iPhone's screen turns off, and only the phone can start it again. To keep an iPhone on the wall, set **Settings → Display & Brightness → Auto-Lock** to **Never** and keep it charging. Otherwise, reconnect from Screen Mirroring.
-- Performance depends on the network, computer, phone, and number of active streams. Selecting 60 fps requests a maximum, not a guaranteed frame rate.
-- Smoother Motion adds some delay; higher picture quality can increase bandwidth and processing requirements.
+- Android's connection is plain TCP and isn't encrypted; use a trusted demo network. The PIN only
+  covers iPhones.
+- iOS can end a sharing session on its own after the screen has been off a while. The Mac holds
+  screen-off sessions for up to five minutes; after that, wake the phone and reconnect.
+- Windows doesn't have the Stage-first window, presenter controls, branding or bezel catalog.
+- Performance depends on the network and how many devices are streaming. 60 fps is a maximum, not
+  a promise.
 
-## Development
+## Project guidance
 
-The macOS app uses SwiftUI/AppKit, the Windows app uses C#/WPF, and Mirror Wall Cast uses Kotlin. iPhone mirroring uses [UxPlay](https://github.com/FDH2/UxPlay) with GStreamer; Android uses the [Mirror Wall Cast protocol](docs/mirror-wall-cast.md).
+- [Project index](docs/PROJECT_INDEX.md) is the entry point for current work, history, decisions
+  and how-tos.
+- [Current focus](docs/CURRENT_FOCUS.md) is what's being worked on now and what's parked.
+- [Delivery log](docs/DELIVERY_LOG.md) summarizes what has shipped, fork and upstream.
+- [Product context](PRODUCT.md) covers who it's for, the demo workflows, principles and anti-goals.
+- [Design context](DESIGN.md) covers the Imprivata branding, Stage layout and presenter-control
+  rules.
+- [Agent guidance](AGENTS.md) gives instructions for coding agents and contributors.
+- [Mirror Wall in detail](docs/details.md) covers how each Mac feature behaves.
+- [Mirror Wall Cast protocol](docs/mirror-wall-cast.md) is the Android wire format and its
+  compatibility rules.
 
-Build and test configuration:
+## Fork rules: don't break these
 
-- [Building the Mac app](docs/building-mac.md): how it works, the UxPlay patches, and the build scripts
-- [macOS release workflow](.github/workflows/release.yml) and [build scripts](scripts/)
-- [Windows development guide](windows/README.md)
-- [Android build workflow](.github/workflows/android.yml)
-
-Add an entry to [CHANGELOG.md](CHANGELOG.md) for any change people will notice; the About box and each release's notes come from it.
-
-To publish a release, open **Actions → Release → Run workflow** with **Publish** ticked. It builds the Mac DMG, the Windows installer and the Android APK on GitHub's machines and publishes them as release `v0.<build number>`, with the exact UxPlay source attached.
+- **Updates point at this fork.** The release URLs in `Sources/MirrorCore/LatestRelease.swift`
+  must stay on `yurtbeer/mirror-wall`. Watch for this on every upstream merge.
+- **Android app ID stays `com.imprivata.mirrorwallcast`.** Changing it makes every device install a
+  second app.
+- **The logo stays out of git.** `Sources/MirrorWall/Resources/Brand/imprivata-logo-white.png` is
+  ignored on purpose.
+- **Don't commit to `main`.** It mirrors upstream. Bring upstream changes into `cody-changes` on a
+  separate branch first, build and test on a Mac, then merge.
 
 ## License
 
-Mirror Wall is licensed under [GNU GPL v3](LICENSE). See [Third-party notices](THIRD_PARTY_NOTICES.md) for bundled components and source information.
-
-Mirror Wall is not affiliated with Apple. AirPlay and iPhone are Apple trademarks.
+GNU GPL v3, same as upstream ([LICENSE](LICENSE)). See [Third-party notices](THIRD_PARTY_NOTICES.md)
+for UxPlay, GStreamer, Syphon and Barlow. Not affiliated with Apple; AirPlay and iPhone are Apple
+trademarks. Imprivata branding is used by Imprivata.

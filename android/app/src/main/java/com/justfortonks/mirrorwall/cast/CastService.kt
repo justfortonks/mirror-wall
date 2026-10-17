@@ -32,7 +32,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.UUID
 
 /** What the app shows about sharing. Read and changed on the main thread. */
 object CastStatus {
@@ -74,7 +74,6 @@ class CastService : Service() {
         /** How long to keep trying after the connection drops. */
         private const val RECONNECT_FOR_MS = 60_000L
         private const val RECONNECT_EVERY_MS = 2_000L
-        private val END = ByteArray(0)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -86,6 +85,7 @@ class CastService : Service() {
     private var host = ""
     private var port = 0
     private var slotName = ""
+    private var shareID = ""
     private var frameRate = 30
     private var sharpPicture = false
     /** When the connection dropped, while reconnecting. */
@@ -109,6 +109,8 @@ class CastService : Service() {
         }
         if (projection != null) return START_NOT_STICKY // already sharing
 
+        stopped = false
+        shareID = UUID.randomUUID().toString()
         host = intent.getStringExtra(EXTRA_HOST) ?: return START_NOT_STICKY
         port = intent.getIntExtra(EXTRA_PORT, 0)
         slotName = intent.getStringExtra(EXTRA_SLOT) ?: host
@@ -130,7 +132,7 @@ class CastService : Service() {
         projection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 AppLog.write("Android ended the screen capture")
-                main.post { finish("Sharing stopped") }
+                main.post { if (this@CastService.projection === projection) finish("Sharing stopped") }
             }
         }, main)
         this.projection = projection
@@ -164,20 +166,19 @@ class CastService : Service() {
      * a reader for pings until the connection ends. Reports back on the main thread.
      */
     private inner class Link(private val host: String, private val port: Int) {
-        val outbox = LinkedBlockingQueue<ByteArray>()
+        val outbox = CastOutbox()
         @Volatile private var socket: Socket? = null
         @Volatile private var closed = false
+        val isClosed: Boolean get() = closed
 
         fun start() = Thread({ run() }, "Mirror Wall connection").start()
 
         /** Hangs up, after a goodbye if `bye`. Safe from any thread. */
-        fun close(bye: Boolean) {
+        @Synchronized fun close(bye: Boolean) {
             if (closed) return
             closed = true
-            outbox.clear()
-            if (bye) outbox.offer(CastProtocol.message(CastProtocol.BYE))
-            outbox.offer(END)
-            main.postDelayed({ closeSocket() }, 1000)
+            outbox.close(if (bye) CastProtocol.message(CastProtocol.BYE) else null)
+            if (bye) main.postDelayed({ closeSocket() }, 1000) else closeSocket()
         }
 
         private fun closeSocket() {
@@ -203,12 +204,13 @@ class CastService : Service() {
                     .put("name", Phone.name(this@CastService))
                     .put("model", Phone.model())
                     .put("deviceID", Phone.id(this@CastService))
+                    .put("shareID", shareID)
                 output.write(CastProtocol.message(CastProtocol.HELLO, hello.toString().toByteArray()))
                 output.flush()
 
                 socket.soTimeout = 8000
                 val answer = CastProtocol.readAnswer(input)
-                socket.soTimeout = 0
+                socket.soTimeout = 15_000 // heartbeats elicit pings even on a still screen
                 when (answer.type) {
                     CastProtocol.BUSY -> {
                         val reason = JSONObject(String(answer.payload)).optString("reason", "$slotName is busy.")
@@ -228,6 +230,10 @@ class CastService : Service() {
                 Thread({ send(output) }, "Mirror Wall sender").start()
                 while (true) {
                     val message = CastProtocol.read(input)
+                    if (message.type == CastProtocol.STOP_SHARING) {
+                        main.post { if (this === link) finish("Sharing ended by the presenter") }
+                        return
+                    }
                     if (message.type == CastProtocol.PING) {
                         outbox.offer(CastProtocol.message(CastProtocol.PONG, message.payload))
                     }
@@ -238,6 +244,9 @@ class CastService : Service() {
                     AppLog.error("Connection to $host:$port ended", error)
                     main.post { lost(this, gotWelcome, error.message) }
                 }
+            } finally {
+                close(false)
+                closeSocket()
             }
         }
 
@@ -245,10 +254,9 @@ class CastService : Service() {
         private fun send(output: BufferedOutputStream) {
             try {
                 while (true) {
-                    val message = outbox.take()
-                    if (message === END) break
+                    val message = outbox.take() ?: break
                     output.write(message)
-                    if (outbox.isEmpty()) output.flush()
+                    if (outbox.size == 0) output.flush()
                 }
                 output.flush()
             } catch (_: Exception) {
@@ -278,6 +286,7 @@ class CastService : Service() {
     /** The connection failed or dropped. Reconnect if it had been sharing; otherwise give up. */
     private fun lost(link: Link, wasWelcomed: Boolean, error: String?) {
         if (link !== this.link || stopped) return
+        link.close(false)
         this.link = null
         val now = SystemClock.elapsedRealtime()
         if (lostAt == null && !wasWelcomed && encoder == null) {
@@ -400,8 +409,9 @@ class CastService : Service() {
 
     /** Encoder thread: queues a picture, dropping the backlog if the network can't keep up. */
     private fun picture(captureMicros: Long, prefix: ByteArray?, data: ByteBuffer, isKeyframe: Boolean) {
-        val outbox = link?.outbox
-        if (screenOff || outbox == null) {
+        val current = link
+        val outbox = current?.outbox
+        if (screenOff || outbox == null || current.isClosed) {
             waitingForKeyframe = true
             return
         }

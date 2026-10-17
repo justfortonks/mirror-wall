@@ -3,7 +3,7 @@ import Foundation
 /// The kind of phone frame drawn around a slot's picture when bezels are on, picked from the
 /// phone's model code. The frame sits around the picture and never covers any of it, so a notch
 /// or Dynamic Island is drawn in the frame's top edge rather than over the screen.
-public enum BezelStyle: String, CaseIterable {
+public enum BezelStyle: String, CaseIterable, Hashable {
     /// Deep top and bottom edges with a round home button: iPhone 8 and the SEs.
     case homeButton
     /// Even edges with a notch: iPhone X to 14, and 16e.
@@ -13,6 +13,9 @@ public enum BezelStyle: String, CaseIterable {
     /// Any other phone (Android, or no phone yet): even edges, a little deeper at top and bottom,
     /// with a front camera.
     case plain
+    /// Drawn frames from the presets (see `BezelPreset`): a smaller notch or island, rugged and
+    /// healthcare Android phones, tablets.
+    case compactNotch, smallIsland, healthcare, rugged, tablet
     /// Android phones drawn from a photo of their front (see `BezelArtwork`).
     case zebraHC50
     case honeywellCT37
@@ -22,8 +25,17 @@ public enum BezelStyle: String, CaseIterable {
     /// "iPhone14,6" → .homeButton, "iPhone18,2" → .dynamicIsland, "Zebra Technologies HC50" →
     /// .zebraHC50, another Android phone or nil → .plain.
     public init(modelCode: String?) {
+        // A phone with its own photo frame gets it; then the drawn presets; then by model code.
+        if let photo = modelCode.flatMap(Self.android) {
+            self = photo
+            return
+        }
+        if let preset = BezelPreset.resolve(model: modelCode) {
+            self = preset.style
+            return
+        }
         guard let code = modelCode, code.hasPrefix("iPhone") else {
-            self = modelCode.flatMap(Self.android) ?? .plain
+            self = .plain
             return
         }
         let numbers = code.dropFirst("iPhone".count).split(separator: ",").compactMap { Int($0) }
@@ -136,6 +148,11 @@ public struct BezelGeometry: Equatable {
     private static func portrait(_ style: BezelStyle) -> (top: Double, side: Double, bottom: Double, screen: Double, outer: Double) {
         switch style {
         case .homeButton: return (0.215, 0.06, 0.215, 0, 0.17)
+        case .compactNotch: return (0.065, 0.045, 0.045, 0.08, 0.13)
+        case .smallIsland: return (0.06, 0.035, 0.035, 0.09, 0.13)
+        case .healthcare: return (0.20, 0.095, 0.22, 0.015, 0.10)
+        case .rugged: return (0.21, 0.11, 0.23, 0.015, 0.07)
+        case .tablet: return (0.065, 0.065, 0.065, 0.025, 0.065)
         case .notch: return (0.075, 0.05, 0.05, 0.08, 0.13)
         case .dynamicIsland: return (0.07, 0.04, 0.04, 0.09, 0.13)
         default: return (0.1, 0.045, 0.1, 0.03, 0.08) // .plain
@@ -146,7 +163,9 @@ public struct BezelGeometry: Equatable {
     /// upright, 1 sideways with its top on the left, 2 upside down, 3 sideways with its top on the
     /// right. Ignored when it doesn't match the picture's shape (the phone turned and its new
     /// picture hasn't arrived yet); a sideways picture then has its top on the left.
-    public init(style: BezelStyle, pictureWidth: Double, pictureHeight: Double, turns: Int? = nil) {
+    /// `portraitAspect`: a preset's outline (width ÷ height, upright), which a drawn frame grows to
+    /// fit without stretching or cropping the picture. Frames drawn from a photo keep the photo's.
+    public init(style: BezelStyle, pictureWidth: Double, pictureHeight: Double, portraitAspect: Double? = nil, turns: Int? = nil) {
         self.style = style
         landscape = pictureWidth > pictureHeight
         if let turns, (turns & 1 == 1) == landscape {
@@ -178,7 +197,21 @@ public struct BezelGeometry: Equatable {
             artworkScreen = BezelRect(x: screen.x / scale, y: screen.y / scale, width: screen.width / scale, height: screen.height / scale)
             return
         }
-        let edges = Self.portrait(style)
+        var edges = Self.portrait(style)
+        // Add frame area to fit the model silhouette; never stretch or crop the stream.
+        if let aspect = portraitAspect, aspect.isFinite, aspect > 0,
+           pictureWidth.isFinite, pictureHeight.isFinite, pictureWidth > 0, pictureHeight > 0 {
+            let screenHeight = max(pictureWidth, pictureHeight) / min(pictureWidth, pictureHeight)
+            let width = 1 + 2 * edges.side
+            let height = screenHeight + edges.top + edges.bottom
+            if width / height > aspect {
+                let extra = (width / aspect - height) / 2
+                edges.top += extra
+                edges.bottom += extra
+            } else {
+                edges.side += (height * aspect - width) / 2
+            }
+        }
         artworkScreen = nil
         // Upright edges, then turned: each quarter turn left takes the right edge to the top.
         var around = (top: edges.top, left: edges.side, bottom: edges.bottom, right: edges.side)
@@ -194,7 +227,8 @@ public struct BezelGeometry: Equatable {
     }
 
     public init(modelCode: String?, pictureWidth: Double, pictureHeight: Double, turns: Int? = nil) {
-        self.init(style: BezelStyle(modelCode: modelCode), pictureWidth: pictureWidth, pictureHeight: pictureHeight, turns: turns)
+        self.init(style: BezelStyle(modelCode: modelCode), pictureWidth: pictureWidth, pictureHeight: pictureHeight,
+                  portraitAspect: BezelPreset.resolve(model: modelCode)?.portraitAspect, turns: turns)
     }
 
     /// The frame's edges at the phone's upright top and bottom, whichever way it's held.

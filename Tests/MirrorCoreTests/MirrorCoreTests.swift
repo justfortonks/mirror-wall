@@ -642,12 +642,14 @@ final class PhoneBezelTests: XCTestCase {
         XCTAssertEqual(BezelStyle(modelCode: "iPhone12,8"), .homeButton) // SE (2nd generation)
         XCTAssertEqual(BezelStyle(modelCode: "iPhone10,4"), .homeButton) // iPhone 8
         XCTAssertEqual(BezelStyle(modelCode: "iPhone10,6"), .notch)      // iPhone X
-        XCTAssertEqual(BezelStyle(modelCode: "iPhone14,5"), .notch)      // iPhone 13
-        XCTAssertEqual(BezelStyle(modelCode: "iPhone14,7"), .notch)      // iPhone 14
-        XCTAssertEqual(BezelStyle(modelCode: "iPhone17,5"), .notch)      // iPhone 16e
+        XCTAssertEqual(BezelStyle(modelCode: "iPhone14,5"), .compactNotch)      // iPhone 13
+        XCTAssertEqual(BezelStyle(modelCode: "iPhone14,7"), .compactNotch)      // iPhone 14
+        XCTAssertEqual(BezelStyle(modelCode: "iPhone17,5"), .compactNotch)      // iPhone 16e
         XCTAssertEqual(BezelStyle(modelCode: "iPhone15,2"), .dynamicIsland) // iPhone 14 Pro
         XCTAssertEqual(BezelStyle(modelCode: "iPhone18,2"), .dynamicIsland) // iPhone 17 Pro Max
         XCTAssertEqual(BezelStyle(modelCode: "iPhone99,1"), .dynamicIsland) // newer than the list
+        // A phone with its own photo frame gets it, ahead of the drawn preset.
+        XCTAssertEqual(BezelStyle(modelCode: "Zebra HC50"), .zebraHC50)
         XCTAssertEqual(BezelStyle(modelCode: "Pixel 8"), .plain)
         XCTAssertEqual(BezelStyle(modelCode: "iPhone"), .plain)
         XCTAssertEqual(BezelStyle(modelCode: nil), .plain)

@@ -3,13 +3,24 @@ import Foundation
 /// Friendly names for the model codes iPhones give AirPlay receivers, e.g. "iPhone18,2" →
 /// "iPhone 17 Pro Max". Codes not listed here (newer phones) are shown as they are.
 public func phoneModelName(_ code: String) -> String {
-    phoneModels[code]?.name ?? code
+    phoneModels[code]?.name ?? BezelPreset.resolve(model: code)?.title ?? code
 }
 
 /// The phone's screen diagonal in inches, if the model is known: an iPhone, or an Android phone
 /// with its own frame.
 public func phoneScreenDiagonal(_ code: String) -> Double? {
-    phoneModels[code]?.diagonal ?? BezelStyle(modelCode: code).artwork?.diagonal
+    if let value = phoneModels[code]?.diagonal { return value }
+    // A phone drawn from a photo knows its own screen size.
+    if let value = BezelStyle(modelCode: code).artwork?.diagonal { return value }
+    switch BezelPreset.resolve(model: code)?.id {
+    case "ipad-11-a16": return 10.86
+    case "zebra-hc50", "zebra-tc53e": return 6
+    case "iphone-se-1st-generation": return 4
+    case "iphone-17e": return 6.1
+    case "iphone-18-pro": return 6.3
+    case "iphone-18-pro-max": return 6.9
+    default: return nil
+    }
 }
 
 /// The longer side, in points, for a window showing a phone's picture at true-to-life size

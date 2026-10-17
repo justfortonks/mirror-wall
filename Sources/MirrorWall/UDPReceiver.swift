@@ -19,7 +19,7 @@ final class UDPReceiver {
     private let onDatagram: ([UInt8]) -> Void
     private let lock = NSLock()
     private var running = false
-    private let finished = DispatchSemaphore(value: 0)
+    private let finished = DispatchGroup()
 
     /// `onDatagram` is called on the receiver's own thread.
     init(port: UInt16, onDatagram: @escaping ([UInt8]) -> Void) {
@@ -55,6 +55,7 @@ final class UDPReceiver {
             throw Failure.bind(port: port, errno: code)
         }
 
+        finished.enter()
         setRunning(true)
         let thread = Thread { [self] in receiveLoop(fd) }
         thread.name = "MirrorWall UDP \(port)"
@@ -64,21 +65,20 @@ final class UDPReceiver {
 
     /// Stops receiving and waits for the receive thread to finish, so no callback runs after this returns.
     func stop() {
-        guard isRunning else { return }
         setRunning(false)
-        _ = finished.wait(timeout: .now() + 1)
+        finished.wait()
     }
 
     private func receiveLoop(_ fd: Int32) {
         var buffer = [UInt8](repeating: 0, count: 65_536)
         while isRunning {
             let count = recv(fd, &buffer, buffer.count, 0)
-            if count > 0 {
+            if count > 0, isRunning {
                 onDatagram(Array(buffer[0..<count]))
             }
         }
         close(fd)
-        finished.signal()
+        finished.leave()
     }
 
     private var isRunning: Bool {

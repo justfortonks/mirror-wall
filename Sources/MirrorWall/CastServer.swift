@@ -36,13 +36,16 @@ final class CastServer {
         queue = DispatchQueue(label: "Mirror Wall cast \(port)", qos: .userInteractive)
     }
 
-    func start() throws {
+    func start(onReady: (() -> Void)? = nil) throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         if let options = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
             options.noDelay = true
         }
         let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
+        listener.stateUpdateHandler = { state in
+            if case .ready = state { onReady?() }
+        }
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
@@ -54,16 +57,30 @@ final class CastServer {
     }
 
     /// Stops listening and drops any phone that's connected.
-    func stop() {
+    /// Run off the main queue. An intentional stop gets a chance to reach the companion.
+    func stop(endingSharing: Bool = false) {
+        let sent = DispatchGroup()
         queue.sync {
             listener?.cancel()
             listener = nil
+            if endingSharing {
+                for connection in connections where connection.isAccepted {
+                    sent.enter()
+                    connection.finishSharing { sent.leave() }
+                }
+            }
+        }
+        if endingSharing { _ = sent.wait(timeout: .now() + 1) }
+        queue.sync {
             for connection in connections { connection.close() }
             connections = []
         }
     }
 
+    var listeningPort: UInt16? { queue.sync { listener?.port?.rawValue } }
+
     private func accept(_ nwConnection: NWConnection) {
+        guard connections.count < 8 else { nwConnection.cancel(); return }
         let connection = CastConnection(nwConnection, queue: queue)
         connections.append(connection)
         connection.onEnded = { [weak self, weak connection] in
@@ -106,6 +123,10 @@ final class CastConnection {
             }
         }
         connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, !self.isAccepted else { return }
+            self.close()
+        }
         receive()
     }
 
@@ -126,6 +147,12 @@ final class CastConnection {
                 self?.close()
             })
         }
+    }
+
+    /// Call on the connection queue. Completion means the message was processed by the socket.
+    func finishSharing(completion: @escaping () -> Void) {
+        guard !ended else { completion(); return }
+        connection.send(content: Data(CastMessage.stopSharing.encoded()), completion: .contentProcessed { _ in completion() })
     }
 
     /// Hangs up. Call on the queue.

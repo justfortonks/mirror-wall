@@ -1,6 +1,7 @@
 import CoreMedia
 import Foundation
 import MirrorCore
+import VideoToolbox
 
 /// A running mirroring slot: its uxplay process, the RTP stream it forwards, and the renderer.
 ///
@@ -28,12 +29,12 @@ final class Slot: ObservableObject, Identifiable {
             if state != oldValue { stateSince = Date() }
             syphonFeed?.passesFrames = carriesPhoneFrames
             // A slot in use drops out of the Android app's list until it's free again.
-            castServer?.setAdvertised(!carriesPhoneFrames)
+            castServer?.setAdvertised(!carriesPhoneFrames && state != .connecting)
         }
     }
-    /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
+    /// Do not publish a previous decoder's final frame while a replacement is connecting.
     private var carriesPhoneFrames: Bool {
-        state == .connecting || state == .live || state == .paused
+        state == .live || state == .paused
     }
     /// When the current state began, e.g. how long the screen has been off.
     @Published private(set) var stateSince = Date()
@@ -48,6 +49,20 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var hasPicture = false
     /// Picture size in pixels, used for the tile's aspect ratio.
     @Published private(set) var videoSize: CGSize?
+    /// True while a mirroring phone has gone quiet for a few seconds (no check-in or video) but
+    /// hasn't been given up on yet, so the Stage can say "Reconnecting…" without ending anything.
+    @Published private(set) var isQuiet = false
+    /// The last picture and its size from before the phone dropped, kept through the receiver's
+    /// restart so the Stage can hold the phone in place, dimmed, while it may reconnect.
+    @Published private(set) var heldImage: CGImage?
+    @Published private(set) var heldVideoSize: CGSize?
+    /// Stage-only freeze. Recordings, screenshots and independent feeds remain live.
+    @Published private(set) var frozenImage: CGImage?
+    var isFrozen: Bool { frozenImage != nil }
+    private var frozenDeviceID: String?
+    private var currentDeviceID: String?
+    /// The picture's size, or the held one while reconnecting.
+    var displaySize: CGSize? { videoSize ?? heldVideoSize }
     /// The last picture size seen, kept after the phone leaves, for sizing the OBS feed's standby
     /// picture like the phone's.
     private(set) var lastPictureSize: CGSize?
@@ -59,6 +74,9 @@ final class Slot: ObservableObject, Identifiable {
     @Published private(set) var recordingSince: Date?
     /// The last recording error, shown in the tile until recording restarts.
     @Published private(set) var recordingError: String?
+    @Published private(set) var recordingHasFrames = false
+    @Published private(set) var isSavingRecording = false
+    private var recordingID = UUID()
     /// When the last screenshot was saved, for a moment's confirmation in the tile.
     @Published private(set) var screenshotSavedAt: Date?
 
@@ -76,6 +94,8 @@ final class Slot: ObservableObject, Identifiable {
     /// Only phones with these device IDs may connect, or any phone if nil. Takes effect when the
     /// receiver starts.
     var allowedDevices: [String]?
+    /// The 4-digit code iPhones must enter, or nil for none. Takes effect when the receiver starts.
+    var airplayPIN: String?
     /// Called when a phone asks to connect, so the store can remember it for the allow-list.
     var onPhoneSeen: ((KnownPhone) -> Void)?
     /// Called when a mirroring phone drops unexpectedly (not when the slot is stopped).
@@ -91,9 +111,6 @@ final class Slot: ObservableObject, Identifiable {
     /// The Android phone that has the slot, if any. While one does, the slot's uxplay is stopped
     /// so iPhones don't list it.
     private var castPhone: CastConnection?
-    /// When the phone last paused its stream. A locked phone can still send a frame or two (its lock
-    /// screen), so frames only count as a resume once they keep coming after this.
-    private var pausedAt: Date?
     private var logFile: FileHandle?
     /// When the phone last checked in or sent video. A phone on a charger, its screen off, can go
     /// quiet without ending the session, and uxplay never notices; the watchdog does.
@@ -101,9 +118,15 @@ final class Slot: ObservableObject, Identifiable {
     /// The uxplay this slot runs, kept for giving each new connection a fresh receiver.
     private var uxplayURL: URL?
     private var watchdog: Timer?
-    static let silenceLimit: TimeInterval = 10
+    /// Quiet this long (the phone checks in every 2 seconds) and the Stage shows "Reconnecting…".
+    static let quietLimit: TimeInterval = 4.5
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
     private var generation = 0
+    private var lifetime = StreamLifetime()
+    private var teardown: Task<Void, Never>?
+    private var castDeviceID: String?
+    private var castShareID: String?
+    private var admission = CastAdmission()
     /// When the receiver last started, to tell a crash after running a while (start a fresh one)
     /// from one that can't run at all (show the error).
     private var processStartedAt: Date?
@@ -122,18 +145,41 @@ final class Slot: ObservableObject, Identifiable {
 
     init(config: SlotConfig) {
         self.config = config
-        renderer.onPicture = { [weak self] image, rtpTimestamp in
-            self?.record(image: image, rtpTimestamp: rtpTimestamp)
-        }
     }
 
     var name: String { config.name }
+    var displayName: String { config.displayAlias ?? phoneName ?? config.lastPhoneName ?? name }
+    var bezelPreset: BezelPreset? { BezelPreset.resolve(selection: config.bezelModel, model: config.lastPhoneModel) }
+    func setDisplayAlias(_ alias: String) {
+        objectWillChange.send()
+        let tidy = String(alias.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        config.displayAlias = tidy.isEmpty ? nil : tidy
+        onConfigChanged?()
+    }
+    func setBezelModel(_ id: String?) {
+        objectWillChange.send()
+        config.bezelModel = id == BezelPreset.automatic ? nil : id
+        updateFeedBezel()
+        if showsPicture, let image = renderer.currentImage { syphonFeed?.publishFrame(image) }
+        onConfigChanged?()
+    }
 
     /// - Parameter freshLog: false when restarting after a disconnect, to keep what led up to it.
     func start(uxplay: URL, freshLog: Bool = true) {
-        guard process == nil else { return }
+        guard process == nil, receiver == nil, castServer == nil else { return }
         generation += 1
         let currentGeneration = generation
+        if let teardown {
+            Task { @MainActor [weak self] in
+                await teardown.value
+                guard let self, self.generation == currentGeneration else { return }
+                self.teardown = nil
+                self.start(uxplay: uxplay, freshLog: freshLog)
+            }
+            return
+        }
+        lifetime = StreamLifetime()
+        let lifetime = lifetime
         uxplayURL = uxplay
         if freshLog {
             log.lines = []
@@ -142,8 +188,10 @@ final class Slot: ObservableObject, Identifiable {
         depacketizer.reset()
         meter.reset()
 
+        let stamp = lifetime.stamp
+        installRecordingCallback(lifetime: lifetime, stamp: stamp)
         let receiver = UDPReceiver(port: config.rtpPort) { [weak self] datagram in
-            self?.handle(datagram)
+            self?.handle(datagram, lifetime: lifetime, stamp: stamp)
         }
         do {
             try receiver.start()
@@ -155,7 +203,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture),
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, pin: airplayPIN),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -168,45 +216,69 @@ final class Slot: ObservableObject, Identifiable {
         do {
             try process.start()
         } catch {
-            receiver.stop()
             self.receiver = nil
+            lifetime.invalidate()
+            teardown = Task.detached { receiver.stop() }
             state = .failed("couldn't start uxplay: \(error.localizedDescription)")
             return
         }
         self.process = process
         processStartedAt = Date()
-        startCastServer()
+        startCastServer(lifetime: lifetime)
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture).joined(separator: " "))")
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, pin: airplayPIN).joined(separator: " "))")
         state = .waiting
     }
 
-    func stop() {
-        // A recording carries on into the next connection, in a new file.
-        recorderLock.withLock { recorder?.endFile() }
+    func stop(endingSharing: Bool = false) {
         generation += 1
+        lifetime.invalidate()
+        if endingSharing, let castDeviceID { admission.stop(deviceID: castDeviceID, shareID: castShareID) }
+        let previous = teardown
+        let oldProcess = process
+        let oldServer = castServer
+        let oldReceiver = receiver
+        process = nil
+        castServer = nil
+        castPhone = nil
+        castDeviceID = nil
+        castShareID = nil
+        receiver = nil
         watchdog?.invalidate()
         watchdog = nil
         lastSignOfLifeAt = nil
-        process?.stop()
-        process = nil
-        castServer?.stop()
-        castServer = nil
-        castPhone = nil
-        receiver?.stop()
-        receiver = nil
-        renderer.reset()
+        if endingSharing { resume() }
+        currentDeviceID = nil
         stats.clearStream()
         lastFrameAt = nil
         hasPicture = false
         videoSize = nil
         phoneName = nil
         connectedSince = nil
+        isQuiet = false
         state = .stopped
+        // No child-process wait, transport drain or decoder reset blocks the main thread.
+        teardown = Task.detached { [self] in
+            await previous?.value
+            oldServer?.stop(endingSharing: endingSharing)
+            oldReceiver?.stop()
+            oldProcess?.stop()
+            streamLock.withLock {
+                renderer.reset()
+                depacketizer.reset()
+                meter.reset()
+                lostPacketsCounted = 0
+                lastNotified = 0
+                lastDimensions = nil
+            }
+            recorderLock.withLock { recorder?.endFile() }
+        }
     }
 
-    func restart(uxplay: URL) {
-        stop()
+    func finishStopping() async { await teardown?.value }
+
+    func restart(uxplay: URL, endingSharing: Bool = false) {
+        stop(endingSharing: endingSharing)
         start(uxplay: uxplay)
     }
 
@@ -259,7 +331,9 @@ final class Slot: ObservableObject, Identifiable {
     /// The frame for a picture of this size (the phone's shape), styled after the last phone and
     /// turned the way an Android phone says it's held.
     func bezel(for picture: CGSize) -> BezelGeometry {
-        BezelGeometry(modelCode: config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height, turns: phoneTurns)
+        BezelGeometry(style: bezelPreset?.style ?? BezelStyle(modelCode: config.lastPhoneModel),
+                      pictureWidth: picture.width, pictureHeight: picture.height,
+                      portraitAspect: bezelPreset?.portraitAspect, turns: phoneTurns)
     }
 
     /// Which way up the Android phone says it's held (see `CastMessage.orientation`); nil for an
@@ -282,7 +356,8 @@ final class Slot: ObservableObject, Identifiable {
 
     /// The feed's frame follows the last phone's model.
     private func updateFeedBezel() {
-        syphonFeed?.bezelStyle = framesOBSFeed ? BezelStyle(modelCode: config.lastPhoneModel) : nil
+        syphonFeed?.setBezel(style: framesOBSFeed ? (bezelPreset?.style ?? BezelStyle(modelCode: config.lastPhoneModel)) : nil,
+                              portraitAspect: bezelPreset?.portraitAspect)
         syphonFeed?.bezelTurns = phoneTurns
     }
 
@@ -338,10 +413,21 @@ final class Slot: ObservableObject, Identifiable {
     func startRecording() {
         guard recordingSince == nil else { return }
         let recorder = SlotRecorder(folder: SlotRecorder.defaultFolder, baseName: phoneName ?? config.lastPhoneName ?? name)
+        recordingID = UUID()
+        let id = recordingID
+        recordingHasFrames = false
+        recorder.onStarted = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.recordingID == id, self.recordingSince != nil else { return }
+                self.recordingHasFrames = true
+            }
+        }
         recorder.onError = { [weak self] message in
             DispatchQueue.main.async {
-                self?.recordingError = message
-                self?.append("Recording: \(message)")
+                guard let self, self.recordingID == id else { return }
+                self.stopRecording()
+                self.recordingError = message
+                self.append("Recording: \(message)")
             }
         }
         recorderLock.withLock {
@@ -352,6 +438,7 @@ final class Slot: ObservableObject, Identifiable {
             }
         }
         recordingError = nil
+        isSavingRecording = false
         recordingSince = Date()
         append("Recording to \(SlotRecorder.defaultFolder.path)")
     }
@@ -364,7 +451,23 @@ final class Slot: ObservableObject, Identifiable {
             recorder = nil
         }
         recordingSince = nil
+        recordingHasFrames = false
+        isSavingRecording = true
+        let id = recordingID
+        Task { @MainActor [weak self] in
+            await SlotRecorder.finishPendingFiles()
+            guard let self, self.recordingID == id else { return }
+            self.isSavingRecording = false
+        }
         append("Recording stopped")
+    }
+
+    /// Installed only after the previous decoder has drained.
+    private func installRecordingCallback(lifetime: StreamLifetime, stamp: Int) {
+        renderer.onPicture = { [weak self] image, timestamp in
+            guard lifetime.isCurrent(stamp) else { return }
+            self?.record(image: image, rtpTimestamp: timestamp)
+        }
     }
 
     /// Decoder thread: hands a picture to the recorder, if recording.
@@ -376,38 +479,44 @@ final class Slot: ObservableObject, Identifiable {
 
     // MARK: - UDP thread
 
-    private func handle(_ datagram: [UInt8]) {
+    private func handle(_ datagram: [UInt8], lifetime: StreamLifetime, stamp: Int) {
         guard let packet = RTPPacket(datagram) else { return }
         streamLock.withLock {
+            guard lifetime.isCurrent(stamp) else { return }
             let frames = depacketizer.push(packet)
             let arrivedAt = Self.uptime()
             meter.packet(bytes: packet.payload.count, lost: depacketizer.lostPackets - lostPacketsCounted, at: arrivedAt)
             lostPacketsCounted = depacketizer.lostPackets
-            deliver(frames, arrivedAt: arrivedAt)
+            deliver(frames, arrivedAt: arrivedAt, lifetime: lifetime, stamp: stamp)
         }
     }
 
     /// Cast queue: one picture from the Android phone.
-    private func handleCastVideo(captureMicros: Int64, accessUnit: [UInt8]) {
+    private func handleCastVideo(captureMicros: Int64, accessUnit: [UInt8], lifetime: StreamLifetime) {
+        let stamp = lifetime.stamp
         let nalUnits = annexBNALUnits(accessUnit)
         streamLock.withLock {
+            guard lifetime.isCurrent(stamp) else { return }
             if let codec = castCodec(of: nalUnits) { castStreamCodec = codec }
             let frame = H264Frame(nalUnits: nalUnits, timestamp: castRTPTimestamp(captureMicros: captureMicros), codec: castStreamCodec)
             let arrivedAt = Self.uptime()
             meter.packet(bytes: accessUnit.count, lost: 0, at: arrivedAt)
-            deliver([frame], arrivedAt: arrivedAt)
+            deliver([frame], arrivedAt: arrivedAt, lifetime: lifetime, stamp: stamp)
             // Arrival minus capture time, on clocks with an unknown offset: only its rise above
             // the best so far means anything, which is what Lag vs best shows.
             if arrivedAt - lastLatencyReport >= 1 {
                 lastLatencyReport = arrivedAt
                 let latency = arrivedAt - Double(captureMicros) / 1e6
-                DispatchQueue.main.async { [weak self] in self?.stats.recordLatency(latency) }
+                DispatchQueue.main.async { [weak self] in
+                    guard lifetime.isCurrent(stamp) else { return }
+                    self?.stats.recordLatency(latency)
+                }
             }
         }
     }
 
     /// Under `streamLock`: decodes frames from either kind of phone and keeps the tile up to date.
-    private func deliver(_ frames: [H264Frame], arrivedAt: Double) {
+    private func deliver(_ frames: [H264Frame], arrivedAt: Double, lifetime: StreamLifetime, stamp: Int) {
         var rendered = false
         for frame in frames {
             let shown = renderer.render(frame, arrival: arrivedAt)
@@ -417,7 +526,7 @@ final class Slot: ObservableObject, Identifiable {
         if let snapshot = meter.snapshotIfDue(at: arrivedAt) {
             let codec = renderer.codecDescription
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.receiver != nil else { return }
+                guard let self, lifetime.isCurrent(stamp) else { return }
                 self.stats.stream = snapshot
                 self.stats.codec = codec
             }
@@ -433,27 +542,33 @@ final class Slot: ObservableObject, Identifiable {
         lastDimensions = dimensions
 
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.receiver != nil else { return }
-            self.lastFrameAt = Date()
-            if !self.hasPicture { self.hasPicture = true }
-            if let dimensions {
-                let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
-                if self.videoSize != size { self.videoSize = size }
-                self.lastPictureSize = size
-            }
-            self.lastSignOfLifeAt = Date()
-            let pauseSettled = self.pausedAt.map { Date().timeIntervalSince($0) > 3 } ?? true
-            if self.state != .live && self.state != .disconnected && (self.state != .paused || pauseSettled) {
-                self.state = .live
-            }
+            guard let self, lifetime.isCurrent(stamp) else { return }
+            self.receivedFrame(dimensions: dimensions)
         }
+    }
+
+    /// A locked device can send lock-screen frames without resuming its video session.
+    /// Only the transport's explicit resume event ends screen-off grace.
+    func receivedFrame(dimensions: CMVideoDimensions?, now: Date = Date()) {
+        lastFrameAt = now
+        if !hasPicture {
+            hasPicture = true
+            clearHeldPicture()
+        }
+        if let dimensions {
+            let size = CGSize(width: Int(dimensions.width), height: Int(dimensions.height))
+            if videoSize != size { videoSize = size }
+            lastPictureSize = size
+        }
+        lastSignOfLifeAt = now
+        if state == .connecting || state == .waiting { state = .live }
     }
 
     // MARK: - Android phones (Mirror Wall Cast)
 
-    private func startCastServer() {
+    private func startCastServer(lifetime: StreamLifetime) {
         let server = CastServer(port: config.castPort, name: config.name) { [weak self] phone in
-            self?.castPhoneConnected(phone)
+            self?.castPhoneConnected(phone, lifetime: lifetime)
         }
         do {
             server.setAdvertised(!carriesPhoneFrames)
@@ -465,19 +580,22 @@ final class Slot: ObservableObject, Identifiable {
     }
 
     /// Cast queue: wires up a new connection. Nothing is decided until the phone says hello.
-    private func castPhoneConnected(_ phone: CastConnection) {
+    private func castPhoneConnected(_ phone: CastConnection, lifetime: StreamLifetime) {
         phone.onMessage = { [weak self, weak phone] message in
-            guard let self, let phone else { return }
+            guard let self, let phone, lifetime.isActive else { return }
             switch message {
             case .video(let captureMicros, let accessUnit):
-                if phone.isAccepted { self.handleCastVideo(captureMicros: captureMicros, accessUnit: accessUnit) }
+                if phone.isAccepted { self.handleCastVideo(captureMicros: captureMicros, accessUnit: accessUnit, lifetime: lifetime) }
             default:
-                DispatchQueue.main.async { self.castMessage(message, from: phone) }
+                DispatchQueue.main.async {
+                    guard lifetime.isActive else { return }
+                    self.castMessage(message, from: phone)
+                }
             }
         }
         phone.onClose = { [weak self, weak phone] in
             DispatchQueue.main.async {
-                guard let self, let phone else { return }
+                guard let self, let phone, lifetime.isActive else { return }
                 self.castPhoneLeft(phone)
             }
         }
@@ -518,28 +636,49 @@ final class Slot: ObservableObject, Identifiable {
             phone.refuse("\(name) is showing \(phoneName ?? "another phone").")
             return
         }
+        guard admission.permits(hello.deviceID, shareID: hello.shareID) else {
+            phone.refuse("Sharing was stopped on the Mac. Wait a minute, then tap Share again.")
+            return
+        }
         if let allowedDevices, !allowedDevices.contains(hello.deviceID) {
             onPhoneSeen?(KnownPhone(deviceID: hello.deviceID, name: hello.name, model: hello.model, lastSeen: Date()))
             append("Turned away \(hello.name) (\(hello.model)): not on the allow-list")
             phone.refuse("This phone isn't allowed on \(name). It can be allowed in Mirror Wall's Settings.")
             return
         }
+        lifetime.advance() // queued AirPlay frames cannot update this Android session
         castPhone = phone
+        castDeviceID = hello.deviceID
+        castShareID = hello.shareID
         phoneTurns = nil
         append("Android phone connecting: \(hello.name) (\(hello.model)) from \(phone.remoteDescription)")
-        // Take the slot off iPhones' Screen Mirroring list while the Android phone has it. The
-        // generation bump keeps the stopping uxplay's exit, and any pending restart, from
-        // touching the slot.
         generation += 1
-        process?.stop()
+        let currentGeneration = generation
+        let oldProcess = process
+        let oldReceiver = receiver
         process = nil
-        streamLock.withLock {
-            depacketizer.reset()
-            castStreamCodec = .h264
-        }
+        receiver = nil
         apply(.clientConnecting(name: hello.name, model: hello.model, deviceID: hello.deviceID))
         lastSignOfLifeAt = Date()
-        phone.accept(CastWelcome(slot: name, maxFrameRate: maxFrameRate, sharpPicture: sharpPicture))
+        let lifetime = lifetime
+        let handoff = Task.detached { [self] in
+            oldReceiver?.stop()
+            oldProcess?.stop()
+            streamLock.withLock {
+                renderer.reset()
+                depacketizer.reset()
+                castStreamCodec = .h264
+            }
+        }
+        teardown = handoff
+        Task { @MainActor [weak self] in
+            await handoff.value
+            guard let self, lifetime.isActive, self.generation == currentGeneration,
+                  self.castPhone === phone else { return }
+            self.teardown = nil
+            self.installRecordingCallback(lifetime: lifetime, stamp: lifetime.stamp)
+            phone.accept(CastWelcome(slot: self.name, maxFrameRate: self.maxFrameRate, sharpPicture: self.sharpPicture))
+        }
     }
 
     /// The Android phone hung up, or the connection broke. Ends like an iPhone disconnecting:
@@ -572,12 +711,14 @@ final class Slot: ObservableObject, Identifiable {
         }
     }
 
-    private func apply(_ event: UxPlayEvent) {
+    func apply(_ event: UxPlayEvent) {
         switch event {
         case .clientConnecting(let name, let model, let deviceID):
             // The decoder needs no reset here: a new stream starts with new parameter sets, which
             // rebuild it. (This line can also arrive after the new stream's first frames.)
-            lastSignOfLifeAt = nil
+            if deviceID.isEmpty || frozenDeviceID != deviceID { resume() }
+            currentDeviceID = deviceID.isEmpty ? nil : deviceID
+            lastSignOfLifeAt = Date()
             phoneName = name
             connectedSince = Date()
             recorderLock.withLock { recorder?.baseName = name }
@@ -595,9 +736,10 @@ final class Slot: ObservableObject, Identifiable {
             }
             state = .connecting
         case .streamStarted:
+            lastSignOfLifeAt = Date()
             if state == .connecting || state == .paused || state == .disconnected { state = .live }
         case .streamPaused:
-            pausedAt = Date()
+            lastSignOfLifeAt = Date()
             if state == .live || state == .connecting { state = .paused }
         case .openConnections(0), .lostConnection:
             connectedSince = nil
@@ -606,6 +748,7 @@ final class Slot: ObservableObject, Identifiable {
             }
         case .heartbeat:
             lastSignOfLifeAt = Date()
+            if isQuiet { isQuiet = false }
             stats.heartbeat()
         case .networkRoundTrip(let seconds):
             stats.roundTrip = seconds
@@ -618,21 +761,63 @@ final class Slot: ObservableObject, Identifiable {
 
     private func startWatchdog() {
         watchdog?.invalidate()
-        watchdog = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        watchdog = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.checkForSilence()
         }
     }
 
-    private func checkForSilence() {
-        guard let lastSignOfLifeAt, state == .live || state == .paused || state == .connecting,
-              Date().timeIntervalSince(lastSignOfLifeAt) > Self.silenceLimit else { return }
-        append("No check-in or video from the phone for \(Int(Self.silenceLimit)) seconds; treating it as disconnected")
+    /// The picture on screen now, as an image that outlives the receiver.
+    private func snapshot() -> CGImage? {
+        guard let buffer = renderer.currentImage else { return nil }
+        var image: CGImage?
+        _ = VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+        return image
+    }
+
+    /// Keeps the picture on screen now, before the receiver restart clears it.
+    private func holdLastPicture() {
+        heldVideoSize = videoSize ?? heldVideoSize
+        if let image = frozenImage ?? snapshot() { heldImage = image }
+    }
+
+    /// Freezes the Stage on this phone's current picture; the phone keeps mirroring.
+    func pause() {
+        guard frozenImage == nil, let image = snapshot() else { return }
+        freeze(image)
+    }
+
+    /// Associates the presentation snapshot with a device, not the reusable receiver slot.
+    func freeze(_ image: CGImage) {
+        frozenImage = image
+        frozenDeviceID = currentDeviceID
+    }
+
+    func resume() {
+        if frozenImage != nil { frozenImage = nil }
+        frozenDeviceID = nil
+    }
+
+    /// Lets go of the held picture: the phone is back, or no longer waited for.
+    func clearHeldPicture() {
+        if heldImage != nil { heldImage = nil }
+        if heldVideoSize != nil { heldVideoSize = nil }
+    }
+
+    func checkForSilence(now: Date = Date()) {
+        let silentFor = lastSignOfLifeAt.map { now.timeIntervalSince($0) } ?? 0
+        let quiet = state == .live && silentFor > Self.quietLimit
+        if quiet != isQuiet { isQuiet = quiet }
+        let limit = SessionLiveness.silenceLimit(screenOff: state == .paused, android: castPhone != nil)
+        guard lastSignOfLifeAt != nil, state == .live || state == .paused || state == .connecting,
+              silentFor > limit else { return }
+        append("No check-in or video from the phone for \(Int(limit)) seconds; treating it as disconnected")
         connectedSince = nil
         phoneDropped()
     }
 
     private func phoneDropped() {
         let wasMirroring = state == .live || state == .paused || state == .connecting
+        if wasMirroring { holdLastPicture() }
         state = .disconnected
         restartReceiverSoon()
         if wasMirroring { onPhoneDropped?() }
@@ -677,19 +862,19 @@ final class Slot: ObservableObject, Identifiable {
     private func processExited(_ status: Int32) {
         append("uxplay exited with status \(status)")
         process = nil
-        receiver?.stop()
-        receiver = nil
         // A receiver that ran a while and quit by itself, most often crashing as a phone
         // disconnects (in H.265 mode especially), gets replaced like after any disconnect. One
         // that quits within seconds of starting is shown as failed rather than restarted over
         // and over.
         let ranAWhile = processStartedAt.map { Date().timeIntervalSince($0) > 5 } ?? false
         guard ranAWhile, let uxplay = uxplayURL else {
+            stop()
             state = .failed("The receiver stopped (exit status \(status)). Use Restart, or check the log.")
             return
         }
         let wasMirroring = state == .live || state == .paused || state == .connecting
         let phone = phoneName
+        if wasMirroring { holdLastPicture() }
         append("Starting a fresh receiver")
         stop()
         start(uxplay: uxplay, freshLog: false)

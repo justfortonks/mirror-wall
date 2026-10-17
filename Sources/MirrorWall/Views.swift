@@ -6,6 +6,8 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var store: SlotStore
     @State private var focusedSlotID: Int?
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     var body: some View {
         Group {
@@ -16,16 +18,32 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 420)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Brand.operatorSurface)
+        .environment(\.colorScheme, .dark)
+        .foregroundStyle(Brand.onOperatorSurface)
+        // Imprivata Blue wall: dark appearance for this window only, so text and controls read
+        // on it without changing Settings or alerts.
+        .background(DarkWindowAppearance())
+        .toolbarBackground(Brand.blueDeep, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
+        .onAppear {
+            // Lets Show Wall reopen this window from anywhere once it's been closed.
+            MainWindow.open = openWindow
+            // Stage-first: SwiftUI opens the wall at launch; close it as soon as it appears.
+            if AppDelegate.hideWallAtLaunch {
+                AppDelegate.hideWallAtLaunch = false
+                dismissWindow(id: "main")
+            }
+        }
         .toolbar {
             ToolbarItem {
                 Button {
                     store.addSlot()
                 } label: {
-                    Label("Add Slot", systemImage: "plus")
+                    Label("Add Device Space", systemImage: "plus")
                 }
                 .disabled(!store.canAddSlot || store.uxplayURL == nil)
-                .help("Add a slot another iPhone can mirror to")
+                .help("Add a slot another device can mirror to")
             }
             ToolbarItem {
                 SettingsLink {
@@ -49,7 +67,7 @@ struct ContentView: View {
             ScrollView {
                 LazyVGrid(
                     columns: focused == nil
-                        ? [GridItem(.adaptive(minimum: 220), spacing: 16)]
+                        ? [GridItem(.adaptive(minimum: store.slots.count <= 3 ? 300 : 220), spacing: 16)]
                         : [GridItem(.flexible())],
                     spacing: 16
                 ) {
@@ -87,7 +105,7 @@ struct SetupView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
             Text("Mirror Wall needs uxplay")
-                .font(.title2.bold())
+                .font(Brand.font(22, .bold))
             Text("It looks in /opt/homebrew/bin, /usr/local/bin and the casting app folder. Point it at the uxplay you built.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -154,15 +172,20 @@ struct SlotTile: View {
         .overlay(alignment: .topTrailing) { popOutButton }
         if slot.showsBezel {
             PhoneBezel(geometry: slot.bezel(for: pictureShape), picture: pictureShape) {
-                picture.background(Color.black)
+                picture.background(pictureBackground)
             }
         } else {
             picture
                 .aspectRatio(pictureShape.width / pictureShape.height, contentMode: .fit)
-                .background(Color.black)
+                .background(pictureBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
         }
+    }
+
+    /// Black behind a phone's picture; deep Imprivata Blue while the slot waits for one.
+    private var pictureBackground: Color {
+        showsPicture || hasStandbyImage ? .black : Brand.blueDeep
     }
 
     private var pictureShape: CGSize {
@@ -202,7 +225,7 @@ struct SlotTile: View {
     private var pausedBanner: some View {
         VStack {
             Spacer()
-            Label("Screen off. Turn it on within about a minute or the iPhone stops mirroring.", systemImage: "moon.fill")
+            Label("Screen off. Wake the device to resume. If sharing ended, reconnect from Screen Mirroring.", systemImage: "moon.fill")
                 .font(.caption)
                 .padding(8)
                 .frame(maxWidth: .infinity)
@@ -212,15 +235,27 @@ struct SlotTile: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 10) {
-            Image(systemName: placeholderIcon)
-                .font(.system(size: 28))
-            Text(placeholderText)
-                .font(.callout)
-                .multilineTextAlignment(.center)
+        ZStack(alignment: .topTrailing) {
+            HexPattern(radius: 13, columns: 5, rows: 5, density: 0.75, seed: UInt64(slot.id) + 7)
+                .frame(height: 120)
+                .frame(maxHeight: .infinity, alignment: .top)
+            VStack(spacing: 10) {
+                Image(systemName: placeholderIcon)
+                    .font(.system(size: 28))
+                    .foregroundStyle(placeholderIsProblem ? Brand.red : Brand.teal)
+                Text(placeholderText)
+                    .font(Brand.font(13))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .foregroundStyle(.white.opacity(0.75))
-        .padding()
+    }
+
+    private var placeholderIsProblem: Bool {
+        if case .failed = slot.state { return true }
+        return slot.state == .disconnected
     }
 
     private var placeholderIcon: String {
@@ -250,7 +285,7 @@ struct SlotTile: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
                 Text(slot.name)
-                    .font(.headline)
+                    .font(Brand.font(14, .semibold))
                     .lineLimit(1)
                 if let feedName = slot.obsFeedName {
                     Image(systemName: "dot.radiowaves.left.and.right")
@@ -262,7 +297,7 @@ struct SlotTile: View {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
                 } label: {
                     Image(systemName: slot.recordingSince == nil ? "record.circle" : "stop.circle.fill")
-                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Color.red)
+                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Brand.red)
                 }
                 .buttonStyle(.borderless)
                 .help(slot.recordingSince == nil
@@ -288,7 +323,7 @@ struct SlotTile: View {
             }
             HStack(spacing: 6) {
                 // The phone's name gives way when space is short; the status never does.
-                Text(slot.state == .disconnected ? "" : slot.phoneName ?? "")
+                Text(slot.state == .disconnected ? "" : slot.displayName)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 4)
@@ -297,9 +332,14 @@ struct SlotTile: View {
                         if let saved = slot.screenshotSavedAt, context.date.timeIntervalSince(saved) < 2 {
                             Text("Screenshot saved")
                         }
-                        if let since = slot.recordingSince {
-                            Text("● REC \(Self.format(context.date.timeIntervalSince(since)))")
-                                .foregroundStyle(.red)
+                        if let error = slot.recordingError {
+                            Label("Recording failed", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.white).help(error)
+                        } else if slot.isSavingRecording {
+                            Text("Saving recording…")
+                        } else if let since = slot.recordingSince {
+                            Text(slot.recordingHasFrames ? "● REC \(Self.format(context.date.timeIntervalSince(since)))" : "Recording armed")
+                                .foregroundStyle(Brand.red)
                                 .help(slot.recordingError ?? "Recording to \(SaveFolders.recordings.path)")
                         }
                         Text(statusText(now: context.date))
@@ -346,6 +386,8 @@ struct SlotTile: View {
             ))
         }
         Menu("Phone Bezel") {
+            BezelModelPicker(slot: slot)
+            Divider()
             Toggle("On the Wall and Own Window", isOn: Binding(
                 get: { slot.showsBezel },
                 set: { store.setBezel(slot, on: $0) }
@@ -370,7 +412,8 @@ struct SlotTile: View {
             }
         }
         Divider()
-        Button("Rename…") {
+        Button("Demo Label…") { DemoLabelEditor.show(for: slot) }
+        Button("Rename Receiver…") {
             newName = slot.name
             renaming = true
         }
@@ -388,13 +431,14 @@ struct SlotTile: View {
         Toggle(title, isOn: Binding(get: { choice == current }, set: { _ in action() }))
     }
 
+    /// Brand palette: teal live, blues in between, red only for trouble (and recording).
     private var statusColor: Color {
         switch slot.state {
-        case .live: return .green
-        case .waiting, .connecting, .paused: return .yellow
-        case .disconnected: return .orange
+        case .live: return Brand.teal
+        case .connecting, .paused: return Brand.sky
+        case .waiting: return Brand.blueMuted
+        case .disconnected, .failed: return Brand.red
         case .stopped: return .gray
-        case .failed: return .red
         }
     }
 
@@ -509,6 +553,14 @@ struct VideoLayerView: NSViewRepresentable {
         // Let SwiftUI handle clicks (double-click to focus, context menu).
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+        /// A layer that was off screen (a closed or hidden window, another Space) can come back
+        /// empty, and a still phone sends no new frame to fill it, so hand it the latest picture.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, isShowing else { return }
+            renderer.refresh(videoLayer)
+        }
+
         override func layout() {
             super.layout()
             CATransaction.begin()
@@ -529,6 +581,19 @@ enum StandbyChoice: Hashable {
         case .message?: self = .message
         case .blank?: self = .blank
         case .image?: self = .image
+        }
+    }
+}
+
+/// Gives the window this view is in a dark appearance, without touching the rest of the app.
+struct DarkWindowAppearance: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { AppearanceView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class AppearanceView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.appearance = NSAppearance(named: .darkAqua)
         }
     }
 }

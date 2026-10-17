@@ -21,6 +21,10 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
+# Imprivata branding: Barlow (OFL) and, if it's been added locally, the logo. Brand.swift looks
+# for these in Contents/Resources/Brand.
+cp -R Sources/MirrorWall/Resources/Brand "$APP/Contents/Resources/Brand"
+
 # Version: the number of commits, so every build from newer code has a higher one (0.61, 0.62…),
 # plus the commit itself and the build date, shown in Mirror Wall › About Mirror Wall.
 BUILD=$(git rev-list --count HEAD)
@@ -84,7 +88,7 @@ else
 fi
 
 # The OBS feed's Syphon framework, if the app was built with it (scripts/build-syphon.sh).
-SYPHON=$(find Vendor/Syphon.xcframework -maxdepth 2 -name Syphon.framework -type d 2>/dev/null | head -1)
+SYPHON=$(find Vendor/Syphon.xcframework -maxdepth 2 -name Syphon.framework -type d 2>/dev/null | head -1 || true)
 if [ -n "$SYPHON" ]; then
     mkdir -p "$APP/Contents/Frameworks"
     cp -R "$SYPHON" "$APP/Contents/Frameworks/"
@@ -101,6 +105,8 @@ if [ -n "$SYPHON" ] && [ -f build/Syphon-Framework/License.txt ]; then
     mkdir -p "$APP/Contents/Resources/licenses/syphon"
     cp build/Syphon-Framework/License.txt "$APP/Contents/Resources/licenses/syphon/"
 fi
+
+python3 scripts/bundle-compatibility.py "$APP" --write-plist
 
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
