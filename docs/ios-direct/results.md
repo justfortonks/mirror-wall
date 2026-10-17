@@ -220,3 +220,20 @@ Findings:
 1. **G2 single-phone criteria met in the decisive no-AP / no-internet / no-USB topology** (authenticated TLS-PSK, ≥12 Mbit/s for >3 min, 0 loss, bounded window). Two-phone concurrency and the 9/10 connection-attempt series still to run.
 2. Mac infrastructure association is the dominant source of AWDL latency (single-radio time sharing). Product guidance candidate: Mac offline or on Ethernet for best latency; Mac-on-Ethernet + Wi-Fi unassociated still to measure.
 3. G2b fixes confirmed on hardware: pacer within 0.5% of target; clean stop.
+
+## Run 8 — G3a first live stream, phone A → Mac window, direct, 2026-10-17 02:07–02:13Z
+
+Build `7750fce`. Topology as run 5 (phone unassociated, Mac on home Wi-Fi). Stream mode, G2 TLS-PSK code, full-display consent after `welcome`. ~5 min incl. background use, rotations, latency clock.
+
+| Item | Result |
+| --- | --- |
+| Route | `awdl0`, TLS-PSK |
+| Background | Transport `ready` and frames flowing while `appState=background` (57 background samples; frames acked) — **capture + encode + network send continue in background** |
+| Phone | 9,229 encoded; 4 encoder recreates (background entries), all succeeded |
+| Mac received | 9,001 frames (≈97.5% of encoded) |
+| Mac dropped | 3,223 (36%) — all from `decode backlog` (≥2 frames pending) → 496 keyframe requests, decoder reset + `flushAndRemoveImage` each time |
+| Displayed fps | median 17, p10 12 |
+| Inter-arrival | p95 277 ms, longest gap 3.8 s (bursty AWDL with Mac on infrastructure Wi-Fi) |
+| User observation | Very choppy, frequent blinking; latency clocks "pretty close"; rotated picture correct but Mac window did not rotate; latency clock had no exit |
+
+Diagnosis (Claude): receiver backlog policy too strict and recovery blanks the layer; fix in G3a-fix (decode every frame, display newest, no blanking, optional 100 ms smoothing, rotating window, clock exit). Background-send question answered positively.
