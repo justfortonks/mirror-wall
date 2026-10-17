@@ -24,6 +24,8 @@ object CastProtocol {
     const val HEARTBEAT = 0x05
     const val BYE = 0x06
     const val PONG = 0x07
+    /** One byte: quarter turns left from upright (Display.getRotation()), sent when it changes. */
+    const val ORIENTATION = 0x08
 
     // Mirror Wall to phone.
     const val WELCOME = 0x81

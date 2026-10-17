@@ -202,11 +202,19 @@ public struct KnownPhone: Codable, Hashable, Identifiable {
 }
 
 public extension SlotConfig {
-    /// Titles for the slots' own windows: "MacMirror-" plus the last phone's name, or the slot's
-    /// name before any phone has connected. Slots whose names would clash get "-<slot number>".
+    /// Whether the slot has a name someone gave it, rather than "Mirror Wall 1 · <computer>".
+    var hasCustomName: Bool {
+        let standard = "Mirror Wall \(id)"
+        return name != standard && !name.hasPrefix(standard + " · ")
+    }
+
+    /// Titles for the slots' own windows, which their OBS feeds also go by: "MacMirror-" plus the
+    /// slot's name if someone renamed it, else the last phone's name, or the slot's name before any
+    /// phone has connected. Slots whose names would clash get "-<slot number>".
     static func windowTitles(for slots: [SlotConfig]) -> [Int: String] {
         let bases = slots.map { slot -> (Int, String) in
-            let name = slot.lastPhoneName.flatMap { $0.isEmpty ? nil : $0 } ?? slot.name
+            let phone = slot.lastPhoneName.flatMap { $0.isEmpty ? nil : $0 }
+            let name = slot.hasCustomName ? slot.name : phone ?? slot.name
             return (slot.id, "MacMirror-" + name)
         }
         var counts: [String: Int] = [:]

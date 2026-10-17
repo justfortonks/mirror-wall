@@ -5,6 +5,14 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 16, 2026: Upstream photo frames and Android rotation merged in
+
+- Brought in the upstream changes below. Photo frames (Zebra HC50, Honeywell CT37, Spectralink
+  Versity 95/96 and 97) are chosen automatically for those phones and are also in the bezel
+  model picker; the Zebra HC50 now uses its photo frame instead of the drawn one. Drawn presets
+  cover every other model, and all frames turn the way an Android phone is held.
+- Updates still come from this fork (yurtbeer/mirror-wall), not upstream.
+
 ## October 16, 2026: SE demo reliability and device frames
 
 - Mac Stop Sharing now explicitly ends updated Android captures. Old companions cannot automatically rejoin a stopped session; a new Share on the updated companion can start immediately.
@@ -16,6 +24,32 @@ if it hasn't been released yet.
 - Improved Wall contrast, compact Stage controls, persistent demo labels and manual bezel selection. Added distinct Zebra HC50, TC53e and iPad A16/11th-generation frames plus iPhone SE and 12–18 Pro family presets, including e models, in both orientations.
 - Added transport, lifecycle, recording and model-layout tests, the receiver socket regression harness, and package compatibility checks. Built apps declare the minimum macOS version actually required by their embedded libraries.
 - Updated fork download links and added the SE build/test handoff guide. Windows presentation changes and fleet endurance testing remain separate.
+
+## October 16, 2026: OBS feed follows slot renames, and a list of test builds
+
+- Renaming a slot now renames its OBS feed (Syphon on the Mac, Spout on Windows) and its own
+  window to "MacMirror-<new name>". Before, once a phone had connected, both kept the phone's
+  name. Slots still using their standard "Mirror Wall 1" name go by the phone's name as before.
+  OBS sources pointed at the old name need the new one picked once.
+- With Settings › General › Updates set to Beta, Check for Update now lists every test build on
+  offer, most recently built first, with what each one is for, and the newest release. Pick any
+  one to install it. Before, it offered only the one with the highest build number, which could be
+  an older test build from another branch.
+- Test builds can be withdrawn from that list, or offered again, with Actions › Beta builds on
+  GitHub. Copies already installed keep working.
+
+## October 15, 2026: Android phone frames
+
+- Phone bezels now show the real phone for a Zebra HC50, a white Honeywell CT37, a Spectralink
+  Versity 95/96 (9540, 9553, 9640, 9653) or a Versity 97 (9740, 9753): a photo of its front,
+  on the wall, in pop-outs, on the Stage and in the OBS feed, on Mac and Windows. They also take
+  their true screen size on the Stage and in pop-outs. Other Android phones keep the plain frame.
+- Android app: turning the phone back to portrait by pressing Home (the home screen is always
+  upright) no longer leaves Mirror Wall showing a sideways picture with the screen squeezed in
+  the middle.
+- Phone frames now turn the way an Android phone is held: upside down, or sideways either way
+  (needs the Android app from this release; iPhones and older apps keep the frame's top on the
+  left when sideways).
 
 ## October 15, 2026: Windows fixes
 

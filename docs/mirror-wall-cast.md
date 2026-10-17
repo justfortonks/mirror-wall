@@ -35,6 +35,7 @@ Unknown types are skipped, so either side can add messages later.
 | `0x06` bye | phone → Mirror Wall | none; the phone stopped sharing |
 | `0x84` ping | Mirror Wall → phone | 8 bytes, sent back unchanged in a pong; Mirror Wall sends one per heartbeat |
 | `0x07` pong | phone → Mirror Wall | the ping's 8 bytes; gives Stats for Nerds its round trip |
+| `0x08` orientation | phone → Mirror Wall | 1 byte: quarter turns left from upright, as Android's display rotation (0 upright, 1 sideways with the phone's top on the left, 2 upside down, 3 top on the right). Sent when sharing starts and whenever it changes, from app 0.125; turns the slot's phone frame. Older Mirror Walls skip it; without it a sideways frame has its top on the left. |
 
 The phone sends hello and waits for the answer before sending video. A slot that's showing a
 phone (of either kind) answers busy. While an Android phone has a slot, the slot's uxplay is

@@ -7,7 +7,8 @@ public static class PhoneModels
     public static string Name(string code) => Models.TryGetValue(code, out var model) ? model.Name : code;
 
     /// <summary>The phone's screen diagonal in inches, if the model is known.</summary>
-    public static double? ScreenDiagonal(string code) => Models.TryGetValue(code, out var model) ? model.Diagonal : null;
+    public static double? ScreenDiagonal(string code) =>
+        Models.TryGetValue(code, out var model) ? model.Diagonal : BezelArtwork.For(BezelGeometry.StyleFor(code))?.Diagonal;
 
     /// <summary>
     /// The longer side, in pixels, for a window showing a phone's picture at true-to-life size

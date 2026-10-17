@@ -21,6 +21,10 @@ on:
         description: Publish a test build (pick its branch above) as a pre-release for the Beta update channel
         type: boolean
         default: false
+      title:
+        description: For a test build, what it's for, as Check for Update lists it (default, the branch's pull request title)
+        type: string
+        default: ""
   push:
     tags: ["v*"]
   pull_request:
@@ -35,6 +39,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read # a test build's title is its pull request's
 
 jobs:
   dmg:
@@ -123,6 +128,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BETA: ${{ inputs.beta && github.run_number || '' }}
+          TITLE: ${{ inputs.title }}
         run: |
           BUILD=$(git rev-list --count HEAD)
           if [[ -n "$BETA" ]]; then
@@ -133,11 +139,15 @@ jobs:
             { echo "## What's new"; echo; scripts/release-notes.py "$PREVIOUS"
               echo "## Install"; echo
               echo "A test build of Mirror Wall from the \`$GITHUB_REF_NAME\` branch, not a release."
-              echo "Install it from Mirror Wall with Settings › General › Updates set to Beta, then Check for Update."
-              echo "To go back, set it to Stable, then Check for Update › Go Back."
+              echo "Install it from Mirror Wall with Settings › General › Updates set to Beta, then Check for Update, and pick it from the list."
+              echo "To go back, pick the release from that list, or set Updates to Stable, then Check for Update › Go Back."
+              echo "To stop offering it, run Actions › Beta builds › Withdraw."
             } > notes.md
+            # Check for Update lists each test build by what follows "Mirror Wall 0.N beta K: ".
+            [[ -n "$TITLE" ]] || TITLE=$(gh pr list --head "$GITHUB_REF_NAME" --state all --limit 1 --json title --jq '.[0].title // ""')
+            [[ -n "$TITLE" ]] || TITLE=$(git log -1 --format=%s)
             gh release create "$TAG" MirrorWall.dmg MirrorWall-Setup.exe \
-              --prerelease --target "$GITHUB_SHA" --title "Mirror Wall 0.$BUILD beta $BETA" --notes-file notes.md
+              --prerelease --target "$GITHUB_SHA" --title "Mirror Wall 0.$BUILD beta $BETA: $TITLE" --notes-file notes.md
             exit 0
           fi
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then

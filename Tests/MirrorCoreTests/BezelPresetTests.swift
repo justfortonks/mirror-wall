@@ -6,7 +6,7 @@ final class BezelPresetTests: XCTestCase {
         XCTAssertEqual(BezelPreset.resolve(model: "Zebra Technologies HC50")?.id, "zebra-hc50")
         XCTAssertEqual(BezelPreset.resolve(model: "Zebra TC53e")?.style, .rugged)
         XCTAssertEqual(BezelPreset.resolve(model: "iPad15,8")?.id, "ipad-11-a16")
-        XCTAssertEqual(BezelPreset.resolve(selection: "zebra-hc50", model: "unknown")?.style, .healthcare)
+        XCTAssertEqual(BezelPreset.resolve(selection: "zebra-hc50", model: "unknown")?.style, .zebraHC50)
         XCTAssertNil(BezelPreset.resolve(selection: "removed-preset", model: "unknown"))
         XCTAssertEqual(BezelPreset.resolve(selection: "removed-preset", model: "iPad15,7")?.style, .tablet)
     }

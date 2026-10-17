@@ -328,10 +328,18 @@ final class Slot: ObservableObject, Identifiable {
         config.bezel = choice
     }
 
-    /// The frame for a picture of this size (the phone's shape), styled after the last phone.
+    /// The frame for a picture of this size (the phone's shape), styled after the last phone and
+    /// turned the way an Android phone says it's held.
     func bezel(for picture: CGSize) -> BezelGeometry {
         BezelGeometry(style: bezelPreset?.style ?? BezelStyle(modelCode: config.lastPhoneModel),
-                      pictureWidth: picture.width, pictureHeight: picture.height, portraitAspect: bezelPreset?.portraitAspect)
+                      pictureWidth: picture.width, pictureHeight: picture.height,
+                      portraitAspect: bezelPreset?.portraitAspect, turns: phoneTurns)
+    }
+
+    /// Which way up the Android phone says it's held (see `CastMessage.orientation`); nil for an
+    /// iPhone or an older Android app, which don't say.
+    @Published private(set) var phoneTurns: Int? {
+        didSet { syphonFeed?.bezelTurns = phoneTurns }
     }
 
     /// Whether the OBS feed has the phone frame around the picture, with see-through corners.
@@ -350,6 +358,7 @@ final class Slot: ObservableObject, Identifiable {
     private func updateFeedBezel() {
         syphonFeed?.setBezel(style: framesOBSFeed ? (bezelPreset?.style ?? BezelStyle(modelCode: config.lastPhoneModel)) : nil,
                               portraitAspect: bezelPreset?.portraitAspect)
+        syphonFeed?.bezelTurns = phoneTurns
     }
 
     /// Whether the phone appears in the Stage window while it's mirroring.
@@ -613,6 +622,7 @@ final class Slot: ObservableObject, Identifiable {
             let now = DispatchTime.now().uptimeNanoseconds
             if now > sentAt { stats.roundTrip = Double(now - sentAt) / 1e9 }
         case .bye: append("\(phoneName ?? "The Android phone") stopped sharing")
+        case .orientation(let turns): if phoneTurns != turns { phoneTurns = turns }
         default: break
         }
     }
@@ -640,6 +650,7 @@ final class Slot: ObservableObject, Identifiable {
         castPhone = phone
         castDeviceID = hello.deviceID
         castShareID = hello.shareID
+        phoneTurns = nil
         append("Android phone connecting: \(hello.name) (\(hello.model)) from \(phone.remoteDescription)")
         generation += 1
         let currentGeneration = generation
@@ -675,6 +686,7 @@ final class Slot: ObservableObject, Identifiable {
     private func castPhoneLeft(_ phone: CastConnection) {
         guard phone === castPhone else { return }
         castPhone = nil
+        phoneTurns = nil
         append("\(phoneName ?? "The Android phone") disconnected")
         connectedSince = nil
         if state != .waiting && state != .disconnected {

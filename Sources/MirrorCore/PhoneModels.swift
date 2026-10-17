@@ -6,9 +6,12 @@ public func phoneModelName(_ code: String) -> String {
     phoneModels[code]?.name ?? BezelPreset.resolve(model: code)?.title ?? code
 }
 
-/// The phone's screen diagonal in inches, if the model is known.
+/// The phone's screen diagonal in inches, if the model is known: an iPhone, or an Android phone
+/// with its own frame.
 public func phoneScreenDiagonal(_ code: String) -> Double? {
     if let value = phoneModels[code]?.diagonal { return value }
+    // A phone drawn from a photo knows its own screen size.
+    if let value = BezelStyle(modelCode: code).artwork?.diagonal { return value }
     switch BezelPreset.resolve(model: code)?.id {
     case "ipad-11-a16": return 10.86
     case "zebra-hc50", "zebra-tc53e": return 6

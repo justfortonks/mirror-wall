@@ -24,6 +24,7 @@ internal sealed class SpoutFeed
     private Picture? waiting;
     private bool framesOn = true;
     private BezelStyle? frameStyle;
+    private int? frameTurns;
     private string name;
     private bool renamed;
     private bool stopping;
@@ -76,6 +77,14 @@ internal sealed class SpoutFeed
         set { lock (gate) frameStyle = value; }
     }
 
+    /// <summary>Which way up the phone says it's held, for the frame (see <see cref="BezelGeometry"/>);
+    /// null if it doesn't say.</summary>
+    public int? BezelTurns
+    {
+        get { lock (gate) return frameTurns; }
+        set { lock (gate) frameTurns = value; }
+    }
+
     /// <summary>Hands one of the phone's frames to OBS, unless <see cref="PassesFrames"/> is off.
     /// The picture is only lent for the call.</summary>
     public void PublishFrame(Picture picture)
@@ -119,12 +128,14 @@ internal sealed class SpoutFeed
                 Picture? picture;
                 string? newName = null;
                 BezelStyle? style;
+                int? turns;
                 lock (gate)
                 {
                     if (stopping) break;
                     picture = waiting;
                     waiting = null;
                     style = frameStyle;
+                    turns = frameTurns;
                     if (renamed)
                     {
                         newName = name;
@@ -137,9 +148,9 @@ internal sealed class SpoutFeed
                 {
                     try
                     {
-                        if (bezel == null || bezel.Style != frameIn || bezel.PictureWidth != picture.Width || bezel.PictureHeight != picture.Height)
+                        if (bezel == null || bezel.Style != frameIn || bezel.Turns != turns || bezel.PictureWidth != picture.Width || bezel.PictureHeight != picture.Height)
                         {
-                            bezel = new FeedBezel(frameIn, picture.Width, picture.Height);
+                            bezel = new FeedBezel(frameIn, picture.Width, picture.Height, turns);
                         }
                         var framed = bezel.Frame(picture);
                         picture.Release();

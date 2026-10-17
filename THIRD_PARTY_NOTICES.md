@@ -17,6 +17,12 @@ The app icon was made for Mirror Wall by its author and is covered by the same l
 Mirror Wall is not affiliated with or endorsed by Apple. AirPlay and iPhone are trademarks of
 Apple Inc.
 
+The phone frames for the Zebra HC50, Honeywell CT37 and Spectralink Versity 95/96 and 97
+(`Sources/MirrorWall/Resources/Bezels`) are cut from the makers' own product photographs, with
+the printed brand names removed; those photographs remain their owners'. Mirror Wall is not
+affiliated with or endorsed by Zebra Technologies, Honeywell or Spectralink, whose names and
+product names are their trademarks.
+
 ## What the app includes
 
 ### Barlow typeface (SIL Open Font License 1.1)
