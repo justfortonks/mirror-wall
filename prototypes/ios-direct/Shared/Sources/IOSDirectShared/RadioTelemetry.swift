@@ -45,7 +45,10 @@ public struct RadioSnapshot: Codable, Identifiable {
     public var seqGaps: UInt64 = 0
     public var crcFailures: UInt64 = 0
     public var outstandingBytes = 0
+    public var windowMode: RadioWindowMode?
+    public var windowBytes: Int?
     public var sendBlockedMS: Double = 0
+    public var sendBlockedMSPerSecond: Double?
     public var pendingNetworkBytes = 0
     public var thermal = "unknown"
     public var residentMemoryMB: Double?

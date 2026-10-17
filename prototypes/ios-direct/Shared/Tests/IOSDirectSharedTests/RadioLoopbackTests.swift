@@ -8,11 +8,13 @@ import Network
 final class RadioLoopbackTests: XCTestCase {
     private var receivers: [RadioReceiver] = []
     private var clients: [RadioChannel] = []
+    private var senders: [RadioSender] = []
     private let lock = NSLock()
     override func tearDown() {
+        for sender in senders { sender.stop() }
         for client in clients { client.queue.sync { client.close("test teardown") } }
         for receiver in receivers { receiver.stop() }
-        clients.removeAll(); receivers.removeAll(); super.tearDown()
+        clients.removeAll(); senders.removeAll(); receivers.removeAll(); super.tearDown()
     }
     private func receiver(code: RadioCode, onEvent: ((String) -> Void)? = nil,
                           onData: ((UUID, Int) -> Void)? = nil) throws -> (RadioReceiver, NWEndpoint) {
@@ -83,16 +85,42 @@ final class RadioLoopbackTests: XCTestCase {
         let wrong = try RadioCode(bytes: Data(repeating: 1, count: 10))
         let noData = expectation(description: "no payload delivered"); noData.isInverted = true
         let (_, endpoint) = try receiver(code: good, onData: { _, _ in noData.fulfill() })
-        let failed = expectation(description: "TLS handshake fails")
-        let channel = client(endpoint: endpoint, code: wrong) { _, _ in XCTFail("wrong code delivered application frame") }
-        channel.onReady = { XCTFail("wrong code reached TLS ready") }
-        channel.onClosed = { [weak channel] reason in
-            XCTAssertNil(channel?.snapshot.tlsVersion)
-            XCTAssertTrue(reason.contains("failed"), "Expected handshake failure, got \(reason)")
-            failed.fulfill()
+        let failed = expectation(description: "client reports wrong code within two seconds")
+        let sender = RadioSender(endpoint: endpoint, code: wrong, rate: 12, install: UUID(), label: "wrong code test")
+        senders.append(sender)
+        let started = radioNow()
+        sender.onSample = { sample in
+            XCTAssertNil(sample.tlsVersion)
+            XCTAssertEqual(sample.sentBytes, 0)
         }
-        channel.start()
-        wait(for: [failed], timeout: 8); wait(for: [noData], timeout: 0.5)
+        sender.onState = { state in
+            XCTAssertNotEqual(state, "TLS ready; awaiting welcome")
+            XCTAssertNotEqual(state, "sending synthetic payload")
+            if state.hasPrefix("Wrong code or handshake failed") {
+                XCTAssertLessThan(Double(radioNow() - started) / 1e9, 2, state)
+                failed.fulfill()
+            }
+        }
+        sender.start()
+        wait(for: [failed], timeout: 2); wait(for: [noData], timeout: 0.5)
+    }
+    func testCapacityProbeAndBlockedTelemetryReachReceiver() throws {
+        let code = try RadioCode(bytes: Data(0..<10)), (receiver, endpoint) = try receiver(code: code)
+        let sampled = expectation(description: "receiver has sender pacing telemetry")
+        var receivedSample = false
+        receiver.onSample = { sample in
+            guard sample.sendBlockedMSPerSecond != nil, !receivedSample else { return }
+            receivedSample = true
+            XCTAssertEqual(sample.windowMode, .capacityProbe)
+            XCTAssertEqual(sample.windowBytes, 2_097_152)
+            XCTAssertGreaterThan(sample.deliveredBytes, 0)
+            XCTAssertGreaterThanOrEqual(sample.sendBlockedMSPerSecond ?? -1, 0)
+            sampled.fulfill()
+        }
+        let sender = RadioSender(endpoint: endpoint, code: code, rate: 48, window: .capacityProbe,
+                                 install: UUID(), label: "probe")
+        senders.append(sender); sender.start()
+        wait(for: [sampled], timeout: 5)
     }
     func testThirdClientReceivesExplicitCapacityRejection() throws {
         let code = try RadioCode(bytes: Data(0..<10)), (_, endpoint) = try receiver(code: code)

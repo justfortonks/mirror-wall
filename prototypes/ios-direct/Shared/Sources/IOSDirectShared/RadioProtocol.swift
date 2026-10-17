@@ -101,7 +101,7 @@ private extension Data {
 }
 
 public enum RadioMessage: Equatable {
-    case hello(install: UUID, label: String, version: UInt8, rate: UInt32)
+    case hello(install: UUID, label: String, version: UInt8, rate: UInt32, window: RadioWindowMode = .latency)
     case welcome(session: UUID, label: String)
     case reject(String)
     case data(seq: UInt64, time: UInt64, payload: Data, crc: UInt32)
@@ -113,8 +113,9 @@ public enum RadioMessage: Equatable {
     public func frame() throws -> RadioFrame {
         var b = Data(); let type: RadioType
         switch self {
-        case let .hello(install, label, version, rate):
+        case let .hello(install, label, version, rate, window):
             type = .hello; try b.text(install.uuidString); try b.text(label); b.put(version); b.put(rate)
+            b.put(UInt8(window == .latency ? 0 : 1))
         case let .welcome(session, label): type = .welcome; try b.text(session.uuidString); try b.text(label)
         case .reject(let reason): type = .reject; try b.text(reason)
         case let .data(seq, time, payload, crc):
@@ -133,7 +134,17 @@ public enum RadioMessage: Equatable {
         switch frame.type {
         case .hello:
             guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad install UUID") }
-            self = .hello(install: id, label: try r.text(), version: try r.number(), rate: try r.number())
+            let label = try r.text(), version: UInt8 = try r.number(), rate: UInt32 = try r.number()
+            // Original G2 hello has no window byte and always uses latency mode.
+            let raw: UInt8
+            if r.offset == frame.body.count { raw = 0 } else { raw = try r.number() }
+            let window: RadioWindowMode
+            switch raw {
+            case 0: window = .latency
+            case 1: window = .capacityProbe
+            default: throw RadioError.protocolViolation("invalid window")
+            }
+            self = .hello(install: id, label: label, version: version, rate: rate, window: window)
         case .welcome:
             guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad session UUID") }
             self = .welcome(session: id, label: try r.text())
