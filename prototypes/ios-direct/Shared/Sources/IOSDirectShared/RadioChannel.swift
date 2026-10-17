@@ -13,10 +13,11 @@ public final class RadioChannel {
     public var onClosed: ((String) -> Void)?
     public var onSample: ((RadioSnapshot) -> Void)?
     public var onTick: (() -> Void)?
-    public var protocolVersion: UInt8 = 1 // Set by the initiating hello, before application data.
+    public var protocolVersion: UInt8 = 3 // Fixed before start; production sessions use v3.
     public var active = false
     public private(set) var closed = false
     private var draining = false
+    private var tlsReady = false
     private var parser = RadioParser()
     private var timer: DispatchSourceTimer?
     private var lastSample = radioNow()
@@ -45,12 +46,12 @@ public final class RadioChannel {
                 let version = sec_protocol_metadata_get_negotiated_tls_protocol_version(metadata)
                 let cipher = sec_protocol_metadata_get_negotiated_tls_ciphersuite(metadata)
                 self.snapshot.tlsVersion = version.rawValue; self.snapshot.cipherSuite = cipher.rawValue
-                guard version == .TLSv12, cipher.rawValue == UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256) else {
+                guard version == .TLSv12, cipher.rawValue == RadioTLS.cipherSuite else {
                     self.close("unexpected TLS negotiation"); return
                 }
                 self.event("tls.negotiated", "version=\(version.rawValue) cipher=\(cipher.rawValue)")
                 self.snapshot.path = self.connection.currentPath.map(RadioPath.init)
-                self.onReady?()
+                self.tlsReady = true; self.onReady?()
             // A TLS error (e.g. wrong code) leaves the connection waiting to retry; treat it as final.
             case .waiting(let error):
                 switch error {
@@ -95,12 +96,12 @@ public final class RadioChannel {
             guard let self, !self.closed, !self.draining else { return }
             do {
                 if let content {
+                    guard self.tlsReady else { throw RadioError.protocolViolation("application bytes before TLS ready") }
                     self.snapshot.receivedWireBytes += UInt64(content.count)
                     try self.parser.feed(content) { frame in
                         guard !self.closed, !self.draining else { return }
                         let message = try RadioMessage(frame)
-                        if case .hello = message { self.protocolVersion = frame.version }
-                        else if frame.version != self.protocolVersion { throw RadioError.protocolViolation("session version changed") }
+                        if frame.version != self.protocolVersion { throw RadioError.protocolViolation("session version changed") }
                         if self.active {
                             switch message {
                             case .ping(let echo): self.send(.pong(echo)); return

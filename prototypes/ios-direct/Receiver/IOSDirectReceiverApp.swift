@@ -1,10 +1,23 @@
 import SwiftUI
 import IOSDirectShared
+import CoreImage.CIFilterBuiltins
+import AppKit
 
 @MainActor
 final class ReceiverExperiment: ObservableObject {
     @Published private(set) var state = "starting"
-    @Published private(set) var code = ""
+    @Published private(set) var invitation: PairingInvitation?
+    @Published var approval: PairingApproval?
+    @Published private(set) var devices: [PairedDevice] = []
+    @Published private(set) var live = Set<UUID>()
+    @Published private(set) var seconds = 0
+    var qrImage: NSImage? {
+        guard let invitation else { return nil }
+        let filter = CIFilter.qrCodeGenerator(); filter.message = Data(invitation.payload.utf8)
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 7, y: 7)),
+              let cg = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: 280, height: 280))
+    }
     @Published private(set) var sessions: [UUID: RadioSnapshot] = [:]
     @Published private(set) var events: [String] = []
     @Published private(set) var logFailure: String?
@@ -16,7 +29,10 @@ final class ReceiverExperiment: ObservableObject {
     init() {
         do {
             log = try RadioLog(receiver: true)
-            let receiver = RadioReceiver(label: Host.current().localizedName ?? "iOS Direct Receiver", log: log)
+            let directory = log!.url.deletingLastPathComponent()
+            let identity = try ReceiverIdentity.load(at: directory.appendingPathComponent("receiver-identity.json"), name: Host.current().localizedName ?? "iOS Direct Receiver")
+            let store = try ReceiverPairingStore(identity: identity, keys: KeychainPairingKeyStore(), metadataURL: directory.appendingPathComponent("paired-devices.json"))
+            let receiver = RadioReceiver(store: store, log: log)
             self.receiver = receiver
             // Create the decoder synchronously on the session queue. Window/UI work is
             // posted to main; media never waits for main-thread delivery.
@@ -42,20 +58,24 @@ final class ReceiverExperiment: ObservableObject {
                     if self.events.count > 80 { self.events.removeFirst(self.events.count - 80) }
                 }
             }
-            newCode()
+            receiver.onInvitation = { [weak self] token in DispatchQueue.main.async {
+                self?.invitation = token; self?.seconds = max(0, Int(ceil(token?.expires.timeIntervalSinceNow ?? 0)))
+            } }
+            receiver.onApproval = { [weak self] request in DispatchQueue.main.async { self?.approval = request } }
+            receiver.onDevices = { [weak self] devices, live in DispatchQueue.main.async { self?.devices = devices; self?.live = live } }
+            receiver.start()
         } catch { state = "failed: \(error)"; logFailure = String(describing: error) }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.logFailure = self?.log?.error() }
+            Task { @MainActor [weak self] in
+                guard let self else { return }; self.logFailure = self.log?.error()
+                self.seconds = max(0, Int(ceil(self.invitation?.expires.timeIntervalSinceNow ?? 0)))
+            }
         }
     }
-    func newCode() {
-        do {
-            let credential = try RadioCode.generate(); code = credential.formatted
-            videoWindows.closeDisconnected()
-            sessions.removeAll(); receiver?.start(code: credential)
-            log?.event("receiver.newRun", "new test credential; all sessions disconnected")
-        } catch { state = "random code generation failed: \(error)"; receiver?.stop(); code = "" }
-    }
+    func pairNewDevice() { receiver?.pairNewDevice() }
+    func cancelPairing() { receiver?.cancelPairing() }
+    func approve(_ request: PairingApproval, allow: Bool) { receiver?.approve(request.id, allow: allow); approval = nil }
+    func forget(_ id: UUID) { receiver?.forget(id) }
     deinit { timer?.invalidate(); receiver?.stop() }
 }
 
@@ -65,14 +85,33 @@ struct IOSDirectReceiverApp: App {
     var body: some Scene {
         WindowGroup {
             VStack(alignment: .leading, spacing: 16) {
-                Text("iOS Direct — G3a receiver").font(.title)
+                Text("iOS Direct — G3b receiver").font(.title)
                 Text("Listener: \(experiment.state)").textSelection(.enabled)
-                HStack {
-                    Text(experiment.code).font(.system(size: 32, weight: .semibold, design: .monospaced)).textSelection(.enabled)
-                    Button("New code") { experiment.newCode() }
+                GroupBox("Devices") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(experiment.devices) { device in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text("\(device.label) (\(device.model)) · \(device.id.uuidString.prefix(8))")
+                                    Text("\(experiment.live.contains(device.id) ? "Live" : "Not live") · Last seen: \(device.lastSeen?.formatted() ?? "never")").font(.caption)
+                                }
+                                Spacer()
+                                Button("Forget", role: .destructive) { experiment.forget(device.id) }
+                            }
+                        }
+                        Button("Pair New Device") { experiment.pairNewDevice() }
+                        if experiment.invitation != nil {
+                            HStack {
+                                if let image = experiment.qrImage { Image(nsImage: image).interpolation(.none).resizable().frame(width: 240, height: 240).padding(12).background(.white) }
+                                VStack(alignment: .leading) {
+                                    Text("Scan on your phone · \(experiment.seconds) s remaining")
+                                    Button("Regenerate") { experiment.pairNewDevice() }
+                                    Button("Cancel") { experiment.cancelPairing() }
+                                }
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("G2 test credential. New code disconnects all phones. Synthetic rows + independent video windows; max two sessions.")
-                    .foregroundStyle(.secondary)
                 if let failure = experiment.logFailure { Text("Log write failed: \(failure)").foregroundStyle(.red) }
                 if let url = experiment.logURL { ShareLink("Export receiver log", item: url) }
                 List {
@@ -92,6 +131,17 @@ struct IOSDirectReceiverApp: App {
                         .font(.system(.caption, design: .monospaced)).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 }.frame(height: 170)
             }.padding(20).frame(minWidth: 800, minHeight: 560)
+                .sheet(item: $experiment.approval) { request in
+                    VStack(spacing: 18) {
+                        Text("Allow \"\(request.label)\" (\(request.model)) to mirror to this Mac?").font(.headline)
+                        Text("Only approve the phone you are pairing.")
+                        HStack {
+                            Button("Deny") { experiment.approve(request, allow: false) }
+                            Button("Allow") { experiment.approve(request, allow: true) }.keyboardShortcut(.defaultAction)
+                        }
+                    }.padding(30).frame(width: 440).interactiveDismissDisabled()
+                        .onDisappear { experiment.approve(request, allow: false) }
+                }
         }
     }
     private func number(_ value: Double?) -> String { value.map { String(format: "%.1f", $0) } ?? "—" }

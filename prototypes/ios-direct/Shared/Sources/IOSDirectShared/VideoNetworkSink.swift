@@ -57,7 +57,7 @@ public final class VideoNetworkSink {
         lock.lock(); self.ready = ready; value.state = text; lock.unlock()
         event("video.connection", text); onState?(text, ready)
     }
-    public func start(endpoint: NWEndpoint, code: RadioCode, install: UUID, label: String, log: RadioLog? = nil) {
+    public func start(endpoint: NWEndpoint, credential: DeviceCredential, install: UUID, label: String, log: RadioLog? = nil) {
         queue.async {
             self.stopOnQueue(); self.stopped = false; self.everWelcomed = false; self.retryDelay = 0.5
             let run = self.run
@@ -65,7 +65,7 @@ public final class VideoNetworkSink {
             timer.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))
             timer.setEventHandler { [weak self] in self?.pump() }
             self.timer = timer; timer.resume()
-            self.connect(endpoint: endpoint, code: code, install: install, label: label, log: log, run: run)
+            self.connect(endpoint: endpoint, credential: credential, install: install, label: label, log: log, run: run)
         }
     }
     public func stop() { queue.async { self.stopOnQueue() } }
@@ -77,18 +77,25 @@ public final class VideoNetworkSink {
         outstanding.removeAll(); sending = nil; sentConfig = nil
         update { $0.outstandingBytes = 0 }; state("disconnected", ready: false)
     }
-    private func connect(endpoint: NWEndpoint, code: RadioCode, install: UUID, label: String, log: RadioLog?, run: UUID) {
+    private func connect(endpoint: NWEndpoint, credential: DeviceCredential, install: UUID, label: String, log: RadioLog?, run: UUID) {
         guard !stopped, self.run == run else { return }
         state(everWelcomed ? "reconnecting" : "connecting with TLS-PSK", ready: false)
-        let channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)), log: log)
-        self.channel = channel; channel.protocolVersion = 2
+        let channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(credential: credential)), log: log)
+        self.channel = channel; channel.protocolVersion = 3
         channel.snapshot.installID = install; channel.snapshot.label = String(label.prefix(60)); channel.snapshot.mode = .video
         channel.snapshot.windowMode = .latency; channel.snapshot.windowBytes = cap
-        channel.onReady = { [weak channel] in
-            channel?.send(.hello(install: install, label: String(label.prefix(60)), version: 2, rate: 6, mode: .video))
-        }
+        channel.snapshot.deviceID = credential.deviceID
+        var challenged = false
         channel.onMessage = { [weak self, weak channel] message in
             guard let self, let channel else { return }
+            if case .authChallenge = message {
+                guard !challenged else { throw RadioError.protocolViolation("duplicate challenge") }
+                challenged = true
+                _ = try credential.authenticate(message, on: channel)
+                channel.send(.hello(install: install, label: String(label.prefix(60)), version: 3, rate: 6, mode: .video))
+                return
+            }
+            if case .welcome = message, !challenged { throw RadioError.protocolViolation("authentication required") }
             if !channel.active {
                 switch message {
                 case .welcome, .reject: break
@@ -117,19 +124,23 @@ public final class VideoNetworkSink {
                 self.channel = nil; self.sending = nil; self.outstanding.removeAll(); self.sentConfig = nil
                 self.lock.lock(); self.ready = false; self.pending.discontinuity("disconnect"); self.lock.unlock()
                 self.update { $0.outstandingBytes = 0 }
+                if reason.contains("revoked") {
+                    self.stopped = true; self.state("Not paired anymore (revoked); forget this Mac and scan a new code", ready: false)
+                    return
+                }
                 let delay = self.retryDelay; self.retryDelay = min(4, delay * 2)
-                self.state("reconnecting", ready: false)
+                self.state("Not paired anymore (revoked), or handshake failed; reconnecting", ready: false)
                 self.event("video.reconnectScheduled", "delay=\(delay) reason=\(reason)")
                 self.queue.asyncAfter(deadline: .now() + delay) { [weak self] in
                     guard let self, self.run == run, !self.stopped else { return }
                     self.update { $0.reconnectAttempts += 1 }
-                    self.connect(endpoint: endpoint, code: code, install: install, label: label, log: log, run: run)
+                    self.connect(endpoint: endpoint, credential: credential, install: install, label: label, log: log, run: run)
                 }
             }
         }
         channel.start()
-        channel.queue.asyncAfter(deadline: .now() + 1.5) { [weak channel] in
-            guard let channel, !channel.active else { return }; channel.close("TLS/welcome deadline (1.5 s)")
+        channel.queue.asyncAfter(deadline: .now() + 5) { [weak channel] in
+            guard let channel, !channel.active else { return }; channel.close("TLS/auth/welcome deadline (5 s)")
         }
     }
     private func receive(_ message: RadioMessage, channel: RadioChannel) {

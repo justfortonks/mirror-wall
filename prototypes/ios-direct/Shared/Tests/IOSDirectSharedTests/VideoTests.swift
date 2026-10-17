@@ -9,7 +9,7 @@ final class VideoTests: XCTestCase {
         VideoAccessUnit(generation: 7, seq: seq, ptsNs: 123_456 + seq, keyframe: key,
                         data: SyntheticPayload.make(seq: seq, count: bytes))
     }
-    func testV1SyntheticAndV2VideoHellosAndControls() throws {
+    func testLegacyHelloDecodeAndV3VideoControls() throws {
         let messages: [RadioMessage] = [
             .hello(install: UUID(), label: "G2", version: 1, rate: 12),
             .hello(install: UUID(), label: "G3a", version: 2, rate: 6, mode: .video),
@@ -24,7 +24,7 @@ final class VideoTests: XCTestCase {
         }
         XCTAssertEqual(try messages[0].frame().version, 1)
         XCTAssertEqual(try messages[1].frame().version, 2)
-        XCTAssertThrowsError(try RadioMessage(RadioFrame(.keyframeRequest, Data([0, 0]))))
+        XCTAssertThrowsError(try RadioMessage(RadioFrame(.keyframeRequest, Data([0, 0]), version: 1)))
         XCTAssertThrowsError(try RadioMessage(RadioFrame(.hello, messages[1].frame().body)))
     }
     func testSplitJoinRoundTripAndLimit() throws {

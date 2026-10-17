@@ -26,6 +26,7 @@ public struct RadioSnapshot: Codable, Identifiable {
     public var mode: RadioMode? = .synthetic
     public var id = UUID() // Connection/session routing ID, never a display name.
     public var installID: UUID?
+    public var deviceID: UUID?
     public var label = "pending"
     public var monotonicNs: UInt64 = 0
     public var wallTime = ""
@@ -86,15 +87,20 @@ public final class RadioLog {
     private var pending = 0
     private var failure: String?
     private let handle: FileHandle
-    public init(receiver: Bool) throws {
+    public convenience init(receiver: Bool) throws {
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(receiver ? "IOSDirectPOC-Receiver/logs" : "IOSDirectPOC/logs", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        url = directory.appendingPathComponent("radio-\(stamp)-\(UUID().uuidString.prefix(8)).jsonl")
+        let url = directory.appendingPathComponent("radio-\(stamp)-\(UUID().uuidString.prefix(8)).jsonl")
+        try self.init(url: url)
+    }
+    public init(url: URL) throws {
+        self.url = url
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
         handle = try FileHandle(forWritingTo: url)
     }
+    public func flush() { queue.sync {} }
     public func error() -> String? { lock.lock(); defer { lock.unlock() }; return failure }
     public func write<T: Encodable>(_ item: T) {
         lock.lock()
