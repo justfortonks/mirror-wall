@@ -167,3 +167,25 @@ Build `f31fe56`. Mac and phone both joined to the same home Wi-Fi (LAN-present c
 | Thermal / memory | nominal; phone ~130 MB, Mac ~108 MB |
 
 Findings: (1) AWDL path to the Mac is reachable while the Mac is on infrastructure Wi-Fi — evidence from the wrong-code race. (2) With a common LAN, the system routes over `en0`. (3) Pacer undershoots ~6%. (4) Phone needs fast handshake-failure reporting.
+
+## Run 5 — G2 direct, Mac online / phone unassociated (phone A + MacBook Air M5), 2026-10-17 01:02–01:16Z
+
+Build `f31fe56`. Mac joined to home Wi-Fi with internet. Phone A: Wi-Fi on, auto-join off, no network joined, cellular data off, hotspot off, Bluetooth on, no USB (user report; Safari could not load). Auto-Lock set to Never for 5b (restore afterwards). Foreground Radio mode, 12 Mbit/s requested.
+
+| Item | 5a (01:02, ended by screen lock) | 5b (01:10, user stop) |
+| --- | --- | --- |
+| Discovery | browse result on `[awdl0]` only, 3 s after browser ready | `[awdl0]`, 1 s |
+| Connect + TLS-PSK | <1 s, TLS 1.2 / 0x00A8 | <1 s, same |
+| Route (both ends) | `awdl0` | `awdl0` |
+| Duration | 290 s | 341 s |
+| Delivered | median **7.47 Mbit/s** (p10 6.69) | median **7.47 Mbit/s** (p10 6.82) |
+| RTT | median ~40 ms, p95 ~267 ms (max 465) | median ~40 ms, p95 ~263 ms (max 427) |
+| Gaps / CRC | 0 / 0 | 0 / 0 |
+| Phone send-blocked by 150 KB outstanding cap | 99 s (34%) | 116 s (34%) |
+| End | screen lock → `ECONNRESET`; browser then `failed -65569 DefunctConnection` and never recovered; two reconnects timed out | `peer bye: user stop` |
+
+Findings:
+1. **Direct path works** with the phone on no network and the Mac online: discovery, TLS-PSK, sustained transfer over `awdl0` with zero loss. First positive Candidate A evidence.
+2. Throughput was **limited by our app window** (150 KB outstanding cap vs AWDL RTT), not shown to be the link ceiling. Link capacity still unmeasured. Per-phone 12 Mbit/s target not met in this configuration.
+3. AWDL RTT p95 ~265 ms with the Mac also on infrastructure Wi-Fi — risk for the p95 ≤350 ms glass-to-glass target. Compare against Mac-offline and Mac-on-Ethernet.
+4. Screen lock kills the session (expected for foreground-only G2), but the browser goes defunct and the app doesn't recover — must restart the browser.
