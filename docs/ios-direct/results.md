@@ -251,3 +251,18 @@ Build `a7ebbc0`. Same topology as run 8. ~4.5 min immediate presentation, ~0.5 m
 | Orientation signal | Every frame reported `orientation=1`, buffer always 588×1280 — iOS ScreenCaptureKit delivers panel-oriented pixels; landscape apps appear rotated inside the portrait frame. No rotation signal found in the fields read so far. |
 
 Status: single-phone live stream over direct link **Hardware pass (functional)** with Mac on home Wi-Fi. Open: rotation signal/window rotation, optical latency measurement, Mac-offline stream, 30-min soak, pairing (G3b), two phones (blocked on 17e).
+
+## Run 10 — G3b first pairing run, phone A ↔ Mac, 2026-10-17 02:51–03:00Z
+
+Build `38621a7`. Topology as run 5.
+
+| Check | Result |
+| --- | --- |
+| QR pair → approve on Mac → paired connect | **Pass** (user report): scan, Mac approval, connect + stream with no typed code |
+| Persistence across app force-quit | **Pass** (user report) |
+| Mac Forget during stream | **Pass** for the Mac side: `device.revoked`, stream stopped; every later attempt rejected at TLS (`-9858 handshake failed`) |
+| Phone after revoke | **Fail (UX)**: phone saw only a 5 s deadline in TLS `preparing`, kept "Paired", auto-retried every ~9 s for >2 min with no error shown |
+| Expired / Deny | **Not run**: scanner only offered when unpaired |
+| Re-share after system stop | **Fail (UX)**: had to Disconnect → Connect before sharing again; Mac opened a second window per new session |
+
+Security property held (revoked phone never got past TLS). UX fixes in G3b-fix: no auto-retry after auth failure, clear "Mac didn't accept this phone" state with Pair again / Forget, auto-delete credential on authenticated `bye revoked`, scanner always available with invitation validation errors, re-share on the live session, one Mac window per verified device.
