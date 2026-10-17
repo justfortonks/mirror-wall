@@ -204,3 +204,19 @@ Thermal nominal throughout. Each session ended with `ECONNRESET` on user Stop at
 Findings:
 1. **Single-phone direct capacity ≥ 48 Mbit/s** with the Mac also on infrastructure Wi-Fi — 2× the 24 Mbit/s two-phone aggregate headroom target and ~70× the measured G1 screen bitrate. Two-phone concurrency still untested (phone B blocked).
 2. RTT p95 ~265–320 ms at every rate (7.5, 24, 48 Mbit/s) → not queue-driven; likely AWDL channel time-sharing with the Mac's infrastructure association. Next: same test with the Mac unassociated (and/or internet via Ethernet) to isolate.
+
+## Run 7 — G2 decisive no-AP topology, single phone, 2026-10-17 01:40–01:47Z
+
+Build `e95e1b9`. Mac: Wi-Fi on, unassociated (auto-join off, disconnected), no Ethernet, no internet (Safari failed). Phone A: Wi-Fi on, unassociated, cellular data off, hotspot off, Bluetooth on, Auto-Lock Never. No USB on either. (User report; settings restored afterwards — Mac auto-join back on and reconnected.)
+
+| Run | Duration | Delivered median (p10) | RTT median / p95 median / p95 max | Gaps / CRC | Route | End |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7a, Latency window, 12 Mbit/s | 202 s | **11.95–11.99 Mbit/s** (10.8–11.8) | 9.3–9.8 ms / 11.7–15.3 ms / 245 ms | 0 / 0 | `awdl0` | clean `bye` |
+| 7b, Capacity probe, 48 Mbit/s | 195 s | **48.0 Mbit/s** (47.7–47.8) | 9.9–10.6 ms / 19–21 ms / 221 ms | 0 / 0 | `awdl0` | clean `bye` |
+
+Comparison with run 5/6 (Mac associated to home Wi-Fi): RTT p95 dropped from ~265–320 ms to ~12–21 ms; latency-window throughput rose from 7.5 to 12.0 Mbit/s.
+
+Findings:
+1. **G2 single-phone criteria met in the decisive no-AP / no-internet / no-USB topology** (authenticated TLS-PSK, ≥12 Mbit/s for >3 min, 0 loss, bounded window). Two-phone concurrency and the 9/10 connection-attempt series still to run.
+2. Mac infrastructure association is the dominant source of AWDL latency (single-radio time sharing). Product guidance candidate: Mac offline or on Ethernet for best latency; Mac-on-Ethernet + Wi-Fi unassociated still to measure.
+3. G2b fixes confirmed on hardware: pacer within 0.5% of target; clean stop.
