@@ -185,3 +185,31 @@ both unsigned Xcode builds again fail package resolution at the unwritable
 SwiftPM manifest-cache `shared.dia`, before app compilation. No installs, commits
 or pushes; results.md and the protocol/security model are unchanged. Device
 scanner/Keychain and presentation acceptance remain outstanding.
+
+
+## G3d rotation controls and diagnostics
+
+Rotate in the video-window toolbar or press **⌘R** to cycle clockwise through
+0/90/180/270; **⌘0** resets. Both switch to manual. The manual angle is remembered
+per verified deviceID in this receiver's UserDefaults domain. **Auto-rotate** is
+initially off; enabling it follows the latest capture hint, otherwise device hint,
+and the stats overlay reports the source. Hint state resets on session rebind.
+Layer transform/aspect changes preserve decode and playout; quarter turns resize
+once around the window center. A 180° change keeps the frame size.
+
+Sender probes sample/image attachments in `capture.rotationAttachments` (first
+screen callback, then changes only, at most 1/s; metadata only). Device notifications
+and background-during-capture counts appear in `capture.deviceOrientation` /
+`capture.orientationNotificationSummary`. Only device hints are currently emitted:
+no usable new capture signal is verified. Physical orientation is a hint, so a
+locked app or missing background notifications can require manual rotation. See
+[Rotation signal](feasibility.md#rotation-signal) for findings
+and the remaining device checks. Protocol stays v3 with a bounded 11-byte hint.
+
+Validation: **76 Shared tests pass (71 existing + 5 new)**, including strict hint
+encoding/bounds, manual/auto state, capture preference, composed aspect and real
+TLS hints interleaved with video fragments without config/reassembly recovery.
+The injected loopback consumer does not exercise VideoToolbox or visible rotation.
+All Sender/Receiver sources pass direct arm64 SDK typechecks (iPhoneOS 27.1 /
+macOS 27.0, Swift 5 mode); this is not a linked/signed build or device acceptance.
+No installs, commits or pushes; historical `results.md` is unchanged.

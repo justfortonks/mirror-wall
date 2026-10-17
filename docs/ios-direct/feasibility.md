@@ -211,3 +211,57 @@ These statements were refreshed from Apple's documentation (Markdown fetched rea
 - Mac prototype minimum OS, phone models/builds, supported encoder properties, effective radio path, Bluetooth dependency, hardware CPU budget, identity provisioning and distribution remain decisions or measurements, not G0 successes.
 
 Root build/test baseline is sandbox-blocked; exact result is in [results](results.md). No workaround was attempted and no product defect was inferred from that failure.
+
+
+## Rotation signal
+
+**Verified (existing device evidence):** [Run 3](results.md) kept 588×1280 buffers
+through two rotations. [Run 9](results.md) logged `orientation=1` for every frame
+and landscape apps appeared sideways within the portrait panel frame. Those
+fields do not identify the app's display rotation. This change adds no device run.
+
+**Verified (local SDK inspection):** installed iPhoneOS 27.1 `SCStream.h` declares
+`SCStreamFrameInfo.videoOrientation` as CGImagePropertyOrientation (1…8). No separate
+rotation/content-transform key is declared among its frame-info keys. CoreMedia's
+`CMAttachment.h` permits `CMGetAttachment` on an image buffer; CoreVideo's
+`CVBufferCopyAttachments` enumerates both propagation modes. Header availability
+and names do not establish what a real iOS capture emits.
+
+**Verified (implementation):** the new `capture.rotationAttachments` event probes
+the first screen callback of each capture, then compares current metadata at most
+once per second and emits only changes. It includes the entire sample attachments
+array, every present SCStreamFrameInfo key (including unknown keys), sample and
+image-buffer CM attachment keys/values obtained via `CMGetAttachment`, both
+CVBuffer attachment dictionaries and delivered dimensions. Ordering is stable for
+comparison. Binary attachment metadata is represented by byte count and base64;
+opaque media references by type, never a buffer description or pixel contents.
+No image buffer bytes are read or logged.
+A changing display timestamp can itself cause one event per second.
+
+**Verified (implementation):** sender begins UIDevice orientation notifications,
+logs each notification's raw/planar value, app background/capture state, and a
+per-capture background-notification count at capture end. Portrait=0,
+landscapeLeft=90, upside-down=180, landscapeRight=270 clockwise; unknown/face-up/
+face-down retain the latest usable physical orientation. A `device` hint is sent
+at capture start if available and updated on notifications. No CoreMotion
+permission or background mode was added. Receiver Auto-rotate defaults off and
+manual rotation always remains available.
+
+**Hypothesis / unresolved:** another runtime attachment may expose app/display
+rotation despite constant panel dimensions/videoOrientation. No new attachment
+trace is available here, so no newly usable capture key or `capture` hint producer
+is claimed. Do not reinterpret the observed constant `videoOrientation=1` as a
+working rotation signal. If a runtime key is found, verify its semantics against
+asymmetric content in all four rotations and carry its additional presentation
+rotation with `orientationSource=capture`; the bounded v3 message and receiver
+preference already support it.
+
+**Hypothesis / unresolved:** UIDevice notifications may stop or lag while the
+sender is backgrounded, and physical orientation can differ from an orientation-
+locked app. Repeat portrait/landscape/upside-down while another app is foreground,
+then inspect `capture.deviceOrientation` and `capture.orientationNotificationSummary`.
+A zero count alone does not prove OS suppression. Device testing must also check
+clockwise mapping, layer letterboxing, one centered window resize, keyboard and
+toolbar actions, per-device persistence/reconnect, and uninterrupted decode during
+manual/auto changes. Shared policy/TLS tests and SDK typechecks do not establish
+these physical-device behaviors.

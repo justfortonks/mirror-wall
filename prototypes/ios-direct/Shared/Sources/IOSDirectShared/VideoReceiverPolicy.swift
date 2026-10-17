@@ -133,10 +133,13 @@ public struct VideoFrameRate {
 public struct VideoWindowGeometry: Equatable {
     public let width: Int, height: Int
     public let orientation: UInt8
-    public init(width: Int, height: Int, orientation: UInt8) {
+    public let rotationDegrees: UInt16
+    public init(width: Int, height: Int, orientation: UInt8, rotationDegrees: UInt16 = 0) {
         self.width = width; self.height = height; self.orientation = orientation
+        self.rotationDegrees = rotationDegrees
     }
+    public var swapsAxes: Bool { (5...8).contains(orientation) != (rotationDegrees == 90 || rotationDegrees == 270) }
     public var aspect: Double {
-        (5...8).contains(orientation) ? Double(height) / Double(width) : Double(width) / Double(height)
+        swapsAxes ? Double(height) / Double(width) : Double(width) / Double(height)
     }
 }
