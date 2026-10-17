@@ -71,6 +71,15 @@ Diagnostics at start, every path/state change and per-second interval: service d
 
 **Verified (local SDK evidence):** framework exists but WACapabilities is `@available(macOS, unavailable)`; see [feasibility](feasibility.md). **Hypothesis (bounded probe):** future native Mac CapabilityProbe first compiles a minimal supported availability check and reports `API unavailable on this SDK` without invoking unavailable symbols. A separate minimal type-check of `WACapabilities.supportedFeatures` may record the compiler's unavailability diagnostic, with no private API/availability bypass. If a later public SDK makes the API callable, log supportedFeatures and maximumConnectableDevices/maximumPublishableServices. Brief expectation is an empty feature set on unsupported Mac hardware; **an actual empty set is not observed and is not interchangeable with compile-time unavailability**. Stop Candidate B if unavailable/empty; Candidate A continues. No Wi-Fi Aware transport or entitlement request belongs in G2. No probe source is created at G0.
 
+### Added 2026-10-17 — "Mac online, phones unassociated" topology (user question)
+
+Between the decisive no-AP run and the LAN-present comparison, run this variant: Mac stays joined
+to its normal Wi-Fi with internet; each phone keeps Wi-Fi **on** but is not joined to any network
+(auto-join off for saved networks), cellular data off, no hotspot, no USB. The only common path is
+Apple peer-to-peer Wi-Fi. Pass = same G2 criteria; record Mac infrastructure throughput/latency
+impact while the AWDL session runs (single-radio time sharing). If AWDL coexistence hurts too much,
+evaluate Mac internet over Ethernet with Wi-Fi free for phones.
+
 ### Human steps — decisive no-AP topology (brief §9.1)
 
 1. Install both apps, approve local-network access while foregrounded, complete throwaway identity setup, then quit/relaunch once. Record initial permissions and profile expiry. Test first-use denial then foreground retry/approval separately on each platform, saving error/UI evidence. Test signed Mac app, not just a CLI listener.

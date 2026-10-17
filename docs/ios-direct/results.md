@@ -152,3 +152,18 @@ Build `25d4ce2`. No cable. Changing content (user), two rotations + Control Cent
 | Rotation | Delivered size stayed 588×1280 through both rotations; whether rotated content is correct is **unverified** (needs a visible image, G3) |
 
 **G1 gate (Claude, phone A): Hardware pass.** Screen-only `screen-capture` background mode + full-display picker + VideoToolbox H.264 sustains ~30 fps for 10 minutes in the background on a free Personal Team build, provided the app recreates the compression session after the background-entry invalidation. Open: phone B (17e, MDM pairing block), rotation correctness, lock/Low Power/interruptions characterization, 20-cycle lifecycle.
+
+## Run 4 — G2 single phone, LAN present (phone A + MacBook Air M5), 2026-10-17 00:44–00:55Z
+
+Build `f31fe56`. Mac and phone both joined to the same home Wi-Fi (LAN-present comparison per §9.1 step 6; **not** a direct/offline run). Foreground Radio mode, 12 Mbit/s requested.
+
+| Item | Result |
+| --- | --- |
+| Discovery | Browse result advertised on `[en0, awdl0]`; first result ~3 s after browser ready |
+| Correct code | 5 connections, each TLS 1.2 (771) + `TLS_PSK_WITH_AES_128_GCM_SHA256` (168), connect ≤1 s after Start |
+| Wrong code | Mac: `-9846 bad MAC` on **both** an `en0` and an `awdl0` attempt (connection racing) — no session admitted, no data. Phone: surfaced only as `TLS/welcome timeout` after 10 s (UX defect: should fail fast). User confirmed no connection. |
+| Route for data | `en0` (infrastructure Wi-Fi) on every admitted session |
+| Main session (5.5 min) | delivered median **11.27 Mbit/s** (p10 10.88, min 9.57) — **below the 12 Mbit/s per-phone target**; 0 seq gaps, 0 CRC failures; RTT median 13 ms, p95 ~70 ms (max 107 ms); phone send-blocked only 0.78 s total → shortfall is likely sender pacing, not the link |
+| Thermal / memory | nominal; phone ~130 MB, Mac ~108 MB |
+
+Findings: (1) AWDL path to the Mac is reachable while the Mac is on infrastructure Wi-Fi — evidence from the wrong-code race. (2) With a common LAN, the system routes over `en0`. (3) Pacer undershoots ~6%. (4) Phone needs fast handshake-failure reporting.
