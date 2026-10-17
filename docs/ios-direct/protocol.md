@@ -114,8 +114,23 @@ revoked key. Other phones keep streaming. Phone **Forget this Mac** deletes its
 Keychain item and stops its connections/capture to that receiver. It must scan and
 pair again. An authenticated `bye revoked` removes the phone's stored pairing too.
 A TLS failure alone cannot distinguish revocation from a wrong key or impostor;
-the UI reports "not paired anymore (revoked), or handshake failed" and permits
-forget/re-pair. It never infers trust from a matching TXT `rid`.
+the phone stops and reports **"This Mac didn't accept this phone. It may have been
+forgotten on the Mac."** with **Pair again** and **Forget this Mac**. The credential
+is retained, and the receiver is marked **Pairing rejected** instead of Paired.
+Non-secret rejection state is shared by Radio/Stream and persists across relaunch.
+An authenticated `bye revoked` deletes the matching device credential automatically
+and reports **"This Mac forgot this phone. Pair again to reconnect."** A delayed
+revocation from an older device identity cannot delete a newly paired credential.
+It never infers trust from a matching TXT `rid`.
+
+**Scan pairing code** is available for every receiver, including already paired or
+rejected receivers. Validation precedes any connection or interruption of an
+existing session, checks the receiver selected when the scanner opened, and shows
+"This pairing code has expired — make a new one on the Mac", "This code is for a
+different Mac", or "Not a pairing code". Expiry retains the 30-second phone clock
+skew and the independent hard Mac expiry. Successful re-pairing replaces the phone's
+stored credential for that `rid` and clears its rejection status. Validated re-pairing
+stops the old session before requesting approval; invalid scans leave it alone.
 
 Both apps use Generic Password Keychain items with service
 `com.justfortonks.mirrorwall.iosdirectpoc`, no synchronization, and
@@ -351,15 +366,31 @@ A single in-flight unit is separate from the 1 MiB/100 ms waiting queue.
 Fragment sends are serialized through successful `contentProcessed`; all channel
 sends retain the 262,144-byte backlog bound. ACK timeout is ten seconds.
 
-Connection loss clears queued/outstanding media and stops send admission while
-capture/encoding remain authorized and running. The worker retries the selected
-Bonjour service endpoint with backoff **0.5, 1, 2, 4, 4… seconds**, using a fresh
-TLS connection/session each time. Welcome resets backoff, clears stale frames,
-resends config and forces IDR. Retry does not depend on main/UI execution and
-never calls capture start or presents a picker. System/user capture stop remains
-stopped even if authentication later recovers. A pre-ready TLS failure retries until Disconnect with a visible pairing/handshake
-error. An authenticated revocation stops retries and requires pairing again.
-There are no added background modes, audio, background tasks or capture extensions.
+Capture and transport have independent lifetimes. User/system **Stop capture**
+clears capture busy state without calling transport stop. While the authenticated
+connection remains live, **Share full display** is immediately available for a new
+explicit consent; encoder restart sends a new wire generation, config and IDR on
+the same session. Frame sequence remains monotonic. **Disconnect** ends the session.
+A reconnect never restarts stopped capture or presents consent.
+
+On a genuine link loss from a session that reached `welcome`, the worker clears
+queued/outstanding media and makes an automatic fresh TLS/authentication attempt
+after 0.5 seconds. Each new attempt must itself reach `welcome` to become retryable:
+a past session's success does not authorize retrying failed initial handshakes.
+TLS errors, pre-welcome authenticated closes, a five-second deadline while TLS is
+still `preparing` against a currently discovered receiver, and authenticated
+`reject unpaired`/auth failures stop with pairing recovery UI. Capacity/busy,
+protocol errors and normal peer bye also stop. `bye revoked` stops and deletes the
+matching credential. Typed close causes control this policy; diagnostic strings
+are not revocation authority. No authentication failure is retried indefinitely.
+
+Discovery updates feed the worker's current receiver-presence flag. Returning to
+the foreground refreshes Stream discovery. Stopping capture ends its background
+execution grant: the OS can still suspend/abort the transport (run 1 logs show a
+POSIX abort after system stop). Application code does not intentionally disconnect
+on capture stop; uninterrupted OS socket retention needs another device run.
+Loopback proves capture-generation reuse and transport recovery, not this OS
+lifecycle behavior. No additional background modes, audio or background tasks.
 
 Sender's existing `metrics` JSONL now includes captured/paced/encoded/sent/ACKed
 FPS, sent Mbit/s and a nested `video` snapshot: successful sent frames/bytes,
@@ -371,7 +402,7 @@ event includes cached appState. A separate radio JSONL records TLS/path details.
 Sender counts full frames sent only after all fragment `contentProcessed` callbacks.
 
 Each Mac session owns its renderer, private decode queue, at most eight pending VT
-callbacks with a 300 ms oldest-frame bound, layer, window and `video.receiver.metrics` JSONL. Config/gap/error/close
+callbacks with a 300 ms oldest-frame bound, layer and `video.receiver.metrics` JSONL. Config/gap/error/close
 invalidate old callback epochs. Metrics include received/decoded/displayed totals
 and FPS, decode errors, presentation drops, requested IDRs, last frame bytes,
 received Mbit/s, ten-second inter-arrival p95, longest gap, dimensions/orientation,
@@ -382,7 +413,18 @@ second without display the state is stalled (static SCK content can also cause
 this); disconnect removes the stale picture and marks the window disconnected.
 Immediate presentation coalesces decoded output; optional smoothing adds a bounded
 100 ms PTS buffer. Recovery holds the last image using `flush()`; disconnect clears
-it. Identical configs preserve the decoder. Stats can be hidden per window. Synthetic sessions retain the existing row UI.
+it. Identical configs preserve the decoder. Stats can be hidden per window.
+Synthetic sessions retain the existing row UI.
+
+Mac windows are keyed by **HMAC-verified deviceID**, passed explicitly from admission
+to the video consumer factory. The title is the stored device label; install UUID,
+hello label and session UUID cannot merge or create a second window for that
+device. A new session reuses its NSWindow/geometry and attaches a fresh session
+renderer/layer. Disconnect clears the picture to **black** and shows **Disconnected**;
+reuse shows **Waiting for video** until frames arrive. Samples from obsolete
+sessions cannot update the rebound window. Manual window close removes its entry;
+the device's next video session opens it again. Different paired identities retain
+separate windows even when labels match.
 
 Transport-only TLS loopback tests inject a consumer that returns a chosen status
 after checking identical config/frame bytes; those tests prove neither actual

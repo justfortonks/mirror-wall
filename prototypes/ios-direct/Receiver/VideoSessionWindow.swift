@@ -11,11 +11,15 @@ final class VideoWindowModel: ObservableObject {
 
 private final class VideoLayerHost: NSView {
     var orientation: UInt8 = 1
-    let display: AVSampleBufferDisplayLayer
+    private(set) var display: AVSampleBufferDisplayLayer
     init(display: AVSampleBufferDisplayLayer) {
         self.display = display; super.init(frame: .zero)
         wantsLayer = true; layer?.backgroundColor = NSColor.black.cgColor
         layer?.addSublayer(display)
+    }
+    func replaceDisplay(_ next: AVSampleBufferDisplayLayer) {
+        guard display !== next else { return }
+        display.removeFromSuperlayer(); display = next; layer?.addSublayer(next); needsLayout = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layout() {
@@ -46,6 +50,7 @@ private struct VideoLayerView: NSViewRepresentable {
     let orientation: UInt8
     func makeNSView(context: Context) -> NSView { VideoLayerHost(display: renderer.layer) }
     func updateNSView(_ view: NSView, context: Context) {
+        (view as? VideoLayerHost)?.replaceDisplay(renderer.layer)
         (view as? VideoLayerHost)?.orientation = orientation; view.needsLayout = true
     }
 }
@@ -84,26 +89,41 @@ private struct VideoSessionView: View {
 @MainActor
 final class VideoSessionWindows: NSObject, NSWindowDelegate {
     private struct Entry {
-        let window: NSWindow, model: VideoWindowModel, renderer: VideoSessionRenderer
+        let window: NSWindow, model: VideoWindowModel
+        var renderer: VideoSessionRenderer
         var geometry: VideoWindowGeometry?
     }
-    private var entries: [UUID: Entry] = [:]
-    func open(session: UUID, label: String, renderer: VideoSessionRenderer, model: VideoWindowModel) {
+    private var entries: [UUID: Entry] = [:] // Verified deviceID, never label or installID.
+    private var sessions = VideoWindowSessions()
+    func open(device: UUID, session: UUID, label: String, renderer: VideoSessionRenderer, model: VideoWindowModel) {
+        sessions.bind(device: device, session: session)
+        var waiting = VideoReceiveSnapshot(session: session); waiting.state = "Waiting for video"
+        if var entry = entries[device] {
+            // New decoder/layer per authenticated session; keep the same NSWindow,
+            // position and geometry. Disconnected layers have already been blacked.
+            entry.renderer = renderer; entry.model.stats = waiting
+            entry.window.title = label
+            entry.window.contentView = NSHostingView(rootView: VideoSessionView(model: entry.model, renderer: renderer))
+            entries[device] = entry; entry.window.makeKeyAndOrderFront(nil); return
+        }
+        model.stats = waiting
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "\(label) · \(session.uuidString.prefix(8))"
+        window.title = label
         window.isReleasedWhenClosed = false; window.backgroundColor = .black; window.delegate = self
         window.contentView = NSHostingView(rootView: VideoSessionView(model: model, renderer: renderer))
-        entries[session] = Entry(window: window, model: model, renderer: renderer)
+        entries[device] = Entry(window: window, model: model, renderer: renderer)
         window.center(); window.makeKeyAndOrderFront(nil)
     }
     func update(_ sample: VideoReceiveSnapshot) {
-        guard var entry = entries[sample.session] else { return }
-        entry.model.stats = sample
+        guard let device = sessions.device(for: sample.session), var entry = entries[device] else { return }
+        var display = sample
+        if sample.state == "disconnected" { display.state = "Disconnected" }
+        entry.model.stats = display
         guard sample.width > 0, sample.height > 0 else { return }
         let geometry = VideoWindowGeometry(width: sample.width, height: sample.height, orientation: sample.orientation)
         guard geometry != entry.geometry else { return }
-        entry.geometry = geometry; entries[sample.session] = entry
+        entry.geometry = geometry; entries[device] = entry
         let window = entry.window, oldFrame = window.frame
         let content = window.contentRect(forFrameRect: oldFrame).size
         let edge = max(content.width, content.height), aspect = CGFloat(geometry.aspect)
@@ -118,9 +138,7 @@ final class VideoSessionWindows: NSObject, NSWindowDelegate {
               let id = entries.first(where: { $0.value.window === window })?.key else { return }
         // Closing a window releases its presentation resources when the session ends;
         // it does not stop another session or the listener.
-        entries.removeValue(forKey: id)
+        entries.removeValue(forKey: id); sessions.close(device: id)
     }
-    func closeDisconnected() {
-        for entry in Array(entries.values) where entry.model.stats.state == "disconnected" { entry.window.close() }
-    }
+
 }

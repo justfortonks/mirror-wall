@@ -17,7 +17,9 @@ public final class RadioChannel {
     public var active = false
     public private(set) var closed = false
     private var draining = false
-    private var tlsReady = false
+    public private(set) var tlsReady = false
+    public private(set) var closeCause = RadioCloseCause.protocolFailure
+    public var isPreparing: Bool { if case .preparing = connection.state { return true }; return false }
     private var parser = RadioParser()
     private var timer: DispatchSourceTimer?
     private var lastSample = radioNow()
@@ -40,14 +42,14 @@ public final class RadioChannel {
             switch state {
             case .ready:
                 guard let tls = self.connection.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata else {
-                    self.close("TLS metadata unavailable"); return
+                    self.close("TLS metadata unavailable", cause: .authentication); return
                 }
                 let metadata = tls.securityProtocolMetadata
                 let version = sec_protocol_metadata_get_negotiated_tls_protocol_version(metadata)
                 let cipher = sec_protocol_metadata_get_negotiated_tls_ciphersuite(metadata)
                 self.snapshot.tlsVersion = version.rawValue; self.snapshot.cipherSuite = cipher.rawValue
                 guard version == .TLSv12, cipher.rawValue == RadioTLS.cipherSuite else {
-                    self.close("unexpected TLS negotiation"); return
+                    self.close("unexpected TLS negotiation", cause: .authentication); return
                 }
                 self.event("tls.negotiated", "version=\(version.rawValue) cipher=\(cipher.rawValue)")
                 self.snapshot.path = self.connection.currentPath.map(RadioPath.init)
@@ -55,13 +57,13 @@ public final class RadioChannel {
             // A TLS error (e.g. wrong code) leaves the connection waiting to retry; treat it as final.
             case .waiting(let error):
                 switch error {
-                case .tls: self.close("handshake failed: \(error)")
+                case .tls: self.close("handshake failed: \(error)", cause: .authentication)
                 case .posix(.ECONNRESET), .posix(.ECONNABORTED), .posix(.EPIPE), .posix(.ENOTCONN):
-                    if !self.active { self.close("handshake peer closed: \(error)") }
+                    if !self.active { self.close("handshake peer closed: \(error)", cause: .linkLoss) }
                 default: break
                 }
-            case .failed(let error): self.close("connection failed: \(error)")
-            case .cancelled: self.close("connection cancelled")
+            case .failed(let error): self.close("connection failed: \(error)", cause: Self.cause(for: error))
+            case .cancelled: self.close("connection cancelled", cause: .localStop)
             default: break
             }
         }
@@ -79,7 +81,7 @@ public final class RadioChannel {
             if self.active && !self.draining {
                 let now = radioNow()
                 if let ping = self.ping {
-                    if now - ping > 10_000_000_000 { self.close("pong timeout"); return }
+                    if now - ping > 10_000_000_000 { self.close("pong timeout", cause: .linkLoss); return }
                 } else { self.ping = now; self.send(.ping(now)) }
             }
             self.sample()
@@ -115,10 +117,10 @@ public final class RadioChannel {
                         try self.onMessage?(message)
                     }
                 }
-                if let error { self.close("receive: \(error)"); return }
-                if eof { try self.parser.finish(); self.close("EOF"); return }
+                if let error { self.close("receive: \(error)", cause: Self.cause(for: error)); return }
+                if eof { try self.parser.finish(); self.close("EOF", cause: self.tlsReady && !self.active ? .authentication : .linkLoss); return }
                 self.receive()
-            } catch { self.close(String(describing: error)) }
+            } catch { self.close(String(describing: error), cause: self.tlsReady && !self.active ? .authentication : .protocolFailure) }
         }
     }
     public func send(_ message: RadioMessage, completion: (() -> Void)? = nil) {
@@ -130,7 +132,7 @@ public final class RadioChannel {
             connection.send(content: bytes, completion: .contentProcessed { [weak self] error in
                 guard let self, !self.closed else { return }
                 self.snapshot.pendingNetworkBytes -= bytes.count
-                if let error { self.close("send: \(error)"); return }
+                if let error { self.close("send: \(error)", cause: Self.cause(for: error)); return }
                 self.snapshot.sentWireBytes += UInt64(bytes.count)
                 switch message {
                 case .data(_, _, let payload, _): self.snapshot.sentBytes += UInt64(payload.count)
@@ -161,8 +163,11 @@ public final class RadioChannel {
         snapshot.residentMemoryMB = radioMemoryMB()
         log?.write(snapshot); onSample?(snapshot)
     }
-    public func close(_ reason: String) {
-        guard !closed else { return }; closed = true; active = false
+    private static func cause(for error: NWError) -> RadioCloseCause {
+        if case .tls = error { return .authentication }; return .linkLoss
+    }
+    public func close(_ reason: String, cause: RadioCloseCause = .protocolFailure) {
+        guard !closed else { return }; closeCause = cause; closed = true; active = false
         snapshot.error = reason; snapshot.state = "closed"; timer?.cancel(); timer = nil
         event("connection.closed", reason); sample(); connection.cancel(); onClosed?(reason)
     }

@@ -25,7 +25,7 @@ public final class PairingClient {
                 guard self.challenged, !self.receivedGrant, credential.rid == invitation.rid else { throw RadioError.protocolViolation("invalid grant") }
                 try store.save(credential); self.receivedGrant = true; self.credential = credential
                 self.channel.send(.pairDone)
-            case .pairDenied: self.channel.close(Date() >= invitation.expires ? "Expired pairing code" : "Denied on Mac or pairing invitation ended")
+            case .pairDenied: self.channel.close(Date() >= invitation.expires ? PairingInvitationError.expired.description : "Denied on Mac or pairing invitation ended")
             case .bye("paired"):
                 guard self.receivedGrant, let credential = self.credential else { throw RadioError.protocolViolation("grant required") }
                 self.complete = true; self.onPaired?(credential); self.channel.close("paired")
@@ -36,10 +36,10 @@ public final class PairingClient {
             guard let self else { return }
             if !self.complete, let credential = self.credential,
                (try? store.credential(rid: invitation.rid))?.deviceID == credential.deviceID { try? store.delete(account: invitation.rid.uuidString) }
-            self.onState?(self.complete ? "Paired" : (reason.hasPrefix("Denied") || reason.hasPrefix("Expired")) ? reason : "Wrong code / handshake failed, or invitation expired")
+            self.onState?(self.complete ? "Paired" : (reason.hasPrefix("Denied") || reason.hasPrefix("This pairing code has expired")) ? reason : "Wrong code / handshake failed, or invitation expired")
         }
         channel.onTick = { [weak self] in
-            if Date() > invitation.expires.addingTimeInterval(30) { self?.channel.close("Expired pairing code") }
+            if Date() > invitation.expires.addingTimeInterval(30) { self?.channel.close(PairingInvitationError.expired.description) }
         }
     }
     public func start() {

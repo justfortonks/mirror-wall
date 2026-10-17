@@ -12,6 +12,7 @@ final class StreamExperiment: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var logFailure: String?
     private let radioLog: RadioLog?
+    private var rePairObserver: NSObjectProtocol?
     private var forgottenObserver: NSObjectProtocol?
     private var connectionRID: UUID?
     var radioLogURL: URL? { radioLog?.url }
@@ -26,21 +27,37 @@ final class StreamExperiment: ObservableObject {
                 if self.connectionRID == notification.object as? UUID { self.disconnect() }
             }
         }
+        rePairObserver = NotificationCenter.default.addObserver(forName: .pairingWillBegin, object: nil, queue: .main) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.connectionRID == notification.object as? UUID { self.disconnect() }
+            }
+        }
+        discovery.onReceiversChanged = { [weak self] in
+            guard let self else { return }
+            self.sink.setReceiverDiscovered(self.discovery.receivers.contains { $0.rid == self.connectionRID })
+        }
         let metrics = capture.metrics, log = capture.log
         sink.onEvent = { name, details in log?.event(name, "\(details) appState=\(metrics.snapshot().appState)") }
         sink.onState = { [weak self] state, ready in
             DispatchQueue.main.async {
                 guard let self else { return }; self.state = state; self.connected = ready
-                if state.hasPrefix("Not paired anymore (revoked);") {
-                    self.running = false
-                    if let rid = self.connectionRID {
-                        try? self.discovery.pairingStore.delete(account: rid.uuidString)
-                        NotificationCenter.default.post(name: .pairingForgotten, object: rid)
-                        self.discovery.pairingState = "Not paired anymore (revoked); scan a new pairing code"
-                    }
-                }
             }
         }
+        sink.onStopped = { [weak self] in DispatchQueue.main.async {
+            guard let self else { return }; self.running = false; self.connected = false
+            if self.capture.busy { self.capture.stop() }
+        } }
+        sink.onPairingRejected = { [weak self] rid, rejection in DispatchQueue.main.async {
+            guard let self else { return }
+            PhonePairingState.shared.reject(rid, reason: rejection)
+            guard self.connectionRID == rid else { return }
+            self.discovery.pairingState = rejection.message
+            self.running = false; self.connected = false
+            // Sharing may have been authorized earlier, but recovery requires a new
+            // pairing and explicit capture consent. Do not leave capture busy.
+            if self.capture.busy { self.capture.stop() }
+        } }
         let radioLog = self.radioLog
         sink.onRadioSample = { [weak self] sample in
             DispatchQueue.main.async { self?.logFailure = radioLog?.error() }
@@ -48,25 +65,28 @@ final class StreamExperiment: ObservableObject {
         }
     }
     func connect() {
-        guard !running, let endpoint = discovery.receivers.first(where: { $0.id == discovery.selected })?.endpoint else { return }
+        guard !running, discovery.canConnect(), let endpoint = discovery.receivers.first(where: { $0.id == discovery.selected })?.endpoint else { return }
         do {
             let credential = try discovery.credential()
             guard radioLog != nil, radioLog?.error() == nil, capture.log != nil, capture.log?.error() == nil else {
                 state = "log unavailable"; return
             }
             let install = discovery.installID
-            running = true; connectionRID = credential.rid
-            sink.start(endpoint: endpoint, credential: credential, install: install, label: UIDevice.current.name, log: radioLog)
+            running = true; connectionRID = credential.rid; discovery.pinSelection(credential.rid)
+            sink.start(endpoint: endpoint, credential: credential, install: install, label: UIDevice.current.name, log: radioLog, receiverDiscovered: true, pairingStore: discovery.pairingStore)
         } catch { state = String(describing: error) }
     }
+    func shareDisplay() {
+        guard connected, !capture.busy else { return }; capture.shareDisplay()
+    }
     func disconnect() {
-        sink.stop(); if capture.busy { capture.stop() }; running = false; connected = false; connectionRID = nil; state = "disconnected"
+        sink.stop(); if capture.busy { capture.stop() }; running = false; connected = false; connectionRID = nil; discovery.pinSelection(nil); state = "disconnected"
     }
     func forgetReceiver() {
         let rid = connectionRID ?? discovery.selectedReceiver?.rid
         disconnect(); discovery.forget(rid: rid)
     }
-    deinit { if let forgottenObserver { NotificationCenter.default.removeObserver(forgottenObserver) }; sink.stop() }
+    deinit { if let rePairObserver { NotificationCenter.default.removeObserver(rePairObserver) }; if let forgottenObserver { NotificationCenter.default.removeObserver(forgottenObserver) }; sink.stop() }
 }
 
 struct StreamExperimentView: View {
@@ -81,7 +101,7 @@ struct StreamExperimentView: View {
                 Section("Full-display consent") {
                     Text("Session: \(experiment.state)")
                     Text("Capture: \(capture.state) · encoder: \(capture.counters.encoderState)")
-                    Button("Share full display") { capture.shareDisplay() }
+                    Button("Share full display") { experiment.shareDisplay() }
                         .disabled(!experiment.connected || capture.busy || otherCaptureBusy)
                     Button("Stop capture") { capture.stop() }.disabled(!capture.busy)
                     Button("Disconnect") { experiment.disconnect() }.disabled(!experiment.running)
@@ -107,6 +127,9 @@ struct StreamExperimentView: View {
                 }
             }.navigationTitle("Stream experiment")
                 .onAppear { experiment.discovery.browse() }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                    experiment.discovery.restartBrowser(reason: "stream didBecomeActive")
+                }
                 .fullScreenCover(isPresented: $clock) { LatencyClockView() }
         }
     }
@@ -120,10 +143,10 @@ private struct StreamConnectionControls: View {
             Text("Browser: \(discovery.browserState)")
             Picker("Receiver", selection: $discovery.selected) {
                 Text("Select receiver").tag("")
-                ForEach(discovery.receivers) { result in Text("\(result.label) · \(discovery.isPaired(result) ? "Paired" : "Not paired")").tag(result.id) }
+                ForEach(discovery.receivers) { result in Text("\(result.label) · \(discovery.pairingLabel(result))").tag(result.id) }
             }.disabled(experiment.running)
-            PairingControls(discovery: discovery, disabled: false, forget: { experiment.forgetReceiver() })
-            Button("Connect") { experiment.connect() }.disabled(experiment.running || (try? discovery.credential()) == nil || discovery.pairingBusy)
+            PairingControls(discovery: discovery, forget: { experiment.forgetReceiver() })
+            Button("Connect") { experiment.connect() }.disabled(experiment.running || !discovery.canConnect() || discovery.pairingBusy)
             Button("Restart discovery") { discovery.restartBrowser(reason: "stream user retry") }
         }
     }

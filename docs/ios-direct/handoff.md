@@ -130,3 +130,25 @@ not writable in this sandbox. Separate arm64 iOS/macOS source typechecks pass;
 these do not establish linked builds. Claude still needs Xcode builds and signed
 Keychain/camera/relaunch/Bonjour/offline/two-phone acceptance. Loopback injects the
 video consumer and does not prove H.264 decoding or device behavior.
+
+## G3b-fix — first pairing/session device run
+
+Reviewed local `g3b-run1` logs: the Mac revoked at 02:58:04; subsequent phone
+attempts stayed preparing and retried on five-second deadlines. Close causes and
+reconnect policy are now typed: only link loss from a welcomed attempt retries;
+TLS/auth rejection, preparing deadlines against current discovery, and revoked
+bye stop. Rejected pairings persist as Pairing rejected with Pair again / Forget;
+only authenticated revoked bye deletes the matching credential automatically.
+Scanning is always available, validates expiry/selected receiver before connection,
+and replaces the stored credential on successful re-pair. Capture stop remains
+independent of Disconnect; new capture sends a fresh config/IDR on the same live
+session. Mac windows now reuse by verified deviceID, titled with stored label,
+black between sessions, with stale callback filtering and manual-close reopening.
+
+**61 Shared tests pass**, including new policy and real-TLS rejection/revocation/
+link recovery/capture-generation checks; iOS/macOS SDK source typechecks pass.
+No installs, commits or pushes; results.md unchanged. Signed/device rerun remains:
+confirm recovery controls, scanner errors/re-pair, indicator stop → Share again,
+and one window per device. Run 1 also shows an OS socket abort after system capture
+stop; application code retains the session, but uninterrupted socket retention
+when capture's background execution ends is not established by loopback/typechecks.

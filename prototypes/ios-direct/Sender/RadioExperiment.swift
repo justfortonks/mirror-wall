@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Network
+import Combine
 import IOSDirectShared
 
 struct RadioDiscovery: Identifiable {
@@ -13,6 +14,20 @@ struct RadioDiscovery: Identifiable {
     }
 }
 
+/// Shared across Radio/Stream and app relaunches; only non-secret rejection state.
+@MainActor
+final class PhonePairingState: ObservableObject {
+    static let shared = PhonePairingState()
+    @Published private(set) var status: ReceiverPairingStatus
+    private let key = "iosdirect.pairingStatus.v3"
+    private init() {
+        status = UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(ReceiverPairingStatus.self, from: $0) } ?? ReceiverPairingStatus()
+    }
+    func reject(_ rid: UUID, reason: PairingRejection) { status.reject(rid, reason: reason); persist() }
+    func clear(_ rid: UUID) { status.clear(rid); persist() }
+    private func persist() { if let data = try? JSONEncoder().encode(status) { UserDefaults.standard.set(data, forKey: key) } }
+}
+
 @MainActor
 final class RadioExperiment: ObservableObject {
     @Published var receivers: [RadioDiscovery] = []
@@ -22,8 +37,24 @@ final class RadioExperiment: ObservableObject {
     @Published var pairingRevision = 0
     let pairingStore: PairingKeyStore = KeychainPairingKeyStore()
     private var forgottenObserver: NSObjectProtocol?
+    private var rePairObserver: NSObjectProtocol?
+    private var pairingSubscription: AnyCancellable?
+    var onReceiversChanged: (() -> Void)?
+    private var pairingRun = UUID()
+    func pairingFailure(_ rid: UUID) -> PairingRejection? { PhonePairingState.shared.status[rid] }
+    func pairingLabel(_ result: RadioDiscovery) -> String {
+        guard let rid = result.rid else { return "Not paired" }
+        return PhonePairingState.shared.status.label(rid: rid, hasCredential: isPaired(result))
+    }
+    func canConnect() -> Bool {
+        guard let rid = selectedReceiver?.rid, pairingFailure(rid) == nil else { return false }
+        return (try? credential()) != nil
+    }
     private var pairer: PairingClient?
     private var pendingInvitation: PairingInvitation?
+    var selectedRID: UUID? { selectedReceiver?.rid ?? pinnedRID ?? connectionRID }
+    private var pinnedRID: UUID?
+    func pinSelection(_ rid: UUID?) { pinnedRID = rid }
     var selectedReceiver: RadioDiscovery? { receivers.first { $0.id == selected } }
     func isPaired(_ result: RadioDiscovery) -> Bool {
         guard let rid = result.rid else { return false }
@@ -40,15 +71,19 @@ final class RadioExperiment: ObservableObject {
         let id = UserDefaults.standard.string(forKey: key).flatMap(UUID.init(uuidString:)) ?? UUID()
         UserDefaults.standard.set(id.uuidString, forKey: key); return id
     }
-    func scan(_ payload: String) {
+    func scan(_ payload: String, expectedRID: UUID?) {
         do {
-            pendingInvitation = try PairingInvitation(payload: payload)
+            // Validate completely before stopping an existing session or using TLS.
+            let invitation = try PairingInvitation(payload: payload, expectedReceiverID: expectedRID)
+            cancelPairing()
+            NotificationCenter.default.post(name: .pairingWillBegin, object: invitation.rid)
+            pendingInvitation = invitation
             pairingBusy = true; pairingState = "Finding the Mac from this code…"; attemptPairing()
-        } catch { pairingState = String(describing: error); pairingBusy = false }
+        } catch { pairingState = String(describing: error) }
     }
     private func attemptPairing() {
         guard pairer == nil, let token = pendingInvitation else { return }
-        guard token.expires.addingTimeInterval(30) > Date() else { cancelPairing(); pairingState = "Expired pairing code"; return }
+        guard token.expires.addingTimeInterval(30) > Date() else { cancelPairing(); pairingState = PairingInvitationError.expired.description; return }
         guard let target = receivers.first(where: { $0.rid == token.rid }) else { return }
         selected = target.id
         var info = utsname(); uname(&info)
@@ -56,18 +91,23 @@ final class RadioExperiment: ObservableObject {
         let client = PairingClient(endpoint: target.endpoint, invitation: token, install: installID,
             label: UIDevice.current.name, model: model, store: pairingStore, log: log)
         pairer = client; pendingInvitation = nil
+        let run = pairingRun
         client.onState = { [weak self] state in DispatchQueue.main.async {
-            self?.pairingState = state
-            if state != "Waiting for approval on Mac" { self?.pairingBusy = false; self?.pairer = nil; self?.pairingRevision += 1 }
+            guard let self, self.pairingRun == run else { return }
+            self.pairingState = state
+            if state != "Waiting for approval on Mac" { self.pairingBusy = false; self.pairer = nil; self.pairingRevision += 1 }
         } }
-        client.onPaired = { [weak self] _ in DispatchQueue.main.async { self?.pairingRevision += 1 } }
+        client.onPaired = { [weak self] _ in DispatchQueue.main.async {
+            guard let self, self.pairingRun == run else { return }
+            PhonePairingState.shared.clear(token.rid); self.pairingRevision += 1
+        } }
         client.start()
     }
-    func cancelPairing() { pairer?.cancel(); pairer = nil; pendingInvitation = nil; pairingBusy = false; pairingState = "Pairing cancelled" }
+    func cancelPairing() { pairingRun = UUID(); pairer?.cancel(); pairer = nil; pendingInvitation = nil; pairingBusy = false; pairingState = "Pairing cancelled" }
     func forget(rid requestedRID: UUID? = nil) {
         guard let rid = requestedRID ?? connectionRID ?? selectedReceiver?.rid else { return }
         do {
-            try pairingStore.delete(account: rid.uuidString); sender?.stop(); cancelPairing()
+            try pairingStore.delete(account: rid.uuidString); PhonePairingState.shared.clear(rid); sender?.stop(); cancelPairing()
             NotificationCenter.default.post(name: .pairingForgotten, object: rid)
             pairingRevision += 1; pairingState = "Forgot this Mac; scan a new pairing code to reconnect"
         } catch { pairingState = String(describing: error) }
@@ -92,6 +132,13 @@ final class RadioExperiment: ObservableObject {
     private var generation = UUID()
     var logURL: URL? { log?.url }
     init() {
+        pairingSubscription = PhonePairingState.shared.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        rePairObserver = NotificationCenter.default.addObserver(forName: .pairingWillBegin, object: nil, queue: .main) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.connectionRID == notification.object as? UUID { self.stop() }
+            }
+        }
         forgottenObserver = NotificationCenter.default.addObserver(forName: .pairingForgotten, object: nil, queue: .main) { [weak self] notification in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.pairingRevision += 1
@@ -136,7 +183,9 @@ final class RadioExperiment: ObservableObject {
                     if case .bonjour(let txt) = result.metadata, txt["v"] == "3", let value = txt["rid"] { rid = UUID(uuidString: value) }
                     return RadioDiscovery(endpoint: result.endpoint, rid: rid)
                 }.sorted { $0.id < $1.id }
-                if !self.receivers.contains(where: { $0.id == self.selected }) { self.selected = self.receivers.first?.id ?? "" }
+                if !self.receivers.contains(where: { $0.id == self.selected }), self.connectionRID == nil, self.pinnedRID == nil { self.selected = self.receivers.first?.id ?? "" }
+                self.sender?.setReceiverDiscovered(self.receivers.contains { $0.rid == self.connectionRID })
+                self.onReceiversChanged?()
             }
         }
         browser.start(queue: queue)
@@ -145,7 +194,8 @@ final class RadioExperiment: ObservableObject {
         browserGeneration = UUID()
         browserRestart?.cancel(); browserRestart = nil
         browser?.cancel(); browser = nil
-        receivers.removeAll(); selected = ""
+        receivers.removeAll(); if connectionRID == nil, pinnedRID == nil { selected = "" }
+        sender?.setReceiverDiscovered(false); onReceiversChanged?()
         browserState = "restarting in \(delay) s"
         log?.event("browser.restart", "delay=\(delay)s reason=\(reason)")
         let attempt = browserGeneration
@@ -157,27 +207,26 @@ final class RadioExperiment: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
     func start() {
-        guard !running, let endpoint = receivers.first(where: { $0.id == selected })?.endpoint else { return }
+        guard !running, canConnect(), let endpoint = receivers.first(where: { $0.id == selected })?.endpoint else { return }
         do {
             let credential = try credential()
             guard log != nil, log?.error() == nil else { state = "log unavailable"; return }
             let install = installID
             generation = UUID(); let run = generation
             let sender = RadioSender(endpoint: endpoint, credential: credential, rate: rate, window: window, install: install,
-                label: UIDevice.current.name, log: log)
+                label: UIDevice.current.name, log: log, receiverDiscovered: true, pairingStore: pairingStore)
             sender.onState = { [weak self] state in
                 DispatchQueue.main.async {
                     guard let self, self.generation == run else { return }
                     self.state = state
-                    if state == "peer bye: revoked" {
-                        try? self.pairingStore.delete(account: credential.rid.uuidString)
-                        NotificationCenter.default.post(name: .pairingForgotten, object: credential.rid)
-                        self.pairingState = "Not paired anymore (revoked); scan a new pairing code"
-                        self.pairingRevision += 1
-                    }
                     if state != "TLS ready; awaiting welcome" && state != "sending synthetic payload" { self.running = false; self.sender = nil; self.connectionRID = nil }
                 }
             }
+            sender.onPairingRejected = { [weak self] rejection in DispatchQueue.main.async {
+                guard let self, self.generation == run else { return }
+                PhonePairingState.shared.reject(credential.rid, reason: rejection)
+                self.pairingState = rejection.message
+            } }
             sender.onSample = { [weak self] sample in
                 DispatchQueue.main.async { guard let self, self.generation == run else { return }; self.snapshot = sample }
             }
@@ -189,7 +238,7 @@ final class RadioExperiment: ObservableObject {
         } catch { state = String(describing: error) }
     }
     func stop() { sender?.stop() }
-    deinit { if let forgottenObserver { NotificationCenter.default.removeObserver(forgottenObserver) }; timer?.invalidate(); browserRestart?.cancel(); browser?.cancel(); sender?.stop() }
+    deinit { if let rePairObserver { NotificationCenter.default.removeObserver(rePairObserver) }; if let forgottenObserver { NotificationCenter.default.removeObserver(forgottenObserver) }; timer?.invalidate(); browserRestart?.cancel(); browser?.cancel(); sender?.stop() }
 }
 
 struct RadioExperimentView: View {
@@ -202,9 +251,9 @@ struct RadioExperimentView: View {
                     Text("Browser: \(experiment.browserState)")
                     Picker("Receiver", selection: $experiment.selected) {
                         Text("Select receiver").tag("")
-                        ForEach(experiment.receivers) { result in Text("\(result.label) · \(experiment.isPaired(result) ? "Paired" : "Not paired")").tag(result.id) }
+                        ForEach(experiment.receivers) { result in Text("\(result.label) · \(experiment.pairingLabel(result))").tag(result.id) }
                     }.disabled(experiment.running)
-                    PairingControls(discovery: experiment, disabled: experiment.running, forget: { experiment.forget() })
+                    PairingControls(discovery: experiment, forget: { experiment.forget() })
                     Picker("Mbit/s", selection: $experiment.rate) {
                         ForEach(experiment.window == .capacityProbe ? RadioPacer.rates : [2, 6, 12, 24], id: \.self) { Text("\($0)").tag($0) }
                     }.disabled(experiment.running)
@@ -213,7 +262,7 @@ struct RadioExperimentView: View {
                     }.disabled(experiment.running).onChange(of: experiment.window) { _, window in
                         if window == .latency, experiment.rate > 24 { experiment.rate = 24 }
                     }
-                    Button("Connect") { experiment.start() }.disabled(experiment.running || (try? experiment.credential()) == nil || experiment.pairingBusy)
+                    Button("Connect") { experiment.start() }.disabled(experiment.running || !experiment.canConnect() || experiment.pairingBusy)
                     Button("Stop") { experiment.stop() }.disabled(!experiment.running)
                     Text(experiment.state).accessibilityIdentifier("radioState")
                     if let failure = experiment.logFailure { Text("Log write failed: \(failure)").foregroundStyle(.red) }
@@ -245,20 +294,31 @@ struct RadioExperimentView: View {
 
 struct PairingControls: View {
     @ObservedObject var discovery: RadioExperiment
-    let disabled: Bool
     let forget: () -> Void
     @State private var scanning = false
+    @State private var scanningRID: UUID?
     var body: some View {
         Group {
-            if let result = discovery.selectedReceiver, discovery.isPaired(result) {
-                Menu("Paired") { Button("Forget this Mac", role: .destructive, action: forget) }
-            } else {
-                Button("Scan pairing code") { scanning = true }.disabled(disabled || discovery.pairingBusy)
+            if let rid = discovery.selectedRID, let failure = discovery.pairingFailure(rid) {
+                Text(failure.message).foregroundStyle(.red)
+                Button("Pair again") { showScanner() }
             }
+            Button("Scan pairing code") { showScanner() }
+            Button("Forget this Mac", role: .destructive, action: forget)
+                .disabled(discovery.selectedRID == nil && discovery.connectionRID == nil)
             if discovery.pairingBusy { Button("Cancel pairing") { discovery.cancelPairing() } }
             if !discovery.pairingState.isEmpty { Text(discovery.pairingState) }
-        }.sheet(isPresented: $scanning) { PairingScannerSheet(scanned: discovery.scan) }
+        }.sheet(isPresented: $scanning) {
+            PairingScannerSheet(scanned: { discovery.scan($0, expectedRID: scanningRID) })
+        }
+    }
+    private func showScanner() {
+        scanningRID = discovery.selectedRID
+        scanning = true
     }
 }
 
-extension Notification.Name { static let pairingForgotten = Notification.Name("iosdirect.pairingForgotten") }
+extension Notification.Name {
+    static let pairingForgotten = Notification.Name("iosdirect.pairingForgotten")
+    static let pairingWillBegin = Notification.Name("iosdirect.pairingWillBegin")
+}
