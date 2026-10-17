@@ -213,3 +213,31 @@ The injected loopback consumer does not exercise VideoToolbox or visible rotatio
 All Sender/Receiver sources pass direct arm64 SDK typechecks (iPhoneOS 27.1 /
 macOS 27.0, Swift 5 mode); this is not a linked/signed build or device acceptance.
 No installs, commits or pushes; historical `results.md` is unchanged.
+
+## Checkpoint — Claude, 2026-10-17 (end of day 1)
+
+Branch `feat/ios-direct-poc` (pushed). Base `origin/main` `70e2f1a`. Worktree
+`/Users/thomas/Documents/Claude Code/Mirror-wall POC`. Latest installed build on phone A and the Mac:
+`35045ae` (G3d). Claude ran all builds/tests outside the Codex sandbox: **76 Shared tests pass**,
+both signed apps build.
+
+### Gate status (details in results.md)
+| Gate | Status |
+| --- | --- |
+| G0 baseline | **Accepted** |
+| G1 capture (phone A) | **Hardware pass** — 10 min background, 29.5 fps, ≤1 s stall. Phone B blocked (MDM pairing restriction, `kAMDMCProtected`). |
+| G2 radio (phone A) | **Hardware pass, single phone** — no-AP awdl0: 48 Mbit/s, RTT p95 ~15–20 ms with Mac unassociated; ~265 ms p95 with Mac on home Wi-Fi. Two-phone concurrency and 9/10 connect series **not run**. |
+| G3 secure single stream | **In progress** — live stream works incl. background (run 9: 30 fps, 0 drops). QR pairing + per-device ECDHE-PSK + HMAC binding + revocation working (run 10/11). Open: receiver ~19 fps / pairwise display-skips regression seen in runs 10–11 (cause unproven; G3c added 1 s timing diagnostics), scanner UX retest, optical latency, 30-min soak. |
+| G4 two phones | **Blocked** on phone B |
+| G5–G7 | Not started |
+
+### Next session (needs the user)
+1. Pairing retest on G3c/G3d build: Pair again, scan after Forget, Deny, expired.
+2. Stream with Mac **unassociated from the start** (turn Mac auto-join off first) — use the new
+   1 s timing diagnostics to settle the ~19 fps question. Then same with Mac on home Wi-Fi.
+3. Rotation: check `capture.rotationAttachments` / `capture.deviceOrientation` events; try ⌘R and Auto-rotate.
+4. Optical latency: film the latency clock and Mac window together.
+5. Phone B: lift MDM "allow pairing with computers" restriction or substitute another iPhone.
+
+Product notes so far: best latency with the Mac's Wi-Fi unassociated (or Mac internet on
+Ethernet — not yet measured). Smoothing (100 ms) is optional, default off.
