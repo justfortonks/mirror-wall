@@ -67,6 +67,18 @@ caches/artifacts were under `/tmp`). This is not a linked app build. Claude stil
 needs both Xcode builds, signed launches, Keychain persistence, camera permission/
 scanning and physical phone/Mac acceptance. No installs, commits or pushes occurred.
 
+## G3b-fix validation
+
+**61 Shared tests pass**, including all previous security/decode policies and new
+unit/real-TLS checks for terminal authentication failures, authenticated revocation
+key deletion, post-welcome link recovery, exact invitation errors and receiver
+mismatch, credential replacement, persistent rejection status, device/window
+rebinding and obsolete-session filtering. Two capture generations send fresh
+config/IDR over one authenticated TLS session in loopback. Both Sender and Receiver
+also pass direct SDK source typechecks. No new signed build/install or physical
+acceptance is claimed. Repeat the first-run pairing/system-stop/window scenarios
+on devices; the historical results ledger is unchanged.
+
 ## Pair, connect and forget
 
 1. Launch Receiver and allow local-network access. Wait for listener ready. The
@@ -74,8 +86,9 @@ scanning and physical phone/Mac acceptance. No installs, commits or pushes occur
    **Forget**. Select **Pair New Device** to show a QR and countdown; Regenerate
    invalidates the previous QR, and Cancel invalidates the current invitation.
 2. On the phone choose Radio or Stream and allow local-network access. Receiver
-   rows show **Paired** / **Not paired** using stored credentials. For a new Mac,
-   select **Scan pairing code**, allow camera access, and scan the Mac's QR.
+   rows show **Paired**, **Not paired** or **Pairing rejected**. **Scan pairing code**
+   is always available, including for paired receivers. Select the intended Mac,
+   allow camera access and scan its QR. A successful re-pair replaces its credential.
    Scanning can also start before discovery finishes; it waits for matching `rid`.
    The system scanner uses VisionKit, recognizing only QR barcodes.
 3. On the Mac, inspect **Allow "<label>" (<model>) to mirror to this Mac?** and
@@ -87,15 +100,23 @@ scanning and physical phone/Mac acceptance. No installs, commits or pushes occur
    authentication and welcome. Stop ends only that session.
 5. For Stream, tap **Connect**, wait for **authenticated; ready to share**, then
    **Share full display** and approve the system full-display picker. A window
-   titled with label and session ID opens for this phone. Capture remains a
-   separate regression mode; stop other capture runs before measuring Stream.
+   titled with the stored device label opens for this phone, keyed by its verified
+   deviceID. A later session reuses that window; between sessions it is black with
+   Disconnected / Waiting for video. Manual close reopens on the next session.
+   Stop capture (including system stop) leaves the authenticated session available:
+   **Share full display** enables again for fresh consent and a new config/IDR.
+   Use Disconnect only to leave the session. Capture remains a separate regression
+   mode; stop other capture runs before measuring Stream.
 6. Mac **Forget** removes one device's key and ends only its live session with
    `bye revoked`. Other phones continue. An authenticated revocation removes the
-   phone's stored pairing too. Phone **Paired → Forget this Mac** deletes its
+   phone's stored pairing too. Phone **Forget this Mac** deletes its
    credential and stops its connections/capture to that receiver. Reconnecting
    requires another QR/approval. If a reconnect fails after an offline revocation,
-   use Forget and scan again. TLS alone cannot diagnose revocation versus a wrong
-   key/impostor, so pre-ready failures state the alternatives explicitly.
+   the phone stops retrying and shows "This Mac didn't accept this phone. It may
+   have been forgotten on the Mac." Use **Pair again** or **Forget this Mac**.
+   Ambiguous failure retains the key and marks Pairing rejected in both modes,
+   including after relaunch. Authenticated revocation deletes the key and shows
+   "This Mac forgot this phone. Pair again to reconnect."
 
 Receiver UUID/name live in `receiver-identity.json`; non-secret phone metadata is
 in `paired-devices.json`, both next to Mac logs. Secret keys are Generic Password
@@ -139,10 +160,16 @@ AP-free routing.
 - With the decisive no-AP setup, go Home for ten continuously changing unlocked
   background minutes. Check capture → paced → encode → send → ACK plus Mac
   received → decoded → displayed progress. Timer progress alone is insufficient.
-- Interrupt/restore the link while authorized capture continues. Expect 0.5/1/2/4 s
-  reconnect backoff, fresh authentication/session/config and IDR. System/user Stop
-  capture must stay stopped through reconnect and must not present consent again.
-  Test background recovery and a longer soak separately.
+- Interrupt/restore a link after welcome: expect a fresh authentication attempt
+  after 0.5 seconds. An attempt that never reaches welcome is not retried; TLS/auth
+  failure or a preparing deadline against a discovered Mac stops with pairing
+  recovery controls. Test initial rejection and rejected reconnects separately.
+- Stop capture from the app and system indicator. Share again on the retained
+  connection; check new generation/config/IDR and one window for that device.
+  Capture must stay stopped if a transport reconnect occurs. Run 1 showed that iOS
+  may abort the socket shortly after capture's background execution ends; code
+  does not close it on capture stop, and OS retention needs device verification.
+  Test returning to foreground, background recovery and a longer soak separately.
 
 ## Preserved capture and stream behavior
 

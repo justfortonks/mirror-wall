@@ -29,6 +29,33 @@ final class PairingTests: XCTestCase {
         XCTAssertThrowsError(try PairingInvitation(payload: "https://pair?v=1", now: now))
         XCTAssertNil(Data(base64url: token.secret.base64url + "=", count: 32))
     }
+    func testInvitationValidationReportsExactRecoveryErrorsBeforeConnecting() throws {
+        let now = Date(), rid = UUID(), token = try PairingInvitation(rid: rid, name: "Mac", now: now)
+        XCTAssertNoThrow(try PairingInvitation(payload: token.payload, expectedReceiverID: rid, now: now))
+        XCTAssertThrowsError(try PairingInvitation(payload: token.payload, expectedReceiverID: UUID(), now: now)) {
+            XCTAssertEqual($0 as? PairingInvitationError, .differentReceiver)
+            XCTAssertEqual(String(describing: $0), "This code is for a different Mac")
+        }
+        XCTAssertNoThrow(try PairingInvitation(payload: token.payload, now: token.expires.addingTimeInterval(30)))
+        XCTAssertThrowsError(try PairingInvitation(payload: token.payload, now: token.expires.addingTimeInterval(30.01))) {
+            XCTAssertEqual($0 as? PairingInvitationError, .expired)
+            XCTAssertEqual(String(describing: $0), "This pairing code has expired — make a new one on the Mac")
+        }
+        for payload in ["not a QR invitation", "https://example.com", token.payload.replacingOccurrences(of: "v=1", with: "v=9")] {
+            XCTAssertThrowsError(try PairingInvitation(payload: payload, now: now)) {
+                XCTAssertEqual($0 as? PairingInvitationError, .invalidCode)
+                XCTAssertEqual(String(describing: $0), "Not a pairing code")
+            }
+        }
+    }
+    func testRepairReplacesStoredCredentialForTheSameReceiverID() throws {
+        let store = MemoryPairingKeyStore(), rid = UUID()
+        let first = DeviceCredential(deviceID: UUID(), deviceKey: try PairCrypto.random(32), rid: rid, receiverName: "Mac")
+        let second = DeviceCredential(deviceID: UUID(), deviceKey: try PairCrypto.random(32), rid: rid, receiverName: "Mac")
+        try store.save(first); try store.save(second)
+        XCTAssertEqual(try store.credential(rid: rid)?.deviceID, second.deviceID)
+        XCTAssertTrue(try store.credential(rid: rid)?.deviceKey == second.deviceKey)
+    }
     func testProofBindsNonceReceiverAndDevice() throws {
         let key = try PairCrypto.random(32), nonce = try PairCrypto.random(32), rid = UUID(), device = UUID().uuidString
         let proof = PairCrypto.proof(key: key, nonce: nonce, rid: rid, identity: device)

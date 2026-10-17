@@ -13,13 +13,16 @@ public final class RadioSender {
     private var total: UInt64 = 0
     private var welcomed = false
     private var challenged = false
+    private var receiverDiscovered = false
     private var lastBlockedMS: Double = 0
     private var lastPacerSample = radioNow()
+    public var onPairingRejected: ((PairingRejection) -> Void)?
     public var onState: ((String) -> Void)?
     public var onSample: ((RadioSnapshot) -> Void)?
     public var onReceiverStats: ((RadioSnapshot) -> Void)?
-    public init(endpoint: NWEndpoint, credential: DeviceCredential, rate: Int, window: RadioWindowMode = .latency, install: UUID, label: String, log: RadioLog? = nil) {
+    public init(endpoint: NWEndpoint, credential: DeviceCredential, rate: Int, window: RadioWindowMode = .latency, install: UUID, label: String, log: RadioLog? = nil, receiverDiscovered: Bool = false, pairingStore: PairingKeyStore? = nil) {
         channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(credential: credential)), log: log)
+        self.receiverDiscovered = receiverDiscovered
         pacer = RadioPacer(mbit: rate, window: window)
         channel.snapshot.installID = install; channel.snapshot.label = String(label.prefix(60))
         channel.snapshot.windowMode = window; channel.snapshot.windowBytes = pacer.cap
@@ -41,9 +44,16 @@ public final class RadioSender {
         channel.onClosed = { [weak self] reason in
             guard let self else { return }; self.timer?.cancel(); self.timer = nil
             self.outstanding.removeAll(); self.channel.snapshot.outstandingBytes = 0
-            let text = !self.welcomed && reason != "stopped" && !reason.hasPrefix("reject ")
-                ? "Not paired anymore (revoked), or handshake failed: \(reason)" : reason
-            if text != reason { self.channel.event("sender.handshakeFailed", text) }
+            var policy = ClientSessionPolicy(); if self.welcomed { policy.welcomed() }
+            let action = policy.action(for: self.channel.closeCause, receiverDiscovered: self.receiverDiscovered)
+            let text: String
+            if case .pairingRejected(let rejection) = action {
+                if let pairingStore {
+                    do { try rejection.apply(to: pairingStore, rid: credential.rid, deviceID: credential.deviceID) }
+                    catch { self.channel.event("pairing.storageError", "could not remove revoked credential") }
+                }
+                self.onPairingRejected?(rejection); text = rejection.message
+            } else { text = reason }
             self.onState?(text)
         }
         channel.onSample = { [weak self] in self?.onSample?($0) }
@@ -55,20 +65,21 @@ public final class RadioSender {
             }
         }
     }
+    public func setReceiverDiscovered(_ discovered: Bool) { channel.queue.async { self.receiverDiscovered = discovered } }
     public func start() {
         channel.start()
         // NWConnection may remain preparing while racing paths after a peer TLS
         // rejection. Bound that silent case as well as handling explicit errors.
         channel.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self, !self.channel.active, !self.channel.closed else { return }
-            self.channel.close("TLS/auth/welcome deadline (5 s)")
+            self.channel.close("TLS/auth/welcome deadline (5 s)", cause: .admissionDeadline(tlsReady: self.channel.tlsReady, preparing: self.channel.isPreparing))
         }
     }
     public func stop() {
         channel.queue.async { [self] in
             timer?.cancel(); timer = nil
             if channel.active { channel.finish(.bye("user stop"), reason: "stopped") }
-            else { channel.close("stopped") }
+            else { channel.close("stopped", cause: .localStop) }
         }
     }
     private func receive(_ message: RadioMessage) throws {
@@ -94,8 +105,8 @@ public final class RadioSender {
             guard stats.id == channel.snapshot.id else { throw RadioError.protocolViolation("wrong stats session") }
             channel.snapshot.seqGaps = stats.seqGaps; channel.snapshot.crcFailures = stats.crcFailures
             onReceiverStats?(stats)
-        case .reject(let reason): channel.close("reject \(reason)")
-        case .bye(let reason): channel.close("peer bye: \(reason)")
+        case .reject(let reason): channel.close("reject \(reason)", cause: .rejected(reason))
+        case .bye(let reason): channel.close("peer bye: \(reason)", cause: reason == "revoked" ? .revoked : .peerEnded)
         default: throw RadioError.protocolViolation("unexpected sender message")
         }
     }

@@ -50,7 +50,7 @@ public final class RadioReceiver {
     public var onData: ((UUID, Int) -> Void)? // Metadata-only test/diagnostic hook; session queue.
     /// Factory runs on the session queue. The consumer owns decoding/display/timing;
     /// completion must report actual decode output, never mere VT submission.
-    public var makeVideoSession: ((UUID, String, @escaping (String) -> Void) -> RadioVideoConsumer)?
+    public var makeVideoSession: ((UUID, UUID, String, @escaping (String) -> Void) -> RadioVideoConsumer)?
     public init(store: ReceiverPairingStore, log: RadioLog? = nil, now: @escaping () -> Date = Date.init) { self.store = store; self.log = log; self.now = now }
     private func publishDevices() { onDevices?(store.devices, Set(active.values)) }
     public func pairNewDevice() {
@@ -306,11 +306,13 @@ public final class RadioReceiver {
                     } else {
                         self.pending.remove(id); self.active[id] = session.deviceID!
                         try? self.store.seen(session.deviceID!); self.publishDevices()
+                        let deviceID = session.deviceID!
+                        let deviceLabel = self.store.devices.first { $0.id == deviceID }?.label ?? label
                         self.event("session.admit", "session=\(id) device=\(session.deviceID!)")
                         channel.queue.async {
                             guard !channel.closed else { return }; session.admitted = true; channel.active = true
                             if mode == .video {
-                                session.video = self.makeVideoSession?(id, label, { [weak channel] reason in
+                                session.video = self.makeVideoSession?(id, deviceID, deviceLabel, { [weak channel] reason in
                                     channel?.queue.async { [weak channel] in
                                         guard let channel, channel.active else { return }
                                         channel.send(.keyframeRequest(String(reason.prefix(100))))

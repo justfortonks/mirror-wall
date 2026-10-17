@@ -11,32 +11,44 @@ public extension Data {
     }
 }
 
+public enum PairingInvitationError: Error, Equatable, CustomStringConvertible {
+    case expired, differentReceiver, invalidCode
+    public var description: String {
+        switch self {
+        case .expired: return "This pairing code has expired — make a new one on the Mac"
+        case .differentReceiver: return "This code is for a different Mac"
+        case .invalidCode: return "Not a pairing code"
+        }
+    }
+}
+
 public struct PairingInvitation: Equatable {
     public let rid: UUID, tokenID: Data, secret: Data, expires: Date, name: String
     public init(rid: UUID, name: String, now: Date = Date()) throws {
         self.rid = rid; self.name = String(name.prefix(60)); tokenID = try PairCrypto.random(8)
         secret = try PairCrypto.random(32); expires = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970) + 120)
     }
-    public init(payload: String, now: Date = Date()) throws {
+    public init(payload: String, expectedReceiverID: UUID? = nil, now: Date = Date()) throws {
         guard payload.utf8.count <= 2048, let url = URLComponents(string: payload), url.scheme == "mwiospoc", url.host == "pair",
               url.path.isEmpty, url.fragment == nil, url.user == nil, url.password == nil, url.port == nil,
               let items = url.queryItems, items.count == 6, Set(items.map(\.name)) == Set(["v", "rid", "tid", "sec", "exp", "name"]) else {
-            throw RadioError.protocolViolation("Invalid pairing code")
+            throw PairingInvitationError.invalidCode
         }
         try self.init(fields: items, now: now)
+        if let expectedReceiverID, rid != expectedReceiverID { throw PairingInvitationError.differentReceiver }
     }
     private init(fields: [URLQueryItem], now: Date) throws {
         let values = Dictionary(uniqueKeysWithValues: fields.map { ($0.name, $0.value ?? "") })
-        guard values["v"] == "1" else { throw RadioError.protocolViolation("Unsupported pairing code version") }
+        guard values["v"] == "1" else { throw PairingInvitationError.invalidCode }
         guard let rid = values["rid"].flatMap(UUID.init(uuidString:)),
               let tokenID = Data(base64url: values["tid"] ?? "", count: 8),
               let secret = Data(base64url: values["sec"] ?? "", count: 32),
               let exp = Double(values["exp"] ?? ""), exp.isFinite, exp.rounded() == exp,
               let name = values["name"], !name.isEmpty, name.utf8.count <= 256 else {
-            throw RadioError.protocolViolation("Invalid pairing code")
+            throw PairingInvitationError.invalidCode
         }
-        guard exp >= now.timeIntervalSince1970 - 30 else { throw RadioError.protocolViolation("Expired pairing code") }
-        guard exp <= now.timeIntervalSince1970 + 150 else { throw RadioError.protocolViolation("Invalid pairing code expiry") }
+        guard exp >= now.timeIntervalSince1970 - 30 else { throw PairingInvitationError.expired }
+        guard exp <= now.timeIntervalSince1970 + 150 else { throw PairingInvitationError.invalidCode }
         self.rid = rid; self.tokenID = tokenID; self.secret = secret; expires = Date(timeIntervalSince1970: exp); self.name = name
     }
     public var payload: String {

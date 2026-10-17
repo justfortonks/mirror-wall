@@ -8,9 +8,12 @@ final class RadioLoopbackTests: XCTestCase {
     private var clients: [RadioChannel] = []
     private var pairers: [PairingClient] = []
     private var senders: [RadioSender] = []
+    private var sinks: [VideoNetworkSink] = []
     private let lock = NSLock()
     private var endpoints: [ObjectIdentifier: NWEndpoint] = [:]
     override func tearDown() {
+        for sink in sinks { sink.stop() }
+        sinks.removeAll()
         for sender in senders { sender.stop() }
         for pairer in pairers { pairer.cancel() }
         for client in clients { client.queue.sync { client.close("test teardown") } }
@@ -121,6 +124,93 @@ final class RadioLoopbackTests: XCTestCase {
         let sender = RadioSender(endpoint: try endpoint(receiver), credential: keys[0], rate: 48, window: .capacityProbe, install: UUID(), label: "probe")
         senders.append(sender); sender.start(); wait(for: [sampled], timeout: 4)
     }
+    func testVideoSinkAuthenticationFailureStopsWithoutRetryAndRetainsAmbiguousCredential() throws {
+        let (receiver, keys) = try receiver(devices: 1), original = keys[0]
+        let wrong = DeviceCredential(deviceID: original.deviceID, deviceKey: try PairCrypto.random(32), rid: original.rid, receiverName: "Mac")
+        let store = MemoryPairingKeyStore(); try store.save(wrong)
+        let sink = VideoNetworkSink(); sinks.append(sink)
+        let rejected = expectation(description: "authentication failure is terminal")
+        let noRetry = expectation(description: "no auth retry"); noRetry.isInverted = true
+        sink.onPairingRejected = { rid, reason in
+            XCTAssertEqual(rid, wrong.rid); XCTAssertEqual(reason, .notAccepted); rejected.fulfill()
+        }
+        sink.onEvent = { name, _ in if name == "video.reconnectScheduled" { noRetry.fulfill() } }
+        sink.start(endpoint: try endpoint(receiver), credential: wrong, install: UUID(), label: "Phone", receiverDiscovered: true, pairingStore: store)
+        wait(for: [rejected], timeout: 7); wait(for: [noRetry], timeout: 0.7)
+        XCTAssertEqual(sink.snapshot().reconnectAttempts, 0)
+        XCTAssertEqual(sink.snapshot().state, PairingRejection.notAccepted.message)
+        XCTAssertNotNil(try store.credential(rid: wrong.rid))
+    }
+    func testVideoSinkAuthenticatedRevokedByeDeletesCredentialAndNeverRetries() throws {
+        let (receiver, keys) = try receiver(devices: 1), key = keys[0]
+        let store = MemoryPairingKeyStore(); try store.save(key)
+        let sink = VideoNetworkSink(); sinks.append(sink)
+        let welcome = expectation(description: "welcomed before revocation"), revoked = expectation(description: "authenticated revocation")
+        let noRetry = expectation(description: "no revoked retry"); noRetry.isInverted = true
+        sink.onState = { _, ready in if ready { welcome.fulfill() } }
+        sink.onPairingRejected = { rid, reason in
+            XCTAssertEqual(rid, key.rid); XCTAssertEqual(reason, .revoked); revoked.fulfill()
+        }
+        sink.onEvent = { name, _ in if name == "video.reconnectScheduled" { noRetry.fulfill() } }
+        sink.start(endpoint: try endpoint(receiver), credential: key, install: UUID(), label: "Phone", receiverDiscovered: true, pairingStore: store)
+        wait(for: [welcome], timeout: 3)
+        changedListener(receiver) { receiver.forget(key.deviceID) }
+        wait(for: [revoked], timeout: 3); wait(for: [noRetry], timeout: 0.7)
+        XCTAssertNil(try store.credential(rid: key.rid)); XCTAssertEqual(sink.snapshot().reconnectAttempts, 0)
+        XCTAssertEqual(sink.snapshot().state, PairingRejection.revoked.message)
+    }
+    func testVideoSinkRecoversLinkLossAfterWelcomeWithFreshAuthentication() throws {
+        let (receiver, keys) = try receiver(devices: 1), sink = VideoNetworkSink(); sinks.append(sink)
+        var made = 0
+        receiver.makeVideoSession = { _, device, _, _ in
+            XCTAssertEqual(device, keys[0].deviceID); made += 1
+            let consumer = LoopbackVideoConsumer()
+            if made == 1 { consumer.onConfig = { _ in throw RadioError.protocolViolation("test link interruption") } }
+            return consumer
+        }
+        let recovered = expectation(description: "second authenticated welcome")
+        var welcomes = 0
+        sink.onState = { _, ready in
+            guard ready else { return }; welcomes += 1
+            if welcomes == 1 {
+                sink.begin(encoderGeneration: 1)
+                sink.offer(Data(repeating: 1, count: 128), ptsNs: 100, keyframe: true, encoderGeneration: 1, config: VideoTests.config)
+            } else { recovered.fulfill() }
+        }
+        sink.onPairingRejected = { _, _ in XCTFail("link loss classified as authentication rejection") }
+        sink.start(endpoint: try endpoint(receiver), credential: keys[0], install: UUID(), label: "Phone", receiverDiscovered: true)
+        wait(for: [recovered], timeout: 4)
+        XCTAssertEqual(sink.snapshot().reconnects, 1); XCTAssertEqual(sink.snapshot().reconnectAttempts, 1)
+    }
+    func testShareAgainUsesNewConfigAndIDROnTheSameAuthenticatedSession() throws {
+        let (receiver, keys) = try receiver(devices: 1), sink = VideoNetworkSink(); sinks.append(sink)
+        let first = expectation(description: "first capture"), second = expectation(description: "second capture")
+        var generations: [UInt32] = [], factoryCalls = 0
+        receiver.makeVideoSession = { _, device, label, _ in
+            XCTAssertEqual(device, keys[0].deviceID); XCTAssertEqual(label, "same name")
+            factoryCalls += 1; let consumer = LoopbackVideoConsumer()
+            consumer.onConfig = { generations.append($0.generation) }
+            consumer.onFrame = { frame in
+                XCTAssertTrue(frame.keyframe)
+                if frame.ptsNs == 100 { first.fulfill() } else if frame.ptsNs == 200 { second.fulfill() }
+            }
+            return consumer
+        }
+        let ready = expectation(description: "one authenticated welcome")
+        sink.onState = { _, active in if active { ready.fulfill() } }
+        sink.start(endpoint: try endpoint(receiver), credential: keys[0], install: UUID(), label: "untrusted hello label", receiverDiscovered: true)
+        wait(for: [ready], timeout: 3); let session = sink.snapshot().session
+        sink.begin(encoderGeneration: 1)
+        sink.offer(Data(repeating: 1, count: 128), ptsNs: 100, keyframe: true, encoderGeneration: 1, config: VideoTests.config)
+        wait(for: [first], timeout: 3)
+        // Encoder stop/start invalidates generations without sink.stop/disconnect.
+        sink.begin(encoderGeneration: 2)
+        sink.offer(Data(repeating: 2, count: 128), ptsNs: 200, keyframe: true, encoderGeneration: 2, config: VideoTests.config)
+        wait(for: [second], timeout: 3)
+        XCTAssertEqual(factoryCalls, 1); XCTAssertEqual(sink.snapshot().session, session)
+        XCTAssertEqual(generations.count, 2); XCTAssertLessThan(generations[0], generations[1])
+        XCTAssertEqual(sink.snapshot().reconnects, 0)
+    }
     func testPreferredCipherProbe() throws {
         // Force CCAC alone at both ends. No negotiation fallback in the test.
         let done = expectation(description: "CCAC negotiated or TLS engine rejected")
@@ -208,7 +298,7 @@ final class RadioLoopbackTests: XCTestCase {
         }
         let rejected = expectation(description: "screen data before auth rejected")
         let channel = RadioChannel(NWConnection(to: try endpoint(receiver), using: RadioTLS.parameters(credential: keys[0])))
-        clients.append(channel); receiver.makeVideoSession = { _, _, _ in XCTFail("unbound media reached decoder"); return LoopbackVideoConsumer() }
+        clients.append(channel); receiver.makeVideoSession = { _, _, _, _ in XCTFail("unbound media reached decoder"); return LoopbackVideoConsumer() }
         channel.onReady = { channel.send(.videoConfig(VideoTests.config)) }
         channel.onClosed = { _ in rejected.fulfill() }; channel.start(); wait(for: [rejected], timeout: 3)
     }
@@ -235,7 +325,7 @@ final class RadioLoopbackTests: XCTestCase {
         let configured = expectation(description: "config"), reassembled = expectation(description: "frame"), acked = expectation(description: "decode ACK")
         let gap = expectation(description: "gap recovery"), dropped = expectation(description: "drop ACK")
         let frame = VideoAccessUnit(generation: 7, seq: 0, ptsNs: 987654, keyframe: true, data: Data(repeating: 9, count: 140_000))
-        receiver.makeVideoSession = { _, _, request in
+        receiver.makeVideoSession = { _, _, _, request in
             let consumer = LoopbackVideoConsumer(); consumer.request = request
             consumer.onConfig = { XCTAssertEqual($0, VideoTests.config); configured.fulfill() }
             consumer.onFrame = { XCTAssertEqual($0, frame); reassembled.fulfill() }; return consumer
@@ -281,7 +371,7 @@ final class RadioLoopbackTests: XCTestCase {
         receiver.onSample = { sample in
             if let id = sample.deviceID { self.lock.lock(); verifiedIDs.insert(id); self.lock.unlock() }
         }
-        receiver.makeVideoSession = { _, _, _ in LoopbackVideoConsumer() }
+        receiver.makeVideoSession = { _, _, _, _ in LoopbackVideoConsumer() }
         let first = VideoAccessUnit(generation: 7, seq: 0, ptsNs: 10, keyframe: true, data: Data(repeating: 7, count: 1024))
         for key in keys {
             let channel = try client(receiver, credential: key, mode: .video) { channel, message in
@@ -345,9 +435,9 @@ private final class TestClock {
 }
 private final class LoopbackVideoConsumer: RadioVideoConsumer {
     var request: ((String) -> Void)?
-    var onConfig: ((VideoConfig) -> Void)?
+    var onConfig: ((VideoConfig) throws -> Void)?
     var onFrame: ((VideoAccessUnit) -> Void)?
-    func configure(_ config: VideoConfig) throws { onConfig?(config) }
+    func configure(_ config: VideoConfig) throws { try onConfig?(config) }
     func receive(_ frame: VideoAccessUnit, completion: @escaping (VideoDecodeStatus) -> Void) { onFrame?(frame); completion(.decoded) }
     func discontinuity(_ reason: String) { request?(reason) }
     func tick() {}

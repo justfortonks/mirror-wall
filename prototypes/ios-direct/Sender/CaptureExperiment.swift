@@ -140,6 +140,8 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
         log?.event("counters.reset", "epoch=\(metrics.snapshot().resetEpoch)")
     }
     private func finish(state: String, stopCapture: Bool = false) { // main only
+        // Capture consent ends independently of the authenticated transport. The
+        // next Share starts a fresh encoder generation/config/IDR on that session.
         request += 1; pickerPending = false; busy = false
         SCContentSharingPicker.shared.isActive = false
         let old = stream; stream = nil

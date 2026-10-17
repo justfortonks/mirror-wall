@@ -37,11 +37,11 @@ final class ReceiverExperiment: ObservableObject {
             // Create the decoder synchronously on the session queue. Window/UI work is
             // posted to main; media never waits for main-thread delivery.
             let windows = videoWindows, videoLog = log
-            receiver.makeVideoSession = { session, label, request in
+            receiver.makeVideoSession = { session, deviceID, label, request in
                 let renderer = VideoSessionRenderer(session: session, log: videoLog, request: request)
                 renderer.onSample = { sample in DispatchQueue.main.async { windows.update(sample) } }
                 DispatchQueue.main.async {
-                    windows.open(session: session, label: label, renderer: renderer, model: VideoWindowModel(session: session))
+                    windows.open(device: deviceID, session: session, label: label, renderer: renderer, model: VideoWindowModel(session: session))
                 }
                 return renderer
             }

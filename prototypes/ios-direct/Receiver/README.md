@@ -37,3 +37,13 @@ bounded decoded buffers, orientation aspect and final-interval FPS. Device testi
 must verify smoothness, held picture during recovery, rotation/center behavior and
 the visible latency-clock Done button. Done dismisses only the clock cover; capture
 and transport keep running. No new device result is claimed by these source fixes.
+
+
+G3b-fix window ownership: one NSWindow per HMAC-verified deviceID, titled with the
+stored device label. Each authenticated session still gets a private renderer and
+layer. Reconnect reuses the window/position/geometry, installs that fresh layer,
+and ignores all later samples from its predecessor session. Disconnect clears to
+black with Disconnected; the next session shows Waiting for video. Manual close
+removes the window entry and the next video session opens it again. Same-label
+phones remain separate. Capture generation restart within one session continues
+using that renderer/window. Device verification remains required.
