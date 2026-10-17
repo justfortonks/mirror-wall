@@ -8,6 +8,7 @@ public enum RadioError: Error, Equatable, CustomStringConvertible {
 public enum RadioType: UInt8, CaseIterable {
     case hello = 1, welcome, reject, data, ack, ping, pong, stats, bye
     case videoConfig, videoFragment, keyframeRequest, videoAck
+    case authChallenge, authResponse, pairRequest, pairGrant, pairDone, pairDenied
 }
 
 public struct RadioFrame: Equatable {
@@ -17,12 +18,12 @@ public struct RadioFrame: Equatable {
     public let version: UInt8
     public let type: RadioType
     public let body: Data
-    public init(_ type: RadioType, _ body: Data = Data(), version: UInt8 = 1) {
+    public init(_ type: RadioType, _ body: Data = Data(), version: UInt8 = 3) {
         self.version = version; self.type = type; self.body = body
     }
     public func encoded() throws -> Data {
         guard body.count <= Self.maxBody else { throw RadioError.protocolViolation("oversize length") }
-        guard version == 1 || version == 2 else { throw RadioError.protocolViolation("bad version") }
+        guard version == 1 || version == 2 || version == 3 else { throw RadioError.protocolViolation("bad version") }
         var result = Data([0x4d, 0x57, 0x50, 0x44, version, type.rawValue])
         result.put(UInt32(body.count)); result.append(body); return result
     }
@@ -48,7 +49,7 @@ public struct RadioParser {
                     header.append(bytes[offset..<offset + count]); offset += count
                     guard header.count == 10 else { continue }
                     guard header.prefix(4) == Data("MWPD".utf8) else { throw RadioError.protocolViolation("bad magic") }
-                    guard header[4] == 1 || header[4] == 2 else { throw RadioError.protocolViolation("bad version") }
+                    guard header[4] == 1 || header[4] == 2 || header[4] == 3 else { throw RadioError.protocolViolation("bad version") }
                     guard let parsed = RadioType(rawValue: header[5]) else { throw RadioError.protocolViolation("unknown type") }
                     let length: UInt32 = header.integer(at: 6)
                     guard length <= RadioFrame.maxBody else { throw RadioError.protocolViolation("oversize length") }
@@ -95,6 +96,10 @@ struct BodyReader {
         }
         offset += Int(count); return text
     }
+    mutating func bytes(_ count: Int) throws -> Data {
+        guard count <= data.count - offset else { throw RadioError.protocolViolation("short body") }
+        defer { offset += count }; return Data(data.dropFirst(offset).prefix(count))
+    }
     func end() throws { guard offset == data.count else { throw RadioError.protocolViolation("trailing body bytes") } }
 }
 extension Data {
@@ -106,6 +111,11 @@ extension Data {
 }
 
 public enum RadioMessage: Equatable {
+    case authChallenge(Data)
+    case authResponse(String, Data)
+    case pairRequest(install: UUID, label: String, model: String)
+    case pairGrant(DeviceCredential)
+    case pairDone, pairDenied
     case hello(install: UUID, label: String, version: UInt8, rate: UInt32, window: RadioWindowMode = .latency, mode: RadioMode = .synthetic)
     case welcome(session: UUID, label: String)
     case reject(String)
@@ -121,14 +131,28 @@ public enum RadioMessage: Equatable {
     case videoAck(seq: UInt64, ptsNs: UInt64, status: VideoDecodeStatus)
 
     public func frame(version wireVersion: UInt8? = nil) throws -> RadioFrame {
-        var version: UInt8 = wireVersion ?? 1
+        var version: UInt8 = wireVersion ?? 3
         var b = Data(); let type: RadioType
         switch self {
+        case .authChallenge(let nonce):
+            guard nonce.count == 32 else { throw RadioError.protocolViolation("invalid nonce") }
+            type = .authChallenge; b = nonce
+        case let .authResponse(identity, proof):
+            guard proof.count == 32 else { throw RadioError.protocolViolation("invalid proof") }
+            type = .authResponse; try b.text(identity); b.append(proof)
+        case let .pairRequest(install, label, model):
+            type = .pairRequest; try b.text(install.uuidString); try b.text(label); try b.text(model)
+        case .pairGrant(let credential):
+            guard credential.deviceKey.count == 32 else { throw RadioError.protocolViolation("invalid key") }
+            type = .pairGrant; try b.text(credential.deviceID.uuidString); b.append(credential.deviceKey)
+            try b.text(credential.rid.uuidString); try b.text(credential.receiverName)
+        case .pairDone: type = .pairDone
+        case .pairDenied: type = .pairDenied
         case let .hello(install, label, helloVersion, rate, window, mode):
             version = helloVersion
             type = .hello; try b.text(install.uuidString); try b.text(label); b.put(helloVersion); b.put(rate)
             b.put(UInt8(window == .latency ? 0 : 1))
-            if helloVersion == 2 { try b.text(mode.rawValue) }
+            if helloVersion >= 2 { try b.text(mode.rawValue) }
         case let .welcome(session, label): type = .welcome; try b.text(session.uuidString); try b.text(label)
         case .reject(let reason): type = .reject; try b.text(reason)
         case let .data(seq, time, payload, crc):
@@ -138,21 +162,34 @@ public enum RadioMessage: Equatable {
         case .pong(let echo): type = .pong; b.put(echo)
         case .stats(let json): type = .stats; b = json
         case .bye(let reason): type = .bye; try b.text(reason)
-        case .videoConfig(let config): type = .videoConfig; version = 2; b = try config.body()
-        case .videoFragment(let fragment): type = .videoFragment; version = 2; b = try fragment.body()
-        case .keyframeRequest(let reason): type = .keyframeRequest; version = 2; try b.text(reason)
+        case .videoConfig(let config): type = .videoConfig; version = wireVersion ?? 3; b = try config.body()
+        case .videoFragment(let fragment): type = .videoFragment; version = wireVersion ?? 3; b = try fragment.body()
+        case .keyframeRequest(let reason): type = .keyframeRequest; version = wireVersion ?? 3; try b.text(reason)
         case let .videoAck(seq, ptsNs, status):
-            type = .videoAck; version = 2; b.put(seq); b.put(ptsNs); b.put(status.rawValue)
+            type = .videoAck; version = wireVersion ?? 3; b.put(seq); b.put(ptsNs); b.put(status.rawValue)
         }
         guard b.count <= RadioFrame.maxBody else { throw RadioError.protocolViolation("oversize length") }
         return RadioFrame(type, b, version: version)
     }
     public init(_ frame: RadioFrame) throws {
         var r = BodyReader(data: frame.body)
-        if frame.type.rawValue >= RadioType.videoConfig.rawValue, frame.version != 2 {
+        if (10...13).contains(frame.type.rawValue), frame.version < 2 {
             throw RadioError.protocolViolation("video requires v2")
         }
+        if frame.type.rawValue >= 14, frame.version != 3 { throw RadioError.protocolViolation("authentication requires v3") }
         switch frame.type {
+        case .authChallenge: self = .authChallenge(try r.bytes(32))
+        case .authResponse: self = .authResponse(try r.text(), try r.bytes(32))
+        case .pairRequest:
+            guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad install UUID") }
+            self = .pairRequest(install: id, label: try r.text(), model: try r.text())
+        case .pairGrant:
+            guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad device UUID") }
+            let key = try r.bytes(32)
+            guard let rid = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad receiver UUID") }
+            self = .pairGrant(DeviceCredential(deviceID: id, deviceKey: key, rid: rid, receiverName: try r.text()))
+        case .pairDone: self = .pairDone
+        case .pairDenied: self = .pairDenied
         case .hello:
             guard let id = UUID(uuidString: try r.text()) else { throw RadioError.protocolViolation("bad install UUID") }
             let label = try r.text(), version: UInt8 = try r.number(), rate: UInt32 = try r.number()
@@ -167,7 +204,7 @@ public enum RadioMessage: Equatable {
             }
             guard version == frame.version else { throw RadioError.protocolViolation("hello framing mismatch") }
             let mode: RadioMode
-            if version == 2 {
+            if version >= 2 {
                 guard let parsed = RadioMode(rawValue: try r.text()) else { throw RadioError.protocolViolation("invalid mode") }
                 mode = parsed
             } else { mode = .synthetic }

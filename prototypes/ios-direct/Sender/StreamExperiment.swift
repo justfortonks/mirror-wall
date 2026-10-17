@@ -12,16 +12,34 @@ final class StreamExperiment: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var logFailure: String?
     private let radioLog: RadioLog?
+    private var forgottenObserver: NSObjectProtocol?
+    private var connectionRID: UUID?
     var radioLogURL: URL? { radioLog?.url }
     init() {
         let sink = VideoNetworkSink(); self.sink = sink
         let capture = CaptureExperiment(videoSink: sink); self.capture = capture
         do { radioLog = try RadioLog(receiver: false) }
         catch { radioLog = nil; logFailure = error.localizedDescription }
+        forgottenObserver = NotificationCenter.default.addObserver(forName: .pairingForgotten, object: nil, queue: .main) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.connectionRID == notification.object as? UUID { self.disconnect() }
+            }
+        }
         let metrics = capture.metrics, log = capture.log
         sink.onEvent = { name, details in log?.event(name, "\(details) appState=\(metrics.snapshot().appState)") }
         sink.onState = { [weak self] state, ready in
-            DispatchQueue.main.async { self?.state = state; self?.connected = ready }
+            DispatchQueue.main.async {
+                guard let self else { return }; self.state = state; self.connected = ready
+                if state.hasPrefix("Not paired anymore (revoked);") {
+                    self.running = false
+                    if let rid = self.connectionRID {
+                        try? self.discovery.pairingStore.delete(account: rid.uuidString)
+                        NotificationCenter.default.post(name: .pairingForgotten, object: rid)
+                        self.discovery.pairingState = "Not paired anymore (revoked); scan a new pairing code"
+                    }
+                }
+            }
         }
         let radioLog = self.radioLog
         sink.onRadioSample = { [weak self] sample in
@@ -32,21 +50,23 @@ final class StreamExperiment: ObservableObject {
     func connect() {
         guard !running, let endpoint = discovery.receivers.first(where: { $0.id == discovery.selected })?.endpoint else { return }
         do {
-            let code = try RadioCode(discovery.code)
+            let credential = try discovery.credential()
             guard radioLog != nil, radioLog?.error() == nil, capture.log != nil, capture.log?.error() == nil else {
                 state = "log unavailable"; return
             }
-            let key = "iosdirect.radio.installUUID"
-            let install = UserDefaults.standard.string(forKey: key).flatMap(UUID.init(uuidString:)) ?? UUID()
-            UserDefaults.standard.set(install.uuidString, forKey: key)
-            running = true
-            sink.start(endpoint: endpoint, code: code, install: install, label: UIDevice.current.name, log: radioLog)
+            let install = discovery.installID
+            running = true; connectionRID = credential.rid
+            sink.start(endpoint: endpoint, credential: credential, install: install, label: UIDevice.current.name, log: radioLog)
         } catch { state = String(describing: error) }
     }
     func disconnect() {
-        sink.stop(); if capture.busy { capture.stop() }; running = false; connected = false; state = "disconnected"
+        sink.stop(); if capture.busy { capture.stop() }; running = false; connected = false; connectionRID = nil; state = "disconnected"
     }
-    deinit { sink.stop() }
+    func forgetReceiver() {
+        let rid = connectionRID ?? discovery.selectedReceiver?.rid
+        disconnect(); discovery.forget(rid: rid)
+    }
+    deinit { if let forgottenObserver { NotificationCenter.default.removeObserver(forgottenObserver) }; sink.stop() }
 }
 
 struct StreamExperimentView: View {
@@ -100,11 +120,10 @@ private struct StreamConnectionControls: View {
             Text("Browser: \(discovery.browserState)")
             Picker("Receiver", selection: $discovery.selected) {
                 Text("Select receiver").tag("")
-                ForEach(discovery.receivers) { result in Text(result.label).tag(result.id) }
+                ForEach(discovery.receivers) { result in Text("\(result.label) · \(discovery.isPaired(result) ? "Paired" : "Not paired")").tag(result.id) }
             }.disabled(experiment.running)
-            TextField("Mac code", text: $discovery.code).textInputAutocapitalization(.characters)
-                .autocorrectionDisabled().font(.system(.body, design: .monospaced)).disabled(experiment.running)
-            Button("Connect") { experiment.connect() }.disabled(experiment.running || discovery.selected.isEmpty)
+            PairingControls(discovery: discovery, disabled: false, forget: { experiment.forgetReceiver() })
+            Button("Connect") { experiment.connect() }.disabled(experiment.running || (try? discovery.credential()) == nil || discovery.pairingBusy)
             Button("Restart discovery") { discovery.restartBrowser(reason: "stream user retry") }
         }
     }

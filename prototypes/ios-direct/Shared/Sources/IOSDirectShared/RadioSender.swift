@@ -12,28 +12,37 @@ public final class RadioSender {
     private var lastAck: UInt64?
     private var total: UInt64 = 0
     private var welcomed = false
+    private var challenged = false
     private var lastBlockedMS: Double = 0
     private var lastPacerSample = radioNow()
     public var onState: ((String) -> Void)?
     public var onSample: ((RadioSnapshot) -> Void)?
     public var onReceiverStats: ((RadioSnapshot) -> Void)?
-    public init(endpoint: NWEndpoint, code: RadioCode, rate: Int, window: RadioWindowMode = .latency, install: UUID, label: String, log: RadioLog? = nil) {
-        channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)), log: log)
+    public init(endpoint: NWEndpoint, credential: DeviceCredential, rate: Int, window: RadioWindowMode = .latency, install: UUID, label: String, log: RadioLog? = nil) {
+        channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(credential: credential)), log: log)
         pacer = RadioPacer(mbit: rate, window: window)
         channel.snapshot.installID = install; channel.snapshot.label = String(label.prefix(60))
         channel.snapshot.windowMode = window; channel.snapshot.windowBytes = pacer.cap
         channel.snapshot.sendBlockedMSPerSecond = 0
-        channel.onReady = { [weak self] in
+        channel.snapshot.deviceID = credential.deviceID
+        channel.onReady = { [weak self] in self?.onState?("TLS ready; awaiting welcome") }
+        channel.onMessage = { [weak self] message in
             guard let self else { return }
-            self.onState?("TLS ready; awaiting welcome")
-            self.channel.send(.hello(install: install, label: String(label.prefix(60)), version: 1, rate: UInt32(rate), window: window))
+            if case .authChallenge = message {
+                guard !self.challenged else { throw RadioError.protocolViolation("duplicate challenge") }
+                self.challenged = true
+                _ = try credential.authenticate(message, on: self.channel)
+                self.channel.send(.hello(install: install, label: String(label.prefix(60)), version: 3, rate: UInt32(rate), window: window))
+                return
+            }
+            if case .welcome = message, !self.challenged { throw RadioError.protocolViolation("authentication required") }
+            try self.receive(message)
         }
-        channel.onMessage = { [weak self] in try self?.receive($0) }
         channel.onClosed = { [weak self] reason in
             guard let self else { return }; self.timer?.cancel(); self.timer = nil
             self.outstanding.removeAll(); self.channel.snapshot.outstandingBytes = 0
             let text = !self.welcomed && reason != "stopped" && !reason.hasPrefix("reject ")
-                ? "Wrong code or handshake failed: \(reason)" : reason
+                ? "Not paired anymore (revoked), or handshake failed: \(reason)" : reason
             if text != reason { self.channel.event("sender.handshakeFailed", text) }
             self.onState?(text)
         }
@@ -50,9 +59,9 @@ public final class RadioSender {
         channel.start()
         // NWConnection may remain preparing while racing paths after a peer TLS
         // rejection. Bound that silent case as well as handling explicit errors.
-        channel.queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        channel.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self, !self.channel.active, !self.channel.closed else { return }
-            self.channel.close("TLS/welcome deadline (1.5 s)")
+            self.channel.close("TLS/auth/welcome deadline (5 s)")
         }
     }
     public func stop() {

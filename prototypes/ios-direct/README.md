@@ -1,299 +1,184 @@
-# iOS Direct POC — Capture, Radio and Stream
+# iOS Direct POC — Capture, Radio, Stream and offline pairing
 
-Independent iOS 27 sender with three modes and a macOS 14+ receiver. Capture is
-ScreenCaptureKit → paced SDR H.264 VideoToolbox → bounded local counting/hash
-stub. Radio sends deterministic synthetic bytes over G2 TLS-PSK. Stream joins
-capture/encode to that authenticated direct transport and a Mac video window.
-No third-party dependencies, production integration, audio workaround or
-broadcast extension. The G3a run and validation details are below.
+Independent iOS 27 sender and macOS 14+ receiver, using Xcode 27.1 / iPhoneOS27.1.
+Capture uses ScreenCaptureKit → paced SDR H.264 VideoToolbox → bounded local stub.
+Radio sends synthetic bytes. Stream sends the authorized display to an independent
+Mac decoder/window. Both network modes now require **protocol v3**, offline QR
+pairing, Mac approval and a per-device credential. The typed G2 code is removed.
+No third-party libraries, production integration, audio workaround or extensions.
 
-G1b encoder recovery is preserved: failures invalidate only VT and retry on a
-paced frame after 0.25/0.5/1/2 seconds (2-second cap), with a new generation and
-forced IDR. Valid output resets backoff. JSON/UI report state, recreate attempts
-and successes, failing OSStatus and no-session drops. Nil pools have no fabricated
-OSStatus; unsupported hardware readback stays unknown.
+Historical hardware evidence is in [results](../../docs/ios-direct/results.md),
+including the G3a presentation fixes. It is not G3b pairing acceptance. The
+[protocol](../../docs/ios-direct/protocol.md) specifies the current security model,
+wire format, admission, pacing, queue bounds and metadata semantics.
 
-G1/G2 hardware evidence is in [results](../../docs/ios-direct/results.md), runs
-1–7. That evidence does not establish G3a background network sending. The three
-G3a build/test commands were blocked before compilation/tests in this sandbox;
-exact errors are recorded below. No new signed install or device pass is claimed.
+## Build and validation
 
-## Open, build and install
+Open `IOSDirectPOC.xcodeproj`; shared schemes are `IOSDirectSender` and
+`IOSDirectReceiver`, both linking local `Shared`. Synchronized source groups pick
+up the new files without project changes. Receiver `ARCHS=arm64` remains unchanged.
+Automatic signing uses existing Personal Team `499JQDRQF9`, with isolated IDs
+`com.justfortonks.mirrorwall.iosdirectpoc.sender` and `.receiver`. Receiver App
+Sandbox remains OFF. No new entitlements or background modes are added. Camera
+usage description is “Scans the pairing code shown on your Mac.” If provisioning
+requests additional entitlements, report the actual requirement before changing it.
 
-1. Use Xcode 27.1 with the installed iPhoneOS 27.1 SDK. Open
-   `IOSDirectPOC.xcodeproj` and select the shared `IOSDirectSender` scheme.
-   The handwritten objectVersion 77 project uses a synchronized Sender group and
-   links the local `Shared` package (`IOSDirectShared`). No project generator is used.
-2. Under target Signing & Capabilities, select your existing Personal Team
-   `499JQDRQF9` if Xcode needs account selection. Automatic signing and the isolated
-   bundle ID `com.justfortonks.mirrorwall.iosdirectpoc.sender` are already set.
-   Do not change production identifiers or add capabilities/entitlements to make
-   provisioning succeed. If signing requests an entitlement, stop and report the
-   exact error. Record the actual profile expiry and signed configuration.
-3. Select a physical iPhone on iOS 27+, enable Developer Mode/trust development
-   installation if prompted, and build/run. Record the phone alias A/B, model,
-   exact OS build, revision/dirty diff, SDK, signing/profile and time. Repeat
-   separately on B without signing B into an Apple Account.
-4. Stop the debugger, disconnect wired and wireless debugging, then launch
-   **iOS Direct POC** from Home for the actual experiment. A debugger run is only
-   a smoke check, not background evidence. Do not modify device/account settings
-   outside the recorded test procedure.
-
-Run these from the repository root in a normal authorized shell:
+From the repository root:
 
 ```sh
-cd prototypes/ios-direct/Shared && swift test 2>&1 | tail -20; cd -
+set -o pipefail
+(cd prototypes/ios-direct/Shared && swift test --disable-sandbox 2>&1 | tail -20)
 xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectSender \
   -destination 'generic/platform=iOS' -derivedDataPath prototypes/ios-direct/.build-xcode \
-  CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -30
+  -IDEPackageSupportDisableManifestSandbox=1 CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectReceiver \
+  -destination 'platform=macOS,arch=arm64' -derivedDataPath prototypes/ios-direct/.build-xcode \
+  -IDEPackageSupportDisableManifestSandbox=1 CODE_SIGNING_ALLOWED=NO build
 git status --porcelain
 ```
 
-Inspect diagnostics and the `TEST`/`BUILD` result, since the pipeline status belongs
-to `tail`. The six Shared XCTest methods cover even/aspect fitting in portrait,
-landscape and odd sizes; 60→30 FPS pacing; byte/age rejection and drop counts;
-retry deadlines/cap/reset; and metrics/event JSON lines. G1b tests/compilation
-were blocked by sandbox_apply and SwiftPM diagnostic-cache permissions;
-no workaround was attempted.
+**G3b local validation, 2026-10-16:** Shared **50 XCTest tests passed, zero failures**
+with `--disable-sandbox`. Real Network.framework TLS loopback negotiated
+**TLS 1.2 / 0xCCAC (`TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256`)**; AES fallback was
+unnecessary. Tests cover pairing → Keychain-protocol memory storage → normal
+connect, single-use and expired invitations, expiry auto-denial, explicit denial,
+wrong secret/no application bytes, three failures burning the token, unknown
+identities, concurrent distinct keys, verified-device separation, A claiming B,
+isolated live video revocation, revoked reconnect, an impostor with the same
+receiver/device IDs but a different key, legacy/unauthenticated media rejection,
+capacity/busy/pending/deadline behavior, synthetic pacing telemetry, video framing/
+reassembly/ACK/recovery, QR validation, metadata/key separation and secret-free
+captured JSONL. The consumer in loopback injects decode results; it does not decode
+H.264 or prove on-radio behavior. No Keychain calls are made by those tests.
 
-## Run and export
-
-Use benign moving test content and obtain the human's screen-capture consent.
-On **Capture experiment**, first tap **Share full display** and cancel; verify
-`cancelled` and no payload progress. Retry and approve the system full-display
-picker. Microphone and camera controls are disabled. The app calls `present()`,
-checks the returned filter is `.display`, and attaches only `.screen` output.
-`Stop` ends capture; system stop and errors are visible. Starting again requires
-another explicit button tap/consent. Picker updates cannot auto-restart a stream.
-
-Keep changing content in foreground for 60 seconds, then use other apps for ten
-continuous unlocked background minutes, rotate twice and return. Confirm each
-one-second JSON metrics sample advances capture PTS, encoder completions and
-stub drains through the background interval. Check dimensions/generations,
-queue bounds, drops, errors, thermal state and gaps. A timer advancing alone is
-not evidence of the pipeline advancing. Test system stop while backgrounded,
-user stop, cancellation, and the remaining G1 lifecycle steps on A and B.
-
-**Export log** opens a ShareLink for the current metadata log. Logs also appear in
-Files → On My iPhone → iOS Direct POC → IOSDirectPOC → logs, or through Finder
-File Sharing. Each launch creates `Documents/IOSDirectPOC/logs/<run-start>.jsonl`.
-No screen pixels or compressed payloads are written to disk. These metadata files
-use no file protection so logging can continue across lock characterization;
-store/export them locally and review them before publishing. Capture while locked
-is not promised. Logs persist across relaunch; no retention/deletion automation.
-
-**Reset counters** records an event and increments `resetEpoch`; it resets totals
-and the rolling FNV-1a hash without restarting capture or changing its generation.
-Reset while stopped before a measured run to avoid in-flight boundary ambiguity.
-Snapshots retain current state/configuration; totals are cumulative per epoch,
-so subtract successive samples for per-second stage progress. Absent hardware,
-profile, PTS or memory data remains absent/unavailable, never an assumed success.
-
-## Implementation and limits
-
-- Main owns picker/UI/stream lifecycle. Capture callbacks use a dedicated queue,
-  check complete/valid/ready samples, and apply explicit 30 FPS PTS pacing.
-  Capture width/height use the existing even/aspect fitter and picker filter's
-  contentRect × pointPixelScale. Matching buffers feed VT directly; size
-  mismatches use VTPixelTransferSession to fit into 1280×720 or 720×1280,
-  targeting video-range bi-planar YCbCr. No Core Image rendering or pixel rotation.
-  The iPhoneOS 27.1 `SCStream.h` explicitly excludes `minimumFrameInterval`,
-  `pixelFormat`, `scalesToFit`, `preservesAspectRatio`, `queueDepth` and
-  `updateConfiguration` on iOS. Thus 30 FPS/pixel-format/aspect setters and live
-  stream reconfiguration cannot be requested through this SDK. Default aspect
-  preservation applies. Frame orientation, delivered buffer size/pixel format,
-  screen/content rect and scales are recorded; buffer/orientation/screen-size
-  changes rebuild the encoder without stopping capture. Rotation and whether SCK
-  honors requested sizing need a device run.
-- A locked mailbox permits two waiting source buffers. One serial encoder worker
-  submits at most two VT frames in flight. Size/orientation changes invalidate
-  the session and increment a generation; old completions are discarded. PTS is
-  preserved. The encoder requests 6 Mbit/s, 30 FPS, one-second keyframes, no frame
-  reordering, real time and High auto-level; low-latency rate control is supplied
-  at creation. Every property result is logged. Rejected requested properties
-  enter visible encoder unavailability and retry; hardware/profile readback
-  failures remain unknown/unavailable; actual
-  output avcC profile/level and format dimensions are recorded on keyframes.
-- The stub has its own serial consumer. Admission is bounded by 1 MiB; admission,
-  dequeue and metrics sampling expire entries aged 100 ms. Stale entries never
-  drain. Overflow/expiry/oversize outputs count as sink drops and request the next
-  IDR. Dispatch blocks do not retain payloads outside this queue. The consumer
-  counts access-unit bytes and hashes them, then discards them. Stop clears source
-  admission, invalidates VT generations, clears the sink and waits for its current
-  drain before returning. Encoder recovery never restarts capture. No background
-  task/audio workaround.
-- A dedicated DispatchSource timer attempts one metrics line per second while
-  capture grants execution. Events and metrics are serialized and synchronized
-  to disk after every line. UIKit lifecycle/battery data is cached from main;
-  process thermal/power/resident memory is sampled with each tick. Disk failures
-  are shown separately and leave capture running. Only user Stop or app teardown
-  calls stopCapture; picker/start failures and delegate stops clean up downstream
-  state. The OS can still suspend/stop execution; a missing
-  interval is evidence to investigate, not filled in afterward.
-- G1b background capture/encode and G2 single-phone direct transport have hardware
-  evidence in results runs 2–7. Visible rotation/image correctness, background
-  network send and recovery are new G3a observations; earlier passes do not prove
-  them. G2 two-phone qualification remains separate.
-
-SDK reference: `xcrun --sdk iphoneos --show-sdk-path` resolved to Xcode's
-`iPhoneOS27.1.sdk`. Implementation spelling/availability was checked against
-`ScreenCaptureKit.framework/Headers/{SCContentSharingPicker,SCStream}.h`, its
-`Modules/ScreenCaptureKit.swiftmodule/arm64e-apple-ios.swiftinterface`, and public
-VideoToolbox/CoreMedia headers/interfaces. Compiler confirmation of imported
-Objective-C signatures is pending the sandbox-free build; the Swift overlay
-explicitly exposes `defaultConfiguration`, `showsMicrophoneControl` and
-`showsCameraControl` on iOS 27.
-
-
-## G2 Radio: Mac receiver and one or two phones
-
-Open the same project and choose shared scheme **IOSDirectReceiver**. It is a
-native macOS SwiftUI app, macOS 14.0 minimum, bundle ID
-`com.justfortonks.mirrorwall.iosdirectpoc.receiver`, automatic signing with Personal
-Team `499JQDRQF9`. **App Sandbox is OFF for this prototype**; no sandbox/network
-entitlements are added. Sender and receiver declare local-network usage and
-Bonjour `_mwiospoc._tcp`. Provision/install from Xcode with your existing team;
-this assignment has not signed, installed or launched either app.
-
-Launch Receiver, grant local-network access and wait for listener `ready`. The
-large code is a per-run 80-bit test credential. **New code** disconnects all phones
-and restarts with a fresh random credential. Stop any Capture run before measuring
-G2. On the phone choose **Radio**, grant local-network access, pick the discovered
-Mac, enter its code and select 2/6/12/24 Mbit/s (default 12). Tap Start; payload
-starts only after TLS authentication and welcome. Stop sends bye and disconnects.
-The receiver shows independent session IDs/rows even for two equal phone names.
-A third authenticated client receives `reject capacity`; an incorrect code must
-show `wrong code / handshake failed` without any data delivery. Validate both in
-a normal shell and on devices before claiming that behavior passed.
-
-[Protocol v1](../../docs/ios-direct/protocol.md) specifies TLS 1.2 PSK/HKDF,
-framing, binary controls/data, limits, pending overload refusal and diagnostics.
-These shared G2 test codes are **not final pairing**: QR, per-device keys,
-approval/revocation and production security belong to G3. There is no plaintext
-fallback. Opting in to peer-to-peer interfaces is not evidence of direct routing.
-Run the full G2 controlled no-AP, one-phone and simultaneous two-phone procedures
-in the [test plan](../../docs/ios-direct/test-plan.md); loopback does not close G2.
-
-Sender **Export radio log** / Finder File Sharing exports
-`Documents/IOSDirectPOC/logs/radio-*.jsonl`. Receiver **Export receiver log** exports
-`~/Documents/IOSDirectPOC-Receiver/logs/radio-*.jsonl`. Directories are created;
-a sandboxed build would use its container Documents directory. Logs contain
-metadata only, including install/session UUIDs and endpoints; codes, PSKs and
-synthetic payload bytes are never logged. Per-second snapshots and state/path
-errors persist independently of a debugger; log failures remain visible.
-
-Shared tests cover partial/coalesced/byte-fragmented parsing, invalid magic/version/
-type/length, EOF, binary messages, CRC, code parsing and PSK derivation, pacing,
-and the ten-second RTT window. macOS loopback integration tests use the **real
-TLS-PSK options and production receiver registry** for hello/welcome/data/ack,
-wrong-code failure/no data, third-client capacity rejection, duplicate labels,
-one session continuing after another closes, pending-slot refusal, and the
-five-second hello timeout with slot reuse. They require socket permission;
-no plaintext substitute or conditional skip is provided.
-
-Requested commands (repository root, no signing):
-
-```sh
-cd prototypes/ios-direct/Shared && swift test 2>&1 | tail -15; cd -
-xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectSender -destination 'generic/platform=iOS' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
-xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectReceiver -destination 'platform=macOS,arch=arm64' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
-git status --porcelain
-```
-
-**2026-10-16 validation: all three commands attempted; compilation and tests did
-not run.** SwiftPM failed manifest evaluation with the exact error
-`sandbox-exec: sandbox_apply: Operation not permitted`. Both Xcode builds reported
-`xcodebuild: error: Could not resolve package dependencies:` followed by
-`<unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)`.
-CoreSimulator service errors also appeared. Pipeline exit 0 belongs to tail/grep,
-not a successful build. No cache override, sandbox bypass, installs, commits or
-pushes were attempted. Plists/project plist and shared scheme XML validate;
-G1 capture/encoder/stub/telemetry sources and original tests are unchanged.
-Sandbox-free builds, Shared tests, signed launch/local-network permission, actual
-wrong-code handshake behavior and controlled one/two-phone radio measurements
-remain unresolved acceptance work.
-
-
-## G3a Stream: one real phone screen to a Mac window
-
-New **Stream** tab joins G1 screen capture/VideoToolbox to G2 TLS-PSK. Capture and
-Radio remain independent regression modes. Security stays entirely behind
-`RadioTLS.parameters(code:)`; pairing is G3b. No extra background mode is added.
-
-1. Launch Receiver and wait for listener ready. On the phone select Stream, pick
-   the discovered Mac and enter its displayed code. Tap **Connect** and wait for
-   **authenticated; ready to share**. Only then is **Share full display** enabled.
-   Approve the full-display system picker. A separate resizable, aspect-correct
-   black-letterboxed window opens for that session, titled with phone label and
-   short session ID. Stop any separate Capture/Radio experiment before this run.
-2. Verify a moving, asymmetric test image in portrait, then rotate both ways.
-   Compare the visible result with the phone. The raw delivered pixel size,
-   CGImagePropertyOrientation, content/screen rect and encoder generation are
-   logged; orientation is carried to config and applied by the Mac layer.
-   This answers the G1 rotation question only after the image is observed.
-3. For a foreground baseline, tap **Latency clock screen** for large, high-contrast
-   monotonic milliseconds updated by CADisplayLink. Photograph phone and Mac in
-   the same high-frame-rate camera view for later optical glass-to-glass timing.
-   Transport/ACK RTT and phone-minus-Mac timestamps are not optical latency.
-4. With no debugger/USB and the decisive no-AP setup from results run 7, go Home
-   and use continuously changing, privacy-safe content in other apps for at least
-   ten minutes. Record the background interval and any system capture indicators.
-   Export **stream stage log**, **TLS/path log** and **receiver log** afterward.
-   Check every second: `appState=background` with capture → paced → encode → sent
-   → ACKed progress and matching Mac received → decoded → displayed progress.
-   Static content can stop SCK updates; use a changing-content control. Timer
-   progress alone, sent completion alone or a successful build is not a pass.
-5. While capture remains authorized, interrupt/restore the link and record
-   `video.reconnectScheduled` / `video.welcome` with appState. Expected: 0.5→4 s
-   retry backoff, a new session/window, fresh config + IDR, and continued capture.
-   Test this while backgrounded. Then stop capture from the system indicator;
-   reconnect must **not** restart it or present consent. Test user Stop capture
-   and Disconnect separately. Disconnected windows turn black and show state.
-6. Repeat wrong-code/no-video and the existing G2 synthetic transfer. No commits,
-   installs, provisioning or hardware acceptance were performed by this change.
-
-Stream's queue is bounded to 1 MiB/100 ms with IDR recovery after any prediction
-gap. The 6 Mbit/s G2 Latency window stays **75,000 wire bytes**, including fragment
-metadata. An access unit bigger than that window is explicitly dropped with
-`latencyWindowOversize` and another IDR is requested; persistent oversized IDRs
-are an unresolved hardware risk, not a reason to silently increase the window.
-See [protocol v2](../../docs/ios-direct/protocol.md) for byte layout, per-frame
-ACK/decode status, one-frame reassembly, overflow behavior, decoder ownership and
-precise counter meanings. Mac “displayed” counts successful decoded-image enqueue
-to the layer; it does not prove physical scanout. Stats overlay is toggleable.
-
-Shared `VideoTests` cover v1/v2 messages, fragmentation up to 1 MiB, oversize
-rejection before allocation, missing/out-of-order/expired fragments, one partial
-frame and queue recovery that sends an IDR first after overflow. TLS loopback
-coverage sends config and fragmented bytes through the real receiver/admission
-path, checks identical reassembly and chosen consumer status ACK, and checks
-fragment-gap ACK + keyframe request. It deliberately does not claim H.264 decode.
-The requested commands above must pass outside any environment blocker before
-signed device/image/background/reconnect/optical acceptance.
-
-
-G3a validation in this sandbox (2026-10-16): all three requested commands were
-attempted once. **0 tests executed; neither app reached source compilation.**
-SwiftPM failed before the test target with:
-
-```text
-error: 'shared': Invalid manifest
-sandbox-exec: sandbox_apply: Operation not permitted
-```
-
-Both unsigned Xcode builds (receiver destination `platform=macOS,arch=arm64`)
-failed resolving the local package with:
+Both requested unsigned `xcodebuild` commands, with the flag above and **without
+`-packageCachePath`**, failed resolving the local package before app compilation:
 
 ```text
 xcodebuild: error: Could not resolve package dependencies:
-  <unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)
+<unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)
 ```
 
-CoreSimulator service diagnostics also appeared. The pipeline statuses belong to
-`tail`/`grep`, not successful tests/builds. No sandbox/cache/compiler workaround or
-retry was used. Compile/API verification, TLS video loopback execution, real H.264
-image correctness, rotation, background send and background reconnect remain
-unverified. Run the same commands in an authorized normal shell, then the human
-steps above. This change leaves the project, `ARCHS=arm64`, TLS security code,
-`as __DispatchData`, single-argument message callback and `.waiting(.tls)` handling
-in place. No commits, pushes or installs.
+CoreSimulator service warnings also appeared. As a separate source/API check,
+Shared was emitted as an iOS module and **all Sender and Receiver Swift sources
+passed `swiftc -typecheck`** against the installed SDKs (Swift 5 mode, arm64;
+`-disable-sandbox` permits the compiler's SwiftUI macro process; temporary module
+caches/artifacts were under `/tmp`). This is not a linked app build. Claude still
+needs both Xcode builds, signed launches, Keychain persistence, camera permission/
+scanning and physical phone/Mac acceptance. No installs, commits or pushes occurred.
+
+## Pair, connect and forget
+
+1. Launch Receiver and allow local-network access. Wait for listener ready. The
+   Devices section lists label, model, short deviceID, last seen, live/not live and
+   **Forget**. Select **Pair New Device** to show a QR and countdown; Regenerate
+   invalidates the previous QR, and Cancel invalidates the current invitation.
+2. On the phone choose Radio or Stream and allow local-network access. Receiver
+   rows show **Paired** / **Not paired** using stored credentials. For a new Mac,
+   select **Scan pairing code**, allow camera access, and scan the Mac's QR.
+   Scanning can also start before discovery finishes; it waits for matching `rid`.
+   The system scanner uses VisionKit, recognizing only QR barcodes.
+3. On the Mac, inspect **Allow "<label>" (<model>) to mirror to this Mac?** and
+   choose Allow or Deny. An unanswered request expires with the invitation.
+   Wait for **Paired** on the phone. Pairing grants no capture consent and opens
+   no renderer. The next connection uses the phone's own long-term key.
+4. For Radio, select 2/6/12/24 Mbit/s (default 12), Latency or Capacity probe
+   (also 36/48 Mbit/s), and **Connect**. Synthetic bytes start only after verified
+   authentication and welcome. Stop ends only that session.
+5. For Stream, tap **Connect**, wait for **authenticated; ready to share**, then
+   **Share full display** and approve the system full-display picker. A window
+   titled with label and session ID opens for this phone. Capture remains a
+   separate regression mode; stop other capture runs before measuring Stream.
+6. Mac **Forget** removes one device's key and ends only its live session with
+   `bye revoked`. Other phones continue. An authenticated revocation removes the
+   phone's stored pairing too. Phone **Paired → Forget this Mac** deletes its
+   credential and stops its connections/capture to that receiver. Reconnecting
+   requires another QR/approval. If a reconnect fails after an offline revocation,
+   use Forget and scan again. TLS alone cannot diagnose revocation versus a wrong
+   key/impostor, so pre-ready failures state the alternatives explicitly.
+
+Receiver UUID/name live in `receiver-identity.json`; non-secret phone metadata is
+in `paired-devices.json`, both next to Mac logs. Secret keys are Generic Password
+Keychain items, service `com.justfortonks.mirrorwall.iosdirectpoc`, account=deviceID
+on Mac or rid on phone, `AfterFirstUnlockThisDeviceOnly`, not synchronized. The
+phone's item contains the complete credential; Mac items contain only raw keys.
+No credentials or QR payloads go into UserDefaults, JSON metadata or logs.
+
+The invitation is 120 seconds, single-use, three failed pre-authentication attempts.
+The phone validates 30 seconds of clock skew; the Mac has a hard expiry. The SDK
+cannot expose a failed handshake's peer identity, so unrelated pre-authentication
+failures during an invitation count toward that limit too. This conservative
+behavior and interrupted-grant recovery are detailed in the protocol. Two active
+sessions/two pending connections remain the limits; labels are display only.
+
+## Physical acceptance still to run
+
+Use benign changing content, with no debugger or USB during the measured run.
+Record revision/dirty diff, phone alias/model/OS, Mac/SDK, signing/profile expiry,
+radio associations and exact time. Repeat on both phones without adding an Apple
+Account to phone B. Follow the decisive no-AP topology in the
+[test plan](../../docs/ios-direct/test-plan.md). Interface names alone do not prove
+AP-free routing.
+
+- Scan/approve, deny, let an approval expire, cancel/regenerate, try an old QR, and
+  scan on a phone whose clock differs slightly. Confirm camera denial is clear.
+  Restart both apps and prove keys persist and reconnect requires no typing.
+- Pair two phones, stream concurrently, Forget A on Mac and verify only A goes
+  black/disconnects while B's decoded/displayed counters keep advancing. Verify
+  A cannot reconnect until another QR/approval; repeat phone-side Forget.
+- On Capture, cancel full-display consent first, then approve. On Stream, confirm
+  the consent button stays disabled before authenticated welcome. Microphone and
+  camera controls remain disabled in the capture picker; only `.screen` is added.
+- Stream an asymmetric moving image; rotate both ways and compare actual pixels.
+  SCK previously delivered portrait panel-oriented pixels with orientation 1;
+  a successful source check does not establish a new rotation signal. Windows
+  follow size/orientation metadata when it actually changes.
+- Use the latency clock and photograph phone/Mac together for optical latency.
+  Done dismisses only the clock. RTT and cross-machine timestamps are not optical
+  glass-to-glass measurements.
+- With the decisive no-AP setup, go Home for ten continuously changing unlocked
+  background minutes. Check capture → paced → encode → send → ACK plus Mac
+  received → decoded → displayed progress. Timer progress alone is insufficient.
+- Interrupt/restore the link while authorized capture continues. Expect 0.5/1/2/4 s
+  reconnect backoff, fresh authentication/session/config and IDR. System/user Stop
+  capture must stay stopped through reconnect and must not present consent again.
+  Test background recovery and a longer soak separately.
+
+## Preserved capture and stream behavior
+
+G1 recovery invalidates only VT on failure, retries after 0.25/0.5/1/2 seconds,
+creates a generation and forces IDR; valid output resets backoff. Source samples
+use a two-frame mailbox, explicit 30 FPS PTS pacing, even/aspect fitting up to
+1280×720 or 720×1280, SDR H.264 at 6 Mbit/s, real time, no frame reordering and
+one-second keyframes. Unsupported SDK setters/readbacks stay unavailable. No
+capture lifecycle, encoder or stub source was changed for G3b.
+
+Stream queues remain bounded to 1 MiB/100 ms with prediction-chain/IDR recovery.
+The 75,000-byte latency window charges a complete frame before fragments. The
+review fix admits an oversized frame **alone when nothing is outstanding**,
+counting `oversizeAdmittedAlone`; the 1 MiB access-unit cap remains. No endless
+oversize-IDR drop loop is reintroduced. A network loss clears queued/outstanding
+media without restarting the authorized capture pipeline.
+
+Each Mac session preserves its private decoder, eight-frame/300 ms decode bound,
+idempotent config, decode-all-reference policy and newest decoded presentation.
+Immediate mode is default; optional smoothing adds a bounded 100 ms PTS buffer.
+Recovery holds the last picture (`flush()`); disconnect clears it. Displayed means
+successful decoded-image enqueue, not physical scanout. Source geometry changes
+resize a window once; per-second stats and repeated configs do not resize it.
+
+## Logs
+
+Export via ShareLink or Finder File Sharing:
+
+- Phone stage logs: `Documents/IOSDirectPOC/logs/<timestamp>-<run>.jsonl`.
+- Phone transport logs: `Documents/IOSDirectPOC/logs/radio-*.jsonl`.
+- Mac logs: `~/Documents/IOSDirectPOC-Receiver/logs/radio-*.jsonl`.
+
+No screen pixels or compressed media are persisted. Metadata includes endpoint,
+install/device/session UUID, label, TLS version/suite, path, rates, ACKs,
+RTT/gaps/CRC/window/blocked time, video stage/queue/drop/reconnect counts, appState,
+thermal and memory. Review before sharing. Secrets, QR payloads and proofs are
+excluded. Logs persist across launches; there is no retention automation. Disk
+errors stay visible. Capture metadata logging retains G1's lock-characterization
+file-protection policy; capture while locked is not promised.

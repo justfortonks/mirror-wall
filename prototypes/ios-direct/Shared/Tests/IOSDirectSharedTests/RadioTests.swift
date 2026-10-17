@@ -18,7 +18,7 @@ final class RadioTests: XCTestCase {
     }
     func testParserRejectsHeaderBeforeBodyAllocation() throws {
         let valid = try RadioMessage.ping(5).frame().encoded()
-        for (offset, byte, reason) in [(0, UInt8(0), "bad magic"), (4, 3, "bad version"), (5, 255, "unknown type")] {
+        for (offset, byte, reason) in [(0, UInt8(0), "bad magic"), (4, 4, "bad version"), (5, 255, "unknown type")] {
             var invalid = valid; invalid[offset] = byte
             var parser = RadioParser()
             XCTAssertThrowsError(try parser.feed(invalid) { _ in XCTFail("invalid frame delivered") }) {
@@ -71,22 +71,6 @@ final class RadioTests: XCTestCase {
         XCTAssertThrowsError(try RadioMessage(RadioFrame(.ping, Data(count: 9))))
         XCTAssertThrowsError(try RadioMessage(RadioFrame(.stats, Data("no JSON".utf8))))
         XCTAssertEqual(RadioCRC32.checksum(Data("123456789".utf8)), 0xcbf43926)
-    }
-    func testCodeParsingAndPSKDeterminism() throws {
-        let raw = Data(0..<10), code = try RadioCode(bytes: raw)
-        XCTAssertEqual(code.formatted, "000G-40R4-0M30-E209")
-        XCTAssertEqual(try RadioCode(code.formatted.lowercased().replacingOccurrences(of: "-", with: " ")).bytes, raw)
-        XCTAssertEqual(try RadioCode("OOOO OOOO OOOO OOOO").bytes, Data(count: 10))
-        for invalid in ["", "123", "00000000000000000", "000000000000000U", "é000000000000000"] {
-            XCTAssertThrowsError(try RadioCode(invalid))
-        }
-        let expected = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: raw),
-            salt: Data("mwiospoc-g2-psk-v1".utf8), info: Data(), outputByteCount: 32).withUnsafeBytes { Data($0) }
-        XCTAssertEqual(code.psk.map { String(format: "%02x", $0) }.joined(), "cc725e06379b807f0693c112c4b1bd58d8e24d2bf8b6a9ec7351b9427d602ef8")
-        XCTAssertEqual(code.psk, expected); XCTAssertEqual(code.psk.count, 32)
-        XCTAssertEqual(try RadioCode(code.formatted).psk, code.psk)
-        XCTAssertNotEqual(try RadioCode(bytes: Data(repeating: 1, count: 10)).psk, code.psk)
-        let random = try RadioCode.generate(); XCTAssertEqual(try RadioCode(random.formatted).bytes, random.bytes)
     }
     func testPacerAchievesTargetRateWithTimerLateness() {
         // 10 s of virtual time; the sender wakes at the pacer's deadline plus 0-4 ms of jitter.
@@ -160,9 +144,9 @@ final class RadioTests: XCTestCase {
     func testOriginalHelloDefaultsToLatencyAndInvalidWindowFails() throws {
         let hello = RadioMessage.hello(install: UUID(), label: "G2", version: 1, rate: 12)
         let frame = try hello.frame()
-        XCTAssertEqual(try RadioMessage(RadioFrame(.hello, Data(frame.body.dropLast()))), hello)
+        XCTAssertEqual(try RadioMessage(RadioFrame(.hello, Data(frame.body.dropLast()), version: 1)), hello)
         var invalid = frame.body; invalid[invalid.count - 1] = 2
-        XCTAssertThrowsError(try RadioMessage(RadioFrame(.hello, invalid)))
+        XCTAssertThrowsError(try RadioMessage(RadioFrame(.hello, invalid, version: 1)))
     }
     func testBlockedTimeStartsAtPacingDeadlineEvenWithoutPolling() {
         var pacer = RadioPacer(mbit: 2)

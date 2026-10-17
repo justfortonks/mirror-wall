@@ -106,3 +106,27 @@ No workaround/retry. Re-run original commands outside the blocker, including new
 fragment/queue and real TLS transport/reassembly tests (injected consumer, not H.264
 decode acceptance), then perform the README single-phone image/rotation/background
 send/reconnect/system-stop run. G3a background network-send gate remains **unproven**.
+
+## G3b implementation handoff — 2026-10-16
+
+Protocol v3 now uses offline 120-second QR invitations, Mac approval, per-device
+Keychain credentials, nonce/HMAC identity binding and isolated revocation. Both
+Radio and Stream use stored identities; the typed credential is removed. Receiver
+identity/TXT hints, Devices/Forget UI, VisionKit scanner, memory-backed test storage
+and secret-free log assertions are included. See the current prototype README and
+[protocol security model](protocol.md). G1/G3a capture, oversized-IDR admission and
+receiver decode/presentation fixes are preserved; project/ARCHS and results.md are
+unchanged. No commits, pushes or installs.
+
+Shared: **50 XCTest tests pass**, including real TLS **1.2 / 0xCCAC** negotiation,
+multiple PSKs selected by identity, pairing/reuse/expiry/denial, three failed
+attempts, forged deviceID, live two-video-session revocation isolation, impostor,
+legacy/media rejection, pending/deadline limits and captured-log checks. The SDK
+cannot identify a failed handshake's PSK identity: unrelated pre-authentication
+failures during an invitation conservatively count toward its three-attempt burn.
+Both requested unsigned Xcode builds (manifest-sandbox flag, no packageCachePath)
+stop at package resolution: `shared.dia` in the user SwiftPM manifest cache is
+not writable in this sandbox. Separate arm64 iOS/macOS source typechecks pass;
+these do not establish linked builds. Claude still needs Xcode builds and signed
+Keychain/camera/relaunch/Bonjour/offline/two-phone acceptance. Loopback injects the
+video consumer and does not prove H.264 decoding or device behavior.

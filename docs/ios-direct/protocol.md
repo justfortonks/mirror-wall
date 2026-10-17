@@ -1,63 +1,137 @@
-# iOS Direct protocol v1 (synthetic) and v2 (video)
+# iOS Direct protocol v3 — offline pairing and authenticated video
 
-G3a joins G1 capture/encode to the G2 direct TLS transport. The G1/G2 hardware
-evidence remains in [results](results.md), runs 1–7. G3a is source implementation;
-background **network send**, decode/display, rotation and reconnect need a new
-phone/Mac run. This document specifies the current wire format and bounds.
+G3b replaces the typed G2 test credential in both Radio and Stream. The G1 capture,
+G3a video wire bodies and receiver presentation policy remain independent of the
+new authentication gate. Historical device observations stay in [results](results.md).
 
-## G2-only security and discovery
+## Security model and discovery
 
-Receiver startup (and **New code**) obtains ten random bytes from
-`SecRandomCopyBytes`. Encode these 80 bits, most significant bit first, as sixteen
-Crockford-base32 symbols (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`), displayed in four
-four-character groups. There is no checksum. Input is case-insensitive, ignores
-hyphens/whitespace, accepts Crockford O→0 and I/L→1 aliases, and rejects other
-characters or any length other than sixteen symbols. Decode to the original ten
-bytes, not the UTF-8 spelling, before deriving the PSK:
+Every connection uses Network.framework TLS **1.2** with
+`TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256` (**0xCCAC**). Real macOS loopback tests
+force this suite alone and verify negotiated metadata at `.ready`; they also
+exercise two distinct registered device keys concurrently. No AES fallback was
+needed on the installed macOS 27.0.1 / MacOSX27.0 SDK. Both production endpoints
+reject any other negotiated suite or TLS version before processing application
+bytes. The suite supplies ephemeral ECDHE forward secrecy; there are no provisioned
+certificates, trust bypasses, plaintext listeners, or online pairing services.
+TLS tickets and resumption are disabled so a previous session cannot bypass a
+changed key set. The iOS SDK source check passes; on-phone negotiation remains a
+device acceptance step. Apple's [TN3213](https://developer.apple.com/documentation/technotes/tn3213-moving-from-multipeer-connectivity-to-network-framework)
+describes the older `NWConnection` TLS-PSK API's TLS 1.2 constraint.
+
+The Mac creates a random UUID `receiverID` and display name once, persisting them
+in `receiver-identity.json` next to its logs. Bonjour `_mwiospoc._tcp` advertises
+`rid=<canonical UUID>` and `v=3` in its TXT record. TXT, receiver names, phone labels,
+models and install UUIDs are **routing/display hints**, never authentication.
+The phone browses TXT records and connects to the matching service endpoint,
+retaining its domain and interface. No IP substitution or server access is needed.
+Browser, listener and outgoing connections set `includePeerToPeer = true`; TCP
+sets `noDelay = true`. Only tests bind explicitly to 127.0.0.1. Loopback does not
+prove Bonjour, AWDL routing or offline device behavior.
+
+### QR invitation and approval
+
+**Pair New Device** obtains 8 random token-ID bytes and 32 random secret bytes
+from `SecRandomCopyBytes`. The invitation expires after 120 seconds, is single
+use, and is held only in memory. The Mac renders this URI using CoreImage;
+`tid` and `sec` are canonical base64url without padding:
 
 ```text
-HKDF-SHA256(inputKeyMaterial = ten decoded code bytes,
-            salt = UTF8("mwiospoc-g2-psk-v1"), info = empty, output = 32 bytes)
-PSK identity = UTF8("mwiospoc-g2")
+mwiospoc://pair?v=1&rid=<uuid>&tid=<tokenID>&sec=<secret>&exp=<unix seconds>&name=<urlencoded>
+PSK identity = "pair:" + base64url(tokenID)
+PSK = HKDF-SHA256(secret, salt=UTF8("mwiospoc-pair-v1"),
+                  info=UTF8(canonical receiverID), output=32 bytes)
 ```
 
-`NWParameters(tls:tcp:)` uses `sec_protocol_options_add_pre_shared_key`,
-`sec_protocol_options_append_tls_ciphersuite` with
-`TLS_PSK_WITH_AES_128_GCM_SHA256` (0x00A8), and min/max protocol **TLS 1.2**
-(0x0303). On ready, both endpoints additionally check the negotiated metadata
-before receiving application frames. No plaintext or certificate-trust bypass
-path exists. A wrong code must fail the handshake: no hello/welcome/data may be
-processed; the phone displays “wrong code / handshake failed” plus the actual
-failure. That label also covers other pre-ready connection failures; it is not a
-cryptographic diagnosis of the cause. A 1.5-second client TLS/welcome deadline handles stalls; `.waiting(.tls)` fails immediately.
-Codes/PSKs are never written to telemetry or preferences. Only the install UUID
-persists on the phone. **New code** cancels the listener and all connections,
-clears admission, and starts a new listener/credential.
+The parser checks the scheme/host, exactly six unique fields, version, UUID,
+base64url alphabet/canonical encoding/exact decoded lengths, finite integer expiry,
+and nonempty bounded name. Phone expiry validation allows 30 seconds of clock skew
+in either direction around the 120-second lifetime. The Mac independently enforces
+its own expiry with no grace period, including during approval. Cancel, regenerate,
+denial, expiry or three failed pre-authentication connections burn the token and
+replace the listener. Pairing never enables media admission.
 
-**This is a G2 test credential, not final pairing.** Possession authenticates both
-ends as holders of the same per-run secret. All phones in a run share it; their
-install UUIDs and display labels are self-reported, not cryptographic identities.
-TLS-PSK here has no forward secrecy. QR pairing, per-device identities, approval,
-revocation, key storage/rotation and production threat review belong to G3b.
-G3a uses this unchanged test security for explicitly consented screen content.
-`RadioTLS.parameters(code:)` remains the replaceable security boundary.
+**SDK limitation:** `sec_protocol_metadata_access_pre_shared_keys` exposes locally
+configured keys, not a failed peer's selected identity. The public PSK selection
+callback is client-side. Therefore every accepted connection that fails before
+application authentication while an invitation is active conservatively consumes
+one of its three attempts, including an unrelated device failure or timeout.
+Refusal at the two-pending limit does not start a handshake and does not count.
+This bounds guessing attempts but permits denial of service against an invitation;
+regenerating the QR recovers. No failure is attributed to a specific phone without
+a valid proof.
 
-The service is Bonjour `_mwiospoc._tcp`, with a dynamic listener port.
-`includePeerToPeer = true` is set on browser, listener and every outgoing
-connection's parameters. Accepted connections inherit listener TLS/TCP settings.
-TCP `noDelay = true`. Sender connects directly to the selected browse result's
-`NWEndpoint.service`, retaining its domain/interface, with no IP substitution.
-Only the macOS integration tests use an explicit 127.0.0.1 listener/endpoint;
-that tests framing/security/admission, not Bonjour or direct radio routing.
+After TLS and the challenge exchange below, the phone sends
+`pairRequest {installID, label, model}`. Only one session may reserve an invitation.
+The Mac asks **Allow "<label>" (<model>) to mirror to this Mac?** with Allow/Deny;
+expiry dismisses the request and auto-denies. On Allow it persists a fresh UUID
+`deviceID` and 32-byte device key in Keychain, sends `pairGrant`, and awaits
+`pairDone`. The phone stores the grant before sending `pairDone`. The Mac commits
+non-secret metadata, burns the token, rebuilds the listener, and acknowledges with
+`bye paired`. The pairing socket then closes; a fresh normal connection is required
+for Radio or Stream. Denial sends `pairDenied`, burns the token and closes.
+An interrupted grant is removed on the Mac; the phone removes an unacknowledged
+provisional grant. If the final acknowledgement is lost after Mac commitment,
+pair again and forget the orphan entry on the Mac. No distributed commit is claimed.
 
-Installed MacOSX27.0 and iPhoneOS27.1 SDK public Security headers are the spelling
-reference (`SecProtocolOptions.h`, `CipherSuite.h`, `SecProtocolTypes.h`,
-`SecProtocolMetadata.h`). The PSK cipher is converted from `SSLCipherSuite` to
-`tls_ciphersuite_t` by its UInt16 raw value. Apple's
-[TicTacToe sample description](https://developer.apple.com/documentation/network/building-a-custom-peer-to-peer-protocol)
-uses Bonjour/TLS; [TN3213](https://developer.apple.com/documentation/technotes/tn3213-moving-from-multipeer-connectivity-to-network-framework)
-documents TLS-PSK's TLS 1.2/older-Network-API constraints. G2 runtime evidence is recorded separately in results; G3a compiler/runtime
-confirmation requires the README commands and a new device run.
+### Per-device authentication and revocation
+
+Normal TLS identity is `dev:<canonical deviceID>` and PSK is that device's
+32-byte key. The listener calls `sec_protocol_options_add_pre_shared_key` once
+per paired identity plus once for an active invitation. Adding/removing credentials
+replaces only the listener. Already admitted connections retain their own queues,
+TLS state and renderer; no listener restart cancels them.
+
+Immediately after TLS `.ready`, the Mac sends 32 fresh random nonce bytes:
+
+```text
+authChallenge {nonce}
+authResponse {deviceID, proof}
+proof = HMAC-SHA256(deviceKey,
+        nonce || UTF8(receiverID) || UTF8(deviceID) || UTF8("mwiospoc-auth-v1"))
+```
+
+UUIDs here use uppercase, hyphenated `UUID.uuidString`, without length prefixes
+inside the HMAC input. A pairing response uses its full `pair:<tokenID>` identity
+in the `deviceID` text field and the token-derived key. The Mac looks up the
+claimed identity's current key and compares all 32 proof bytes with a constant-time
+accumulator. It never routes by a self-reported install UUID or label. Device A's
+TLS key plus device B's claimed ID cannot pass B's HMAC check. A fresh nonce and
+receiver ID bind the response to this connection and receiver.
+
+The challenge response deadline is five seconds after ready; the existing
+five-second TLS/auth/hello pending deadline also bounds normal admission from
+acceptance. Authenticated pairing approval is exempt from that earlier deadline
+and remains bounded by token expiry. No hello, synthetic/video data, decoder,
+capture consent or session controls are admitted before authentication. A normal
+v3 hello follows the proof; `welcome` follows verified admission. v1/v2 sessions
+are rejected even if their legacy bodies can be decoded by the shared parser.
+
+Mac **Forget** deletes that device's key, replaces the listener, and sends
+`bye revoked` only to sessions routed to its verified deviceID. Admission rechecks
+the current store, so a socket accepted by an older listener cannot resurrect a
+revoked key. Other phones keep streaming. Phone **Forget this Mac** deletes its
+Keychain item and stops its connections/capture to that receiver. It must scan and
+pair again. An authenticated `bye revoked` removes the phone's stored pairing too.
+A TLS failure alone cannot distinguish revocation from a wrong key or impostor;
+the UI reports "not paired anymore (revoked), or handshake failed" and permits
+forget/re-pair. It never infers trust from a matching TXT `rid`.
+
+Both apps use Generic Password Keychain items with service
+`com.justfortonks.mirrorwall.iosdirectpoc`, no synchronization, and
+`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`. Mac account is `deviceID`, value
+is the raw key; phone account is `rid`, value is the credential (deviceID/key/rid/name).
+`paired-devices.json` contains only labels, model, install/device IDs and created/
+last-seen times. Storage is behind `PairingKeyStore`; tests use an in-memory store.
+Storage failures do not grant admission. Keychain behavior, camera permission and
+persistence across signed app relaunch still require device/app acceptance.
+
+QR payloads, secrets, derived PSKs, proofs and device keys never enter application
+logs. Tests capture JSONL and assert the payload and secret/key base64, base64url
+and hex encodings are absent. Endpoint, session/install/device IDs and display
+labels remain metadata: review logs before sharing. Protect the QR from observation;
+its possession plus explicit Mac approval is the offline bootstrap authority.
+This POC does not attest hardware or protect a compromised paired endpoint.
 
 ## Framing and binary messages
 
@@ -67,7 +141,7 @@ header is exactly ten bytes:
 | Offset | Size | Meaning |
 | --- | --- | --- |
 | 0 | 4 | ASCII `MWPD` (`4d 57 50 44`) |
-| 4 | 1 | framing version = 1 or 2 (fixed for a session) |
+| 4 | 1 | framing version = 3 (fixed for a session) |
 | 5 | 1 | message type below |
 | 6 | 4 | body length, at most 65,536 bytes |
 | 10 | length | body |
@@ -82,7 +156,7 @@ A control body must end exactly after its fields; no ignored trailing bytes.
 
 | Type | Value | Body |
 | --- | --- | --- |
-| hello | 1 | installUUID:text, displayLabel:text, protocolVersion:u8, requestedMbit:u32, window:u8; v2 adds mode:text |
+| hello | 1 | installUUID:text, displayLabel:text, protocolVersion:u8, requestedMbit:u32, window:u8, mode:text |
 | welcome | 2 | sessionUUID:text, receiverLabel:text |
 | reject | 3 | reason:text (`capacity`, `version`, `busy`) |
 | data | 4 | seq:u64, sendMonotonicNs:u64, syntheticBytes, CRC32:u32 |
@@ -91,9 +165,15 @@ A control body must end exactly after its fields; no ignored trailing bytes.
 | pong | 7 | echo:u64 |
 | stats | 8 | UTF-8 JSON `RadioSnapshot`, maximum 8,192 bytes |
 | bye | 9 | reason:text |
+| authChallenge | 14 | nonce:32 raw bytes |
+| authResponse | 15 | deviceID (or pair identity):text, proof:32 raw bytes |
+| pairRequest | 16 | installID:text, label:text, model:text |
+| pairGrant | 17 | deviceID:text, deviceKey:32 raw bytes, rid:text, receiverName:text |
+| pairDone | 18 | empty |
+| pairDenied | 19 | empty |
 
-Only `stats` uses JSON; no base64 and no JSON envelope for synthetic data or the
-other control messages. CRC32 is standard reflected IEEE (polynomial 0xEDB88320,
+Only `stats` uses JSON on the wire; no base64 or JSON envelope for media or
+other control messages. The phone Keychain credential is encoded as JSON locally. CRC32 is standard reflected IEEE (polynomial 0xEDB88320,
 initial/final XOR 0xFFFFFFFF), over **syntheticBytes only**. Test vector
 `123456789` → 0xCBF43926. Deterministic byte `i` in sequence `s` is `(s+i) mod 256`.
 Sequence starts at zero per session and increments per data message. Receiver
@@ -112,14 +192,14 @@ capped at 32,768 bytes; there is no unbounded frame array or resynchronization.
 
 ## Admission, independence and shutdown
 
-Up to two active sessions and two pending TLS/hello handshakes. The five-second
-hello deadline starts when the listener accepts a connection, covering TLS too.
-A ready client must send exactly one hello and wait for welcome before screen/synthetic data or
-other controls. Hello accepts v1 synthetic and v2 synthetic/video. Version/rate mismatch returns `reject version`; an already
-active install UUID returns `reject busy`; two active sessions return **`reject
-capacity` over TLS** to a third correctly authenticated client. The reject is
-flushed before cancellation (one-second upper bound). Rejected connections remain
-pending until closed so they cannot bypass the pending limit.
+Up to two active sessions and two pending TLS/auth/hello or pairing connections.
+The five-second normal admission deadline starts on acceptance. A ready client
+must answer the challenge, send exactly one v3 hello, and wait for welcome before
+screen/synthetic data or controls. Hello requires `synthetic` or `video`; video
+requires Latency. Version/rate mismatch returns `reject version`; an already active
+verified deviceID returns `reject busy`; two active sessions return **`reject
+capacity` over TLS** to a third authenticated client. Rejections flush before
+cancellation (one-second bound). Rejected connections remain pending until closed.
 
 If both pending slots are already occupied, another socket is canceled before
 starting TLS, with `listener.capacity` in the receiver log. An application-layer
@@ -127,12 +207,12 @@ reject cannot be authenticated before a handshake; starting that handshake would
 exceed the explicit two-pending limit. This overload case is a transport refusal,
 whereas an authenticated third active client gets the explicit protocol reject.
 
-Admission and install UUID uniqueness are serialized on the listener queue.
+Admission and verified deviceID uniqueness are serialized on the listener queue.
 Each session UUID owns a distinct serial queue, parser, counters, ping/RTT window
 and bounded sends. Labels are never keys, so equal labels do not merge sessions.
 Disconnect/CRC/protocol failure releases only that session's admission. Closing
-one does not cancel the listener or another phone. Receiver restart/New code
-intentionally closes all sessions. Bye carries a reason and is flushed with a
+one does not cancel the listener or another phone. Receiver Stop intentionally closes all sessions. Pairing and listener/key-set
+changes preserve admitted sessions except the specifically revoked device. Bye carries a reason and is flushed with a
 one-second bound; transport/protocol failures cancel immediately.
 
 ## Pacing, acknowledgements and diagnostics
@@ -182,16 +262,14 @@ names and `.wifi` do not prove an AP-free path. OS suspension can interrupt fore
 mode. Stream mode uses the existing G1 screen-capture execution mode only.
 
 
-## G3a v2 video records
+## Video records (G3a payloads, v3 framing)
 
-The 10-byte framing header and 65,536-byte body cap are unchanged. The header
-version equals the hello's protocol version; subsequent records keep that version.
-Video records under a v1 header and version changes within a session close it.
-Original v1 hello bodies lacking a window byte still imply Latency. Window byte
-0 = Latency, 1 = Capacity probe. v1 mode is implicitly `synthetic`; v2 **requires**
-the text `synthetic` or `video` after window. A video hello must use Latency.
-The Stream sender advertises 6 Mbit/s, matching its encoder target. Synthetic
-rates, including 36/48 Mbit/s capacity probes, keep their G2 behavior.
+The 10-byte header and 65,536-byte body cap are unchanged. Every record in a
+network session uses v3. Legacy v1/v2 hello decoding remains only for parser
+regression/rejection coverage; the channel never accepts those versions. Window
+0 = Latency, 1 = Capacity probe; mode is required text `synthetic` or `video`.
+Video uses Latency, at the Stream encoder's 6 Mbit/s target. Synthetic rates,
+including 36/48 Mbit/s capacity probes, preserve their pacing/window behavior.
 
 | Type | Value | Body (unsigned big-endian, no padding) |
 | --- | --- | --- |
@@ -264,18 +342,14 @@ counts the reason, requests IDR and rejects inter frames until the next keyframe
 The already admitted in-flight frame finishes in order; nothing after the gap is
 sent until a fresh IDR. Decoder errors and keyframe requests also clear the chain.
 
-Before sending any fragment, the **entire frame's wire size** (data plus all
-39-byte fragment headers/metadata) is charged against G2's Latency cap:
-`min(150000, 6000000 / 8 * 0.1)` = **75,000 bytes** at 6 Mbit/s. Frames larger
-than this cap are dropped with `latencyWindowOversize` and force IDR. This is an
-explicit tradeoff: a frame cannot be partially sent into a smaller window while
-waiting for its own per-frame ACK. The 1 MiB wire/reassembly cap still applies to
-other conforming clients. If real screen IDRs repeatedly exceed 75 KB, G3a will
-stall truthfully in the logs; revisit bitrate/window/protocol with measured
-hardware evidence. There is no hidden cap increase. A single in-flight unit is
-separate from the bounded waiting queue; it is ≤ the window. Fragment sends are
-serialized through successful `contentProcessed`, and all channel sends retain
-the existing 262,144-byte application backlog bound. ACK timeout is ten seconds.
+Before sending any fragment, the **entire frame's wire size** is charged against
+Latency's **75,000 bytes** at 6 Mbit/s. The earlier review fix is preserved: an
+oversized unit (typically an IDR) is admitted **alone when no frame is outstanding**
+and counts `oversizeAdmittedAlone`. It remains bounded by the 1 MiB access-unit
+limit plus fragment overhead. This avoids an endless oversize/drop/IDR cycle.
+A single in-flight unit is separate from the 1 MiB/100 ms waiting queue.
+Fragment sends are serialized through successful `contentProcessed`; all channel
+sends retain the 262,144-byte backlog bound. ACK timeout is ten seconds.
 
 Connection loss clears queued/outstanding media and stops send admission while
 capture/encoding remain authorized and running. The worker retries the selected
@@ -283,8 +357,8 @@ Bonjour service endpoint with backoff **0.5, 1, 2, 4, 4… seconds**, using a fr
 TLS connection/session each time. Welcome resets backoff, clears stale frames,
 resends config and forces IDR. Retry does not depend on main/UI execution and
 never calls capture start or presents a picker. System/user capture stop remains
-stopped even if authentication later recovers. A first-use/wrong-code failure also
-retries until Disconnect so the code can be corrected by reconnecting explicitly.
+stopped even if authentication later recovers. A pre-ready TLS failure retries until Disconnect with a visible pairing/handshake
+error. An authenticated revocation stops retries and requires pairing again.
 There are no added background modes, audio, background tasks or capture extensions.
 
 Sender's existing `metrics` JSONL now includes captured/paced/encoded/sent/ACKed
@@ -296,8 +370,8 @@ thermal and memory remain in the **same sample**. Every lifecycle/retry/connecti
 event includes cached appState. A separate radio JSONL records TLS/path details.
 Sender counts full frames sent only after all fragment `contentProcessed` callbacks.
 
-Each Mac session owns its renderer, private decode queue, at most two pending VT
-callbacks, layer, window and `video.receiver.metrics` JSONL. Config/gap/error/close
+Each Mac session owns its renderer, private decode queue, at most eight pending VT
+callbacks with a 300 ms oldest-frame bound, layer, window and `video.receiver.metrics` JSONL. Config/gap/error/close
 invalidate old callback epochs. Metrics include received/decoded/displayed totals
 and FPS, decode errors, presentation drops, requested IDRs, last frame bytes,
 received Mbit/s, ten-second inter-arrival p95, longest gap, dimensions/orientation,
@@ -306,9 +380,13 @@ AVSampleBufferDisplayLayer**, not physical scanout. Failed/unready layers do not
 advance that counter. Output timeout resets decode and requests IDR. After one
 second without display the state is stalled (static SCK content can also cause
 this); disconnect removes the stale picture and marks the window disconnected.
-Stats can be hidden per window. Synthetic sessions retain the existing row UI.
+Immediate presentation coalesces decoded output; optional smoothing adds a bounded
+100 ms PTS buffer. Recovery holds the last image using `flush()`; disconnect clears
+it. Identical configs preserve the decoder. Stats can be hidden per window. Synthetic sessions retain the existing row UI.
 
 Transport-only TLS loopback tests inject a consumer that returns a chosen status
 after checking identical config/frame bytes; those tests prove neither actual
 H.264 decode nor background/radio routing. The human Stream run and optical clock
-measurement in the prototype README remain required before accepting G3a.
+measurement in the prototype README remain device acceptance work. G3b loopback
+results and current build limitations are recorded in the prototype README and
+handoff; this change does not alter the historical results ledger.
