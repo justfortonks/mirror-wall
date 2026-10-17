@@ -10,6 +10,7 @@ struct VideoReceiveSnapshot: Codable {
     var state = "waiting for config"
     var generation: UInt32?
     var width = 0, height = 0, orientation: UInt8 = 1
+    var captureOrientationHint: OrientationHint?, deviceOrientationHint: OrientationHint?
     var contentRect: VideoRect?
     var received = 0, decoded = 0, displayed = 0, decodeErrors = 0, displayDrops = 0, dropped = 0
     var displaySkipped = 0
@@ -68,6 +69,18 @@ final class VideoSessionRenderer: RadioVideoConsumer {
         let now = radioNow(); sampledAt = now; displayedRate = VideoFrameRate(now: Double(now) / 1e9)
         layer.videoGravity = .resizeAspect; layer.backgroundColor = CGColor(gray: 0, alpha: 1)
         log?.event("video.presentationMode", "session=\(session) mode=immediate")
+    }
+    func orientationHint(_ hint: OrientationHint) {
+        queue.sync {
+            guard !closed else { return }
+            // Metadata publication only; never reset VT, flush the layer or touch pictures.
+            let old = hint.source == .capture ? stats.captureOrientationHint : stats.deviceOrientationHint
+            guard old == nil || hint.monotonicNs > old!.monotonicNs else { return }
+            if hint.source == .capture { stats.captureOrientationHint = hint }
+            else { stats.deviceOrientationHint = hint }
+            log?.event("video.orientationHint", "session=\(stats.session) degrees=\(hint.degrees) orientationSource=\(hint.source) senderMonotonicNs=\(hint.monotonicNs)")
+            publishSnapshot()
+        }
     }
     func configure(_ config: VideoConfig) throws {
         try queue.sync {

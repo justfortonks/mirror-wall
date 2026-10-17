@@ -292,6 +292,41 @@ including 36/48 Mbit/s capacity probes, preserve their pacing/window behavior.
 | videoFragment | 11 | generation:u32, frameSeq:u64, ptsNs:u64, flags:u8, fragmentIndex:u16, fragmentCount:u16, totalLength:u32, fragmentBytes:remaining bytes |
 | keyframeRequest | 12 | reason:text |
 | videoAck | 13 | frameSeq:u64, echoedPtsNs:u64, decodeStatus:u8 |
+| orientationHint | 20 | rotationDegrees:u16, orientationSource:u8, senderMonotonicNs:u64 |
+
+`orientationHint` is an optional sender→receiver control in an admitted **video**
+session, still v3. Its body is exactly **11 bytes** (21 with header); degrees must
+be **0/90/180/270**, source **0=capture / 1=device**. Short/trailing bodies, unknown
+sources and other angles are protocol errors. The timestamp is sender monotonic
+nanoseconds (`radioNow`), used only to reject non-increasing hints per source in
+that session; it is never subtracted from the receiver clock. Zero and the full
+u64 range are valid. Positive angles mean clockwise presentation rotation relative
+to the portrait panel pixels, composed after the existing config orientation.
+A future capture adapter must supply that additional rotation, avoiding double
+application of `videoConfig.orientation`.
+
+The sender coalesces into at most one latest value per source, sends at most one
+hint per second with at most one hint send pending, and repeats latest values
+after welcome on reconnect. There is no media ACK or generation change. Hints can
+occur between fragments without disturbing reassembly, decode, IDR gating or
+playout. Receiver state retains at most two hints. Auto-rotate defaults off per
+new window; on uses the latest capture hint if any exists in this authenticated
+session, otherwise device. Capture preference lasts until session replacement;
+there is no receiver-clock expiry. Unknown/face-up/face-down device orientations
+retain the last planar hint; a stale physical hint is not proof of app orientation.
+No usable new capture key is verified yet, so this sender currently emits only
+`device` hints. Existing config orientation handling is preserved.
+
+The Mac **Rotate** toolbar button / **⌘R** cycles manual 0→90→180→270→0;
+**⌘0** resets to zero. Either action turns Auto-rotate off. Manual degrees persist
+by HMAC-verified deviceID in the standalone receiver's standard UserDefaults domain
+(`com.justfortonks.mirrorwall.iosdirectpoc.receiver`), independent of label/install
+UUID/session. Auto selection never overwrites that saved manual value. The overlay
+shows applied degrees and source (manual, capture, device, or awaiting hint).
+Rotation changes only the display-layer transform and window geometry. Quarter
+turns swap content aspect and resize once around the existing frame center,
+preserving its longest content edge; same-aspect turns do not resize. No decoder
+recreation, flush, queue reset or IDR request is performed for rotation.
 
 `videoConfig` includes a one-byte presence flag and, when present, the SCK
 content rect's x/y/width/height as four IEEE-754 binary64 bit patterns (big endian).

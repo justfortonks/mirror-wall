@@ -5,12 +5,55 @@ import IOSDirectShared
 
 @MainActor
 final class VideoWindowModel: ObservableObject {
+    @Published var rotation = VideoRotationState()
+    var setAutomatic: ((Bool) -> Void)?
     @Published var stats: VideoReceiveSnapshot
     init(session: UUID) { stats = VideoReceiveSnapshot(session: session) }
 }
 
+/// Key equivalents are handled by the key video window, including after a layer rebind.
+private final class RotationWindow: NSWindow {
+    var rotateAction: (() -> Void)?
+    var resetAction: (() -> Void)?
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "r": rotateAction?(); return true
+            case "0": resetAction?(); return true
+            default: break
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+@MainActor
+private final class RotationToolbar: NSObject, NSToolbarDelegate {
+    private let rotate: () -> Void
+    init(window: NSWindow, rotate: @escaping () -> Void) {
+        self.rotate = rotate; super.init()
+        let toolbar = NSToolbar(identifier: "IOSDirectRotation")
+        toolbar.delegate = self; toolbar.displayMode = .iconAndLabel
+        window.toolbar = toolbar
+    }
+    private let rotateID = NSToolbarItem.Identifier("IOSDirectRotate")
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [rotateID, .flexibleSpace] }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [rotateID, .flexibleSpace] }
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard id == rotateID else { return nil }
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.label = "Rotate"; item.paletteLabel = "Rotate"; item.toolTip = "Rotate clockwise (⌘R); reset with ⌘0"
+        item.image = NSImage(systemSymbolName: "rotate.right", accessibilityDescription: "Rotate")
+        item.target = self; item.action = #selector(clicked)
+        return item
+    }
+    @objc private func clicked() { rotate() }
+}
+
 private final class VideoLayerHost: NSView {
     var orientation: UInt8 = 1
+    var rotationDegrees: UInt16 = 0
     private(set) var display: AVSampleBufferDisplayLayer
     init(display: AVSampleBufferDisplayLayer) {
         self.display = display; super.init(frame: .zero)
@@ -27,7 +70,7 @@ private final class VideoLayerHost: NSView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // Apply the documented CGImagePropertyOrientation to the delivered pixels.
         // Swap the viewport before quarter turns so resizeAspect still letterboxes correctly.
-        let swapped = orientation >= 5
+        let swapped = VideoWindowGeometry(width: 1, height: 1, orientation: orientation, rotationDegrees: rotationDegrees).swapsAxes
         display.bounds = CGRect(x: 0, y: 0, width: swapped ? bounds.height : bounds.width,
                                 height: swapped ? bounds.width : bounds.height)
         display.position = CGPoint(x: bounds.midX, y: bounds.midY)
@@ -42,15 +85,18 @@ private final class VideoLayerHost: NSView {
         case 8: transform = CGAffineTransform(rotationAngle: .pi / 2)
         default: transform = .identity
         }
-        display.setAffineTransform(transform); CATransaction.commit()
+        let rotation = CGAffineTransform(rotationAngle: -CGFloat(rotationDegrees) * .pi / 180)
+        display.setAffineTransform(transform.concatenating(rotation)); CATransaction.commit()
     }
 }
 private struct VideoLayerView: NSViewRepresentable {
     let renderer: VideoSessionRenderer
     let orientation: UInt8
+    let rotationDegrees: UInt16
     func makeNSView(context: Context) -> NSView { VideoLayerHost(display: renderer.layer) }
     func updateNSView(_ view: NSView, context: Context) {
         (view as? VideoLayerHost)?.replaceDisplay(renderer.layer)
+        (view as? VideoLayerHost)?.rotationDegrees = rotationDegrees
         (view as? VideoLayerHost)?.orientation = orientation; view.needsLayout = true
     }
 }
@@ -61,7 +107,7 @@ private struct VideoSessionView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black
-            VideoLayerView(renderer: renderer, orientation: model.stats.orientation)
+            VideoLayerView(renderer: renderer, orientation: model.stats.orientation, rotationDegrees: model.rotation.degrees)
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
                     Text(model.stats.state).font(.headline)
@@ -71,7 +117,10 @@ private struct VideoSessionView: View {
                     get: { model.stats.presentationMode == "smooth100ms" },
                     set: { renderer.setSmoothing($0) }
                 )).toggleStyle(.checkbox)
+                Toggle("Auto-rotate", isOn: Binding(get: { model.rotation.automatic }, set: { model.setAutomatic?($0) }))
+                    .toggleStyle(.checkbox)
                 if showStats {
+                    Text("Rotation \(model.rotation.degrees)° · source \(model.rotation.sourceLabel)")
                     let s = model.stats
                     Text(String(format: "Rx %.1f · decode %.1f · displayed %.1f fps", s.receivedFPS, s.decodedFPS, s.displayedFPS))
                     Text(String(format: "%.2f Mbit/s · frame %d B · errors %d · IDR requests %d", s.receivedMbit, s.frameBytes, s.decodeErrors, s.keyframeRequests))
@@ -98,12 +147,22 @@ private struct VideoSessionView: View {
 @MainActor
 final class VideoSessionWindows: NSObject, NSWindowDelegate {
     private struct Entry {
-        let window: NSWindow, model: VideoWindowModel
+        let window: RotationWindow, model: VideoWindowModel
+        let toolbar: RotationToolbar
         var renderer: VideoSessionRenderer
         var geometry: VideoWindowGeometry?
     }
     private var entries: [UUID: Entry] = [:] // Verified deviceID, never label or installID.
     private var sessions = VideoWindowSessions()
+    // standard uses this standalone receiver's bundle domain; never Mirror Wall's domain.
+    private let defaults = UserDefaults.standard
+    private func rotationKey(_ device: UUID) -> String { "video.manualRotation.\(device.uuidString)" }
+    private func changeRotation(device: UUID, _ change: (inout VideoRotationState) -> Void) {
+        guard let entry = entries[device] else { return }
+        var next = entry.model.rotation; change(&next); entry.model.rotation = next
+        defaults.set(Int(next.manualDegrees), forKey: rotationKey(device))
+        updateGeometry(device: device)
+    }
     func open(device: UUID, session: UUID, label: String, renderer: VideoSessionRenderer, model: VideoWindowModel) {
         sessions.bind(device: device, session: session)
         var waiting = VideoReceiveSnapshot(session: session); waiting.state = "Waiting for video"
@@ -111,28 +170,44 @@ final class VideoSessionWindows: NSObject, NSWindowDelegate {
             // New decoder/layer per authenticated session; keep the same NSWindow,
             // position and geometry. Disconnected layers have already been blacked.
             entry.renderer = renderer; entry.model.stats = waiting
+            entry.model.rotation.resetHints()
             entry.window.title = label
             entry.window.contentView = NSHostingView(rootView: VideoSessionView(model: entry.model, renderer: renderer))
             entries[device] = entry; entry.window.makeKeyAndOrderFront(nil); return
         }
         model.stats = waiting
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 760),
+        model.rotation = VideoRotationState(manualDegrees: UInt16(exactly: defaults.integer(forKey: rotationKey(device))) ?? 0)
+        model.setAutomatic = { [weak self] enabled in self?.changeRotation(device: device) { $0.automatic = enabled } }
+        let window = RotationWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = label
         window.isReleasedWhenClosed = false; window.backgroundColor = .black; window.delegate = self
+        window.rotateAction = { [weak self] in self?.changeRotation(device: device) { $0.cycle() } }
+        window.resetAction = { [weak self] in self?.changeRotation(device: device) { $0.reset() } }
+        let toolbar = RotationToolbar(window: window) { [weak window] in window?.rotateAction?() }
         window.contentView = NSHostingView(rootView: VideoSessionView(model: model, renderer: renderer))
-        entries[device] = Entry(window: window, model: model, renderer: renderer)
+        entries[device] = Entry(window: window, model: model, toolbar: toolbar, renderer: renderer)
         window.center(); window.makeKeyAndOrderFront(nil)
     }
     func update(_ sample: VideoReceiveSnapshot) {
-        guard let device = sessions.device(for: sample.session), var entry = entries[device] else { return }
+        guard let device = sessions.device(for: sample.session), let entry = entries[device] else { return }
         var display = sample
         if sample.state == "disconnected" { display.state = "Disconnected" }
         entry.model.stats = display
+        if let hint = sample.captureOrientationHint { entry.model.rotation.accept(hint) }
+        if let hint = sample.deviceOrientationHint { entry.model.rotation.accept(hint) }
+        updateGeometry(device: device)
+    }
+    private func updateGeometry(device: UUID) {
+        guard var entry = entries[device] else { return }
+        let sample = entry.model.stats
         guard sample.width > 0, sample.height > 0 else { return }
-        let geometry = VideoWindowGeometry(width: sample.width, height: sample.height, orientation: sample.orientation)
+        let geometry = VideoWindowGeometry(width: sample.width, height: sample.height, orientation: sample.orientation, rotationDegrees: entry.model.rotation.degrees)
         guard geometry != entry.geometry else { return }
+        let oldGeometry = entry.geometry
         entry.geometry = geometry; entries[device] = entry
+        // 180° turns only change the layer, never bounce the window's frame.
+        guard oldGeometry?.aspect != geometry.aspect else { return }
         let window = entry.window, oldFrame = window.frame
         let content = window.contentRect(forFrameRect: oldFrame).size
         let edge = max(content.width, content.height), aspect = CGFloat(geometry.aspect)

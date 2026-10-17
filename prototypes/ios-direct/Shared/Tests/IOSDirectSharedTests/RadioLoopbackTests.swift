@@ -368,6 +368,39 @@ final class RadioLoopbackTests: XCTestCase {
         }
         channel.start(); wait(for: [configured, reassembled, acked, gap, dropped], timeout: 3)
     }
+    func testOrientationBetweenFragmentsPreservesDecodeAndConfigurationOverTLS() throws {
+        let (receiver, keys) = try receiver(devices: 1)
+        let hints = expectation(description: "rotation delivered"); hints.expectedFulfillmentCount = 2
+        let acked = expectation(description: "unchanged frame decoded and ACKed")
+        let frame = VideoAccessUnit(generation: 7, seq: 0, ptsNs: 10, keyframe: true, data: Data(repeating: 7, count: 140_000))
+        receiver.makeVideoSession = { _, _, _, _ in
+            let consumer = LoopbackVideoConsumer()
+            var configurations = 0, rotations = VideoRotationState()
+            rotations.automatic = true
+            consumer.onConfig = { _ in configurations += 1; XCTAssertEqual(configurations, 1) }
+            consumer.onOrientation = { hint in rotations.accept(hint); hints.fulfill() }
+            consumer.request = { reason in XCTFail("rotation caused decode recovery: \(reason)") }
+            consumer.onFrame = { unit in
+                XCTAssertEqual(configurations, 1); XCTAssertEqual(unit, frame)
+                XCTAssertEqual(rotations.degrees, 90); XCTAssertEqual(rotations.sourceLabel, "capture")
+            }
+            return consumer
+        }
+        let channel = try client(receiver, credential: keys[0], mode: .video) { channel, message in
+            switch message {
+            case .welcome:
+                channel.active = true; channel.send(.videoConfig(VideoTests.config))
+                let parts = try frame.fragments(); channel.send(.videoFragment(parts[0]))
+                channel.send(.orientationHint(OrientationHint(degrees: 90, source: .capture, monotonicNs: 1)))
+                channel.send(.orientationHint(OrientationHint(degrees: 270, source: .device, monotonicNs: 2)))
+                for part in parts.dropFirst() { channel.send(.videoFragment(part)) }
+            case .videoAck(seq: 0, ptsNs: 10, status: .decoded): acked.fulfill()
+            case .stats: break
+            default: XCTFail("rotation disturbed video: \(message)")
+            }
+        }
+        channel.start(); wait(for: [hints, acked], timeout: 3)
+    }
     func testFullPairThenNormalConnectAndTokenReuseRejected() throws {
         let (receiver, _) = try receiver(), token = try invitation(receiver)
         let paired = expectation(description: "full pairing flow")
@@ -457,6 +490,8 @@ private final class TestClock {
 }
 private final class LoopbackVideoConsumer: RadioVideoConsumer {
     var request: ((String) -> Void)?
+    var onOrientation: ((OrientationHint) -> Void)?
+    func orientationHint(_ hint: OrientationHint) { onOrientation?(hint) }
     var onConfig: ((VideoConfig) throws -> Void)?
     var onFrame: ((VideoAccessUnit) -> Void)?
     func configure(_ config: VideoConfig) throws { try onConfig?(config) }

@@ -344,6 +344,9 @@ public final class RadioReceiver {
                 channel.snapshot.deliveredBytes += UInt64(payload.count)
                 channel.send(.ack(seq: seq, time: time, total: channel.snapshot.deliveredBytes))
                 self.onData?(id, payload.count)
+            case .orientationHint(let hint):
+                guard session.mode == .video else { throw RadioError.protocolViolation("orientation in synthetic session") }
+                session.video?.orientationHint(hint) // No config, reassembly, ACK or decoder transition.
             case .videoConfig(let config):
                 guard session.mode == .video else { throw RadioError.protocolViolation("video in synthetic session") }
                 for event in session.assembly.abandon("config changed mid-frame") { handleAssembly(event) }

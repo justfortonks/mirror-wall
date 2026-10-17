@@ -21,6 +21,10 @@ public final class VideoNetworkSink {
     private var pending = VideoSendQueue()
     private var encoderGeneration = 0
     private var config: VideoConfig?
+    private var orientationHints: [OrientationSource: OrientationHint] = [:] // Lock; at most two metadata values.
+    private var sentOrientationHints: [OrientationSource: OrientationHint] = [:] // Worker only.
+    private var orientationSendPending = false
+    private var lastOrientationSend: UInt64?
     private var ready = false
     private var workerScheduled = false
     private var value = VideoSendSnapshot()
@@ -169,6 +173,7 @@ public final class VideoNetworkSink {
         switch message {
         case .welcome(let session, _):
             lock.lock(); pending.discontinuity("reconnect"); ready = true; lock.unlock()
+            sentOrientationHints.removeAll(); orientationSendPending = false; lastOrientationSend = nil
             wireGeneration &+= 1; sentConfig = nil; sequence = 0; rtt = RadioRTT()
             update { $0.session = session; $0.rttP50MS = nil; $0.rttP95MS = nil; if policy.everWelcomed { $0.reconnects += 1 } }
             event("video.welcome", "session=\(session) reconnect=\(policy.everWelcomed)")
@@ -194,6 +199,31 @@ public final class VideoNetworkSink {
         case .reject(let reason): channel.queue.async { channel.close("reject \(reason)", cause: .rejected(reason)) }
         case .bye(let reason): channel.queue.async { channel.close("peer bye: \(reason)", cause: reason == "revoked" ? .revoked : .peerEnded) }
         default: channel.queue.async { channel.close("unexpected video sender message") }
+        }
+    }
+    /// Coalesces before dispatch: no notification backlog and no media retention.
+    public func orientationHint(_ hint: OrientationHint) {
+        guard (try? hint.validate()) != nil else { return }
+        lock.lock(); defer { lock.unlock() }
+        if let old = orientationHints[hint.source], old.monotonicNs >= hint.monotonicNs { return }
+        orientationHints[hint.source] = hint
+    }
+    private func sendOrientationHint(_ channel: RadioChannel, now: UInt64) {
+        guard !orientationSendPending, lastOrientationSend.map({ now - $0 >= 1_000_000_000 }) ?? true else { return }
+        lock.lock()
+        let hint = [OrientationSource.capture, .device].compactMap { orientationHints[$0] }
+            .first { sentOrientationHints[$0.source] != $0 }
+        lock.unlock()
+        guard let hint else { return }
+        orientationSendPending = true; lastOrientationSend = now; sentOrientationHints[hint.source] = hint
+        channel.queue.async { [weak self, weak channel] in
+            guard let channel, channel.active else { return }
+            channel.send(.orientationHint(hint)) { [weak self, weak channel] in
+                self?.queue.async { [weak self, weak channel] in
+                    guard let self, self.channel === channel else { return }
+                    self.orientationSendPending = false
+                }
+            }
         }
     }
     public func begin(encoderGeneration: Int) {
@@ -238,6 +268,7 @@ public final class VideoNetworkSink {
         if needsIDR { requestIDR?() }
         guard ready else { return }
         let now = radioNow()
+        sendOrientationHint(channel, now: now)
         if outstanding.values.contains(where: { now - $0.sentAt > 10_000_000_000 }) {
             channel.queue.async { channel.close("video ACK timeout", cause: .linkLoss) }; return
         }

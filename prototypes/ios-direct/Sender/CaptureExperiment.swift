@@ -18,6 +18,9 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     private var previousSample: MetricsSnapshot?
     private var pipeline: EncoderPipeline?
     private let captureQueue = DispatchQueue(label: "iosdirect.capture", qos: .userInitiated)
+    private var rotationProbe = RotationAttachmentProbe() // captureQueue only
+    private var latestDeviceDegrees: UInt16? // main only
+    private var orientationNotifications = 0, backgroundOrientationNotifications = 0 // main only
     private var capturedStream: SCStream? // captureQueue only
     private var stream: SCStream? // main only
     private var pickerPending = false
@@ -52,11 +55,39 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
                 self.log?.event("lifecycle", "\(note.name.rawValue) appState=\(self.metrics.snapshot().appState)")
             })
         }
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        observers.append(center.addObserver(forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.observeOrientation(notification: true)
+        })
+        observeOrientation(notification: false)
         updateDeviceState()
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "iosdirect.metrics", qos: .utility))
         timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(20))
         timer.setEventHandler { [weak self] in self?.tick() }
         self.timer = timer; timer.resume()
+    }
+    private func observeOrientation(notification: Bool) { // main only
+        let orientation = UIDevice.current.orientation
+        let background = UIApplication.shared.applicationState == .background
+        let capturing = stream != nil
+        if notification {
+            orientationNotifications += 1
+            if background && capturing { backgroundOrientationNotifications += 1 }
+        }
+        // Face-up/down and unknown carry no planar rotation; retain the last usable hint.
+        let degrees: UInt16?
+        switch orientation {
+        case .portrait: degrees = 0
+        case .landscapeLeft: degrees = 90
+        case .portraitUpsideDown: degrees = 180
+        case .landscapeRight: degrees = 270
+        default: degrees = nil
+        }
+        log?.event("capture.deviceOrientation", "notification=\(notification) raw=\(orientation.rawValue) degrees=\(degrees.map(String.init) ?? "unavailable") background=\(background) capturing=\(capturing) backgroundDuringCaptureNotifications=\(backgroundOrientationNotifications)")
+        if let degrees { latestDeviceDegrees = degrees }
+        if capturing, let latestDeviceDegrees {
+            videoSink?.orientationHint(OrientationHint(degrees: latestDeviceDegrees, source: .device, monotonicNs: radioNow()))
+        }
     }
     private func updateDeviceState() { // main only
         let appState: String
@@ -145,6 +176,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
         request += 1; pickerPending = false; busy = false
         SCContentSharingPicker.shared.isActive = false
         let old = stream; stream = nil
+        log?.event("capture.orientationNotificationSummary", "notifications=\(orientationNotifications) backgroundDuringCapture=\(backgroundOrientationNotifications); zero does not prove OS suppression")
         captureQueue.sync { capturedStream = nil; pipeline?.stop() }
         setState(state)
         if stopCapture {
@@ -187,7 +219,9 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
             do {
                 try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.captureQueue)
                 self.stream = newStream
-                self.captureQueue.sync { self.pipeline?.start(); self.capturedStream = newStream }
+                self.captureQueue.sync { self.pipeline?.start(); self.rotationProbe = RotationAttachmentProbe(); self.capturedStream = newStream }
+                self.orientationNotifications = 0; self.backgroundOrientationNotifications = 0
+                self.observeOrientation(notification: false)
                 self.log?.event("stream.startRequested", "full display; filterRect=\(rect) pointPixelScale=\(scale); requested=\(configuration.width)x\(configuration.height); SDR; no audio output")
                 self.log?.event("stream.configurationLimits", "iOS 27.1 SDK: minimumFrameInterval/pixelFormat/scalesToFit/preservesAspectRatio/updateConfiguration unavailable; explicit 30fps pacer; delivered pixel format recorded")
                 newStream.startCapture { [weak self, weak newStream] error in
@@ -202,6 +236,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, stream === capturedStream else { return }
+        rotationProbe.inspect(sampleBuffer, log: log)
         pipeline?.offer(sampleBuffer)
     }
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
@@ -218,6 +253,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     }
     deinit {
         timer?.cancel()
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         SCContentSharingPicker.shared.remove(self)
         pipeline?.stop()

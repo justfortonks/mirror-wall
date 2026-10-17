@@ -3,6 +3,7 @@ import Foundation
 /// Called on one session's RadioChannel queue. Implementations must bound async decode
 /// work and suppress obsolete callbacks after reconfiguration/close. No global decoder.
 public protocol RadioVideoConsumer: AnyObject {
+    func orientationHint(_ hint: OrientationHint)
     func configure(_ config: VideoConfig) throws
     func receive(_ frame: VideoAccessUnit, completion: @escaping (VideoDecodeStatus) -> Void)
     func receive(_ frame: VideoAccessUnit, arrivalNs: UInt64, completion: @escaping (VideoDecodeStatus) -> Void)
@@ -12,6 +13,7 @@ public protocol RadioVideoConsumer: AnyObject {
 }
 
 public extension RadioVideoConsumer {
+    func orientationHint(_ hint: OrientationHint) {}
     func receive(_ frame: VideoAccessUnit, arrivalNs: UInt64, completion: @escaping (VideoDecodeStatus) -> Void) {
         receive(frame, completion: completion)
     }

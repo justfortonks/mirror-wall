@@ -9,6 +9,7 @@ public enum RadioType: UInt8, CaseIterable {
     case hello = 1, welcome, reject, data, ack, ping, pong, stats, bye
     case videoConfig, videoFragment, keyframeRequest, videoAck
     case authChallenge, authResponse, pairRequest, pairGrant, pairDone, pairDenied
+    case orientationHint // 20; append to preserve all existing wire IDs
 }
 
 public struct RadioFrame: Equatable {
@@ -125,6 +126,7 @@ public enum RadioMessage: Equatable {
     case stats(Data)
     case bye(String)
 
+    case orientationHint(OrientationHint)
     case videoConfig(VideoConfig)
     case videoFragment(VideoFragment)
     case keyframeRequest(String)
@@ -162,6 +164,10 @@ public enum RadioMessage: Equatable {
         case .pong(let echo): type = .pong; b.put(echo)
         case .stats(let json): type = .stats; b = json
         case .bye(let reason): type = .bye; try b.text(reason)
+        case .orientationHint(let hint):
+            guard version == 3 else { throw RadioError.protocolViolation("orientation hint requires v3") }
+            try hint.validate(); type = .orientationHint
+            b.put(hint.degrees); b.put(hint.source.rawValue); b.put(hint.monotonicNs)
         case .videoConfig(let config): type = .videoConfig; version = wireVersion ?? 3; b = try config.body()
         case .videoFragment(let fragment): type = .videoFragment; version = wireVersion ?? 3; b = try fragment.body()
         case .keyframeRequest(let reason): type = .keyframeRequest; version = wireVersion ?? 3; try b.text(reason)
@@ -176,7 +182,7 @@ public enum RadioMessage: Equatable {
         if (10...13).contains(frame.type.rawValue), frame.version < 2 {
             throw RadioError.protocolViolation("video requires v2")
         }
-        if frame.type.rawValue >= 14, frame.version != 3 { throw RadioError.protocolViolation("authentication requires v3") }
+        if frame.type.rawValue >= 14, frame.version != 3 { throw RadioError.protocolViolation("control requires v3") }
         switch frame.type {
         case .authChallenge: self = .authChallenge(try r.bytes(32))
         case .authResponse: self = .authResponse(try r.text(), try r.bytes(32))
@@ -228,6 +234,11 @@ public enum RadioMessage: Equatable {
             }
             self = .stats(frame.body); r.offset = frame.body.count
         case .bye: self = .bye(try r.text())
+        case .orientationHint:
+            let degrees: UInt16 = try r.number(), raw: UInt8 = try r.number(), time: UInt64 = try r.number()
+            guard let source = OrientationSource(rawValue: raw) else { throw RadioError.protocolViolation("invalid orientation source") }
+            let hint = OrientationHint(degrees: degrees, source: source, monotonicNs: time)
+            try hint.validate(); self = .orientationHint(hint)
         case .videoConfig: self = .videoConfig(try VideoConfig(frame.body)); r.offset = frame.body.count
         case .videoFragment: self = .videoFragment(try VideoFragment(frame.body)); r.offset = frame.body.count
         case .keyframeRequest: self = .keyframeRequest(try r.text())
