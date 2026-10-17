@@ -12,52 +12,68 @@ struct VideoReceiveSnapshot: Codable {
     var width = 0, height = 0, orientation: UInt8 = 1
     var contentRect: VideoRect?
     var received = 0, decoded = 0, displayed = 0, decodeErrors = 0, displayDrops = 0, dropped = 0
+    var displaySkipped = 0
+    var recoveries: [String: Int] = [:]
+    var decodeQueueDepth = 0 // Maximum since the preceding metrics line.
+    var decodeQueueDepthCurrent = 0
+    var presentationMode = "immediate"
     var keyframeRequests = 0, frameBytes = 0, receivedBytes = 0
     var receivedFPS: Double = 0, decodedFPS: Double = 0, displayedFPS: Double = 0, receivedMbit: Double = 0
     var interArrivalP95MS: Double?, longestGapMS: Double = 0
     var thermal = "unknown", residentMemoryMB: Double?
 }
 
-/// Owns decode, immediate presentation and counters for exactly one video session.
-/// Input is serialized on a private queue; only two async VT callbacks may be pending.
-/// The layer is attached on main, but sample enqueue/flush stays with this renderer.
+/// One session owns decode, playout and counters. All compressed units are decoded
+/// within the eight-frame / 300 ms bound. Only decoded presentation may coalesce.
+/// Recovery preserves the last image; disconnect deliberately clears it to black.
 final class VideoSessionRenderer: RadioVideoConsumer {
     let layer = AVSampleBufferDisplayLayer()
     private let queue: DispatchQueue
     private let log: RadioLog?
     private let request: (String) -> Void
-    var onSample: ((VideoReceiveSnapshot) -> Void)? // Installed before first configure/tick.
+    var onSample: ((VideoReceiveSnapshot) -> Void)?
     private var stats: VideoReceiveSnapshot
-    private var config: VideoConfig?
+    private var configuration = VideoConfigurationState()
+    private var config: VideoConfig? { configuration.current }
     private var format: CMVideoFormatDescription?
     private var decoder: VTDecompressionSession?
     private var epoch = 0
-    private var waitingForIDR = true
     private var closed = false
-    private struct Pending { let completion: (VideoDecodeStatus) -> Void; let time: UInt64 }
+    private struct Pending {
+        let completion: (VideoDecodeStatus) -> Void
+        let time: Double
+        let ptsNs: UInt64
+    }
     private var pending: [UInt64: Pending] = [:]
+    private var decodeQueue = VideoDecodeQueuePolicy()
+    private var pictures = VideoPresentationQueue<CVImageBuffer>()
+    private var wake: DispatchWorkItem?
+    private var wakeAt: Double?
+    private var wakeToken = 0
     private var lastRequest: UInt64 = 0
     private var lastArrival: UInt64?
     private var lastDisplay: UInt64?
     private var intervals: [(UInt64, Double)] = []
-    private var sampledAt = radioNow()
-    private var previous = (received: 0, decoded: 0, displayed: 0, bytes: 0)
+    private var sampledAt: UInt64
+    private var displayedRate: VideoFrameRate
+    private var previous = (received: 0, decoded: 0, bytes: 0)
     init(session: UUID, log: RadioLog?, request: @escaping (String) -> Void) {
         queue = DispatchQueue(label: "iosdirect.video.decode.\(session)", qos: .userInteractive)
         stats = VideoReceiveSnapshot(session: session); self.log = log; self.request = request
+        let now = radioNow(); sampledAt = now; displayedRate = VideoFrameRate(now: Double(now) / 1e9)
         layer.videoGravity = .resizeAspect; layer.backgroundColor = CGColor(gray: 0, alpha: 1)
+        log?.event("video.presentationMode", "session=\(session) mode=immediate")
     }
     func configure(_ config: VideoConfig) throws {
         try queue.sync {
             guard !closed else { return }
-            if self.config == config, decoder != nil { return }
-            if let old = self.config, config.generation < old.generation {
-                throw RadioError.protocolViolation("video generation regression")
+            if try configuration.update(config) == .identical {
+                // Decoder lifetime is independent of config lifetime. Recovery may
+                // recreate VT here without another reset, image flush or config event.
+                if decoder == nil { _ = createDecoder() }
+                return
             }
-            if let old = self.config, old.generation == config.generation, old != config {
-                throw RadioError.protocolViolation("config changed without generation")
-            }
-            resetDecoder(); self.config = config
+            resetDecoder(); format = nil
             stats.generation = config.generation; stats.width = Int(config.width); stats.height = Int(config.height)
             stats.orientation = config.orientation; stats.contentRect = config.contentRect
             stats.state = "waiting for keyframe"
@@ -76,48 +92,51 @@ final class VideoSessionRenderer: RadioVideoConsumer {
             guard size.width == Int32(config.width), size.height == Int32(config.height) else {
                 throw RadioError.protocolViolation("config dimensions differ from SPS")
             }
-            format = description
-            createDecoder()
+            format = description; _ = createDecoder()
             onSample?(stats)
             log?.event("video.config", "session=\(stats.session) generation=\(config.generation) pixels=\(size.width)x\(size.height) orientation=\(config.orientation) contentRect=\(String(describing: config.contentRect)); raw pixels retained; layer applies CGImagePropertyOrientation")
         }
     }
-    private func createDecoder() {
-        guard let format else { return }
+    @discardableResult private func createDecoder() -> Bool {
+        guard let format else { return false }
         let status = VTDecompressionSessionCreate(allocator: kCFAllocatorDefault, formatDescription: format,
             decoderSpecification: nil, imageBufferAttributes: [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary,
             outputCallback: nil, decompressionSessionOut: &decoder)
-        guard status == noErr, let decoder else { decodeFailure("decoder create OSStatus=\(status)"); return }
+        guard status == noErr, let decoder else { decodeFailure("decoder create OSStatus=\(status)"); return false }
         let realTime = VTSessionSetProperty(decoder, key: kVTDecompressionPropertyKey_RealTime, value: kCFBooleanTrue)
         log?.event("video.decoder", "session=\(stats.session) create=\(status) realTime=\(realTime)")
+        return true
     }
     func receive(_ frame: VideoAccessUnit, completion: @escaping (VideoDecodeStatus) -> Void) {
         queue.sync {
             guard !closed else { completion(.dropped); return }
-            let now = radioNow()
+            let ns = radioNow(), now = Double(ns) / 1e9
             stats.received += 1; stats.receivedBytes += frame.data.count; stats.frameBytes = frame.data.count
             if let lastArrival {
-                let gap = Double(now - lastArrival) / 1e6
-                stats.longestGapMS = max(stats.longestGapMS, gap); intervals.append((now, gap))
+                let gap = Double(ns - lastArrival) / 1e6
+                stats.longestGapMS = max(stats.longestGapMS, gap); intervals.append((ns, gap))
                 if intervals.count > 600 { intervals.removeFirst(intervals.count - 600) }
             }
-            lastArrival = now
+            lastArrival = ns
+            if let reason = decodeQueue.expire(now: now) { recover(reason) }
             guard config?.generation == frame.generation, let format else {
                 stats.dropped += 1; completion(.dropped); recover("missing config / generation mismatch"); return
             }
-            guard !waitingForIDR || frame.keyframe else {
-                stats.dropped += 1; completion(.dropped); askForIDR("awaiting keyframe"); return
+            switch decodeQueue.admit(seq: frame.seq, keyframe: frame.keyframe, now: now) {
+            case .waitForKeyframe:
+                stats.dropped += 1; completion(.dropped); return
+            case .recover(let reason):
+                stats.dropped += 1; completion(.dropped); recover(reason); return
+            case .decode: break
             }
-            guard pending.count < 2 else {
-                stats.dropped += 1; completion(.dropped); recover("decode backlog"); return
+            if decoder == nil, !createDecoder() {
+                stats.dropped += 1; completion(.decodeError); return
             }
-            if decoder == nil { createDecoder() }
             guard let decoder, let sample = Self.compressedSample(frame.data, format: format) else {
-                stats.decodeErrors += 1; completion(.decodeError); recover("missing decoder / sample creation"); return
+                completion(.decodeError); decodeFailure("missing decoder / sample creation"); return
             }
-            waitingForIDR = false
             let token = epoch, seq = frame.seq
-            pending[seq] = Pending(completion: completion, time: now)
+            pending[seq] = Pending(completion: completion, time: now, ptsNs: frame.ptsNs)
             let status = VTDecompressionSessionDecodeFrame(decoder, sampleBuffer: sample,
                 flags: [._EnableAsynchronousDecompression, ._1xRealTimePlayback], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
                     self?.queue.async { [weak self] in self?.completed(seq: seq, epoch: token, status: status, image: image) }
@@ -127,17 +146,60 @@ final class VideoSessionRenderer: RadioVideoConsumer {
                 pending.removeValue(forKey: seq)?.completion(.decodeError)
                 decodeFailure("decode submit OSStatus=\(status)")
             }
+            scheduleService()
         }
     }
     private func completed(seq: UInt64, epoch: Int, status: OSStatus, image: CVImageBuffer?) {
         guard !closed, epoch == self.epoch, let item = pending.removeValue(forKey: seq) else { return }
+        decodeQueue.complete(seq: seq)
         guard status == noErr, let image else {
             item.completion(.decodeError); decodeFailure("decode output OSStatus=\(status) image=\(image != nil)"); return
         }
         stats.decoded += 1
+        let now = Double(radioNow()) / 1e9
+        stats.displaySkipped += pictures.offer(image, seq: seq, ptsNs: item.ptsNs, arrival: item.time, now: now)
+        // Every successful decode gets an ACK, including images superseded for display.
+        item.completion(.decoded); scheduleService()
+    }
+    private func cancelService() {
+        wakeToken += 1; wake?.cancel(); wake = nil; wakeAt = nil
+    }
+    private func scheduleService() {
+        guard !closed else { return }
+        let now = Double(radioNow()) / 1e9
+        var deadlines = [Double]()
+        if let deadline = decodeQueue.deadline { deadlines.append(deadline) }
+        // A 1 ms dispatch turn coalesces simultaneously ready decoded output. Smooth
+        // mode instead uses its PTS deadline; no media is retained by dispatch blocks.
+        if let due = pictures.nextDue { deadlines.append(max(due, now + 0.001)) }
+        guard let next = deadlines.min() else { cancelService(); return }
+        if let wakeAt, wakeAt <= next { return }
+        cancelService(); wakeAt = next; let token = wakeToken
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.closed, self.wakeToken == token else { return }
+            self.wake = nil; self.wakeAt = nil; self.service()
+        }
+        wake = work; queue.asyncAfter(deadline: .now() + max(0, next - now), execute: work)
+    }
+    private func service() {
+        let now = Double(radioNow()) / 1e9
+        if let reason = decodeQueue.expire(now: now) { recover(reason) }
+        displayReady(now: now); scheduleService()
+    }
+    private func displayReady(now: Double) {
+        let ready = pictures.takeReady(now: now); stats.displaySkipped += ready.skipped
+        guard let image = ready.value else { return }
         if present(image) { stats.displayed += 1; lastDisplay = radioNow(); stats.state = "streaming" }
         else { stats.displayDrops += 1 }
-        item.completion(.decoded)
+    }
+    func setSmoothing(_ enabled: Bool) {
+        queue.async { [weak self] in
+            guard let self, !self.closed, self.pictures.smooth != enabled else { return }
+            self.stats.displaySkipped += self.pictures.setSmoothing(enabled)
+            self.stats.presentationMode = enabled ? "smooth100ms" : "immediate"
+            self.log?.event("video.presentationMode", "session=\(self.stats.session) mode=\(self.stats.presentationMode)")
+            self.onSample?(self.stats); self.scheduleService()
+        }
     }
     private func present(_ image: CVImageBuffer) -> Bool {
         var format: CMVideoFormatDescription?
@@ -162,15 +224,18 @@ final class VideoSessionRenderer: RadioVideoConsumer {
         guard now - lastRequest >= 250_000_000 else { return }
         lastRequest = now; stats.keyframeRequests += 1; request(reason)
     }
-    private func resetDecoder() {
-        epoch += 1
+    private func resetDecoder(removeImage: Bool = false) {
+        epoch += 1; cancelService()
         if let decoder { VTDecompressionSessionInvalidate(decoder) }; decoder = nil
         let old = pending; pending.removeAll(); stats.dropped += old.count
+        decodeQueue.reset(); stats.displaySkipped += pictures.clear()
         for item in old.values { item.completion(.dropped) }
-        waitingForIDR = true
-        layer.flushAndRemoveImage()
+        if removeImage { layer.flushAndRemoveImage() }
+        else { layer.flush() } // Keep the last displayed picture throughout recovery.
     }
     private func recover(_ reason: String) {
+        stats.recoveries[reason, default: 0] += 1
+        log?.event("video.recovery", "session=\(stats.session) reason=\(reason) depth=\(pending.count)")
         resetDecoder(); stats.state = config == nil ? "waiting for config" : "stalled"; askForIDR(reason)
     }
     private func decodeFailure(_ reason: String) {
@@ -178,10 +243,9 @@ final class VideoSessionRenderer: RadioVideoConsumer {
         log?.event("video.decodeError", "session=\(stats.session) \(reason)"); recover(reason)
     }
     func discontinuity(_ reason: String) { queue.sync { if !closed { stats.dropped += 1; recover(reason) } } }
-    func tick() { queue.sync { sample() } }
+    func tick() { queue.sync { service(); sample() } }
     private func sample() {
         let now = radioNow(), seconds = Double(now - sampledAt) / 1e9
-        if pending.values.contains(where: { now - $0.time > 2_000_000_000 }) { decodeFailure("decode output timeout") }
         if !closed, let lastDisplay, now - lastDisplay > 1_000_000_000 { stats.state = "stalled" }
         if let lastArrival { stats.longestGapMS = max(stats.longestGapMS, Double(now - lastArrival) / 1e6) }
         intervals.removeAll { now - $0.0 > 10_000_000_000 }
@@ -190,17 +254,21 @@ final class VideoSessionRenderer: RadioVideoConsumer {
         if seconds > 0 {
             stats.receivedFPS = Double(stats.received - previous.received) / seconds
             stats.decodedFPS = Double(stats.decoded - previous.decoded) / seconds
-            stats.displayedFPS = Double(stats.displayed - previous.displayed) / seconds
             stats.receivedMbit = Double(stats.receivedBytes - previous.bytes) * 8 / seconds / 1e6
         }
-        previous = (stats.received, stats.decoded, stats.displayed, stats.receivedBytes); sampledAt = now
+        stats.displayedFPS = displayedRate.sample(total: stats.displayed, now: Double(now) / 1e9)
+        stats.decodeQueueDepth = decodeQueue.samplePeakDepth(); stats.decodeQueueDepthCurrent = decodeQueue.depth
+        previous = (stats.received, stats.decoded, stats.receivedBytes); sampledAt = now
         stats.monotonicNs = now; stats.thermal = radioThermalState(); stats.residentMemoryMB = radioMemoryMB()
         log?.write(stats); onSample?(stats)
     }
     func close(_ reason: String) {
         queue.sync {
-            closed = true; resetDecoder(); format = nil; config = nil; stats.state = "disconnected"; sample()
-            log?.event("video.disconnected", "session=\(stats.session) \(reason)")
+            // Account for already-due output before the partial final metrics interval.
+            displayReady(now: Double(radioNow()) / 1e9)
+            closed = true; resetDecoder(removeImage: true); format = nil
+            stats.state = "disconnected"; sample()
+            log?.event("video.disconnected", "session=\(stats.session) \(reason); image cleared to black")
         }
     }
     private static func compressedSample(_ data: Data, format: CMVideoFormatDescription) -> CMSampleBuffer? {
@@ -224,5 +292,5 @@ final class VideoSessionRenderer: RadioVideoConsumer {
             sampleSizeArray: &size, sampleBufferOut: &sample) == noErr else { return nil }
         return sample
     }
-    deinit { if let decoder { VTDecompressionSessionInvalidate(decoder) } }
+    deinit { wake?.cancel(); if let decoder { VTDecompressionSessionInvalidate(decoder) } }
 }

@@ -127,6 +127,9 @@ private final class ClockDigits: UILabel {
         let link = CADisplayLink(target: target, selector: #selector(Target.tick(_:)))
         link.add(to: .main, forMode: .common); self.link = link
     }
+    // Prevent the counter's large intrinsic width from expanding the SwiftUI cover
+    // and pushing its exit button off screen. Geometry supplies the actual bounds.
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func stop() { link?.invalidate(); link = nil }
     deinit { stop() }
@@ -138,10 +141,31 @@ private struct ClockDisplay: UIViewRepresentable {
 }
 private struct LatencyClockView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var showDone = true
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea(); ClockDisplay().padding(20)
-            Button("Close") { dismiss() }.foregroundStyle(.white).padding()
-        }.statusBarHidden()
+        GeometryReader { geometry in
+            ZStack {
+                Color.black
+                ClockDisplay()
+                    .frame(width: max(0, geometry.size.width - 40), height: max(0, geometry.size.height - 40))
+                    .clipped().allowsHitTesting(false)
+            }.contentShape(Rectangle()).onTapGesture { showDone = true }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Spacer()
+                if showDone {
+                    Button("Done") { dismiss() }
+                        .font(.headline).buttonStyle(.borderedProminent)
+                        .tint(.white).foregroundStyle(.black)
+                        .frame(minWidth: 72, minHeight: 44)
+                        .accessibilityIdentifier("latencyClockDone")
+                }
+            }.padding(.horizontal, 20).padding(.vertical, 8).background(.black)
+        }
+        .statusBarHidden()
+        // Done stays visible; screen taps also restore it. Dismiss only the cover,
+        // leaving Stream's capture, encoder and authenticated transport running.
     }
 }

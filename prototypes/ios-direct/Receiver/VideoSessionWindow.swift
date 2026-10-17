@@ -62,11 +62,17 @@ private struct VideoSessionView: View {
                     Text(model.stats.state).font(.headline)
                     Button(showStats ? "Hide stats" : "Show stats") { showStats.toggle() }.controlSize(.small)
                 }
+                Toggle("Smooth (100 ms buffer)", isOn: Binding(
+                    get: { model.stats.presentationMode == "smooth100ms" },
+                    set: { renderer.setSmoothing($0) }
+                )).toggleStyle(.checkbox)
                 if showStats {
                     let s = model.stats
                     Text(String(format: "Rx %.1f · decode %.1f · displayed %.1f fps", s.receivedFPS, s.decodedFPS, s.displayedFPS))
                     Text(String(format: "%.2f Mbit/s · frame %d B · errors %d · IDR requests %d", s.receivedMbit, s.frameBytes, s.decodeErrors, s.keyframeRequests))
                     Text(String(format: "arrival p95 %@ ms · longest gap %.0f ms", s.interArrivalP95MS.map { String(format: "%.1f", $0) } ?? "—", s.longestGapMS))
+                    Text("Skipped \(s.displaySkipped) · queue peak \(s.decodeQueueDepth)/8 · \(s.presentationMode)")
+                    Text("Recoveries: \(s.recoveries.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ", "))")
                     Text("\(s.width)×\(s.height) · orientation \(s.orientation) · generation \(s.generation.map(String.init) ?? "—")")
                 }
             }.font(.system(.caption, design: .monospaced)).foregroundStyle(.white)
@@ -77,7 +83,10 @@ private struct VideoSessionView: View {
 
 @MainActor
 final class VideoSessionWindows: NSObject, NSWindowDelegate {
-    private struct Entry { let window: NSWindow; let model: VideoWindowModel; let renderer: VideoSessionRenderer }
+    private struct Entry {
+        let window: NSWindow, model: VideoWindowModel, renderer: VideoSessionRenderer
+        var geometry: VideoWindowGeometry?
+    }
     private var entries: [UUID: Entry] = [:]
     func open(session: UUID, label: String, renderer: VideoSessionRenderer, model: VideoWindowModel) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 430, height: 760),
@@ -88,7 +97,22 @@ final class VideoSessionWindows: NSObject, NSWindowDelegate {
         entries[session] = Entry(window: window, model: model, renderer: renderer)
         window.center(); window.makeKeyAndOrderFront(nil)
     }
-    func update(_ sample: VideoReceiveSnapshot) { entries[sample.session]?.model.stats = sample }
+    func update(_ sample: VideoReceiveSnapshot) {
+        guard var entry = entries[sample.session] else { return }
+        entry.model.stats = sample
+        guard sample.width > 0, sample.height > 0 else { return }
+        let geometry = VideoWindowGeometry(width: sample.width, height: sample.height, orientation: sample.orientation)
+        guard geometry != entry.geometry else { return }
+        entry.geometry = geometry; entries[sample.session] = entry
+        let window = entry.window, oldFrame = window.frame
+        let content = window.contentRect(forFrameRect: oldFrame).size
+        let edge = max(content.width, content.height), aspect = CGFloat(geometry.aspect)
+        let size = NSSize(width: edge * min(1, aspect), height: edge * min(1, 1 / aspect))
+        window.contentAspectRatio = NSSize(width: aspect, height: 1)
+        var newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        newFrame.origin = NSPoint(x: oldFrame.midX - newFrame.width / 2, y: oldFrame.midY - newFrame.height / 2)
+        window.setFrame(newFrame, display: true, animate: false)
+    }
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow,
               let id = entries.first(where: { $0.value.window === window })?.key else { return }
