@@ -92,10 +92,13 @@ model code. An explicit model remains selected when replacing the device; reset 
 when repurposing the slot.
 
 Catalog: iPhone 12/13/14/15/16/17 variants, iPhone Air, SE generations 1–3, 16e/17e, 18 Pro/Pro Max,
-Zebra HC50, Zebra TC53e, iPad A16/11th generation, and a generic phone. Newer iPhones whose AirPlay
-model code is not mapped require manual selection. Both portrait and landscape are supported.
-Frames are illustrative vector silhouettes, not photographic replicas. Source video keeps its
-aspect ratio; a mismatched manual preset adds frame space instead of stretching the content.
+Zebra TC53e and iPad A16/11th generation as drawn vector frames; Zebra HC50, Honeywell CT37 and
+Spectralink Versity 95/96 and 97 as photo frames of the real device. Automatic prefers a photo
+frame when the phone reports one of those models. Newer iPhones whose AirPlay model code is not
+mapped require manual selection. Portrait and landscape are supported; Android phones on Cast
+0.125 or later also turn the frame upside down or to either side. Source video keeps its aspect
+ratio; a mismatched manual preset adds frame space instead of stretching the content.
+See [ADR 0003](adr/0003-photo-and-drawn-frames.md).
 
 Reference dimensions/model names: [Apple iPhone identification](https://support.apple.com/en-mide/108044),
 [Apple iPad A16 specifications](https://support.apple.com/en-us/122240), and
