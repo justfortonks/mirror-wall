@@ -189,3 +189,18 @@ Findings:
 2. Throughput was **limited by our app window** (150 KB outstanding cap vs AWDL RTT), not shown to be the link ceiling. Link capacity still unmeasured. Per-phone 12 Mbit/s target not met in this configuration.
 3. AWDL RTT p95 ~265 ms with the Mac also on infrastructure Wi-Fi — risk for the p95 ≤350 ms glass-to-glass target. Compare against Mac-offline and Mac-on-Ethernet.
 4. Screen lock kills the session (expected for foreground-only G2), but the browser goes defunct and the app doesn't recover — must restart the browser.
+
+## Run 6 — G2 capacity probe, direct, Mac online / phone unassociated, 2026-10-17 01:28–01:36Z
+
+Build `e95e1b9`. Same topology as run 5 (phone A on no network, cellular data off, Auto-Lock Never; Mac on home Wi-Fi). Window = Capacity probe (2 MiB).
+
+| Run | Duration | Delivered median (p10–p90) | RTT median / p95 median / p95 max | Gaps / CRC | Route |
+| --- | --- | --- | --- | --- | --- |
+| 6a, 48 Mbit/s | 225 s | **48.6 Mbit/s** (40.5–50.4) | 100 ms / 321 ms / 945 ms | 0 / 0 | `awdl0` both ends |
+| 6b, 24 Mbit/s | 195 s | **23.6 Mbit/s** (20.1–25.0) | 74 ms / 304 ms / 1208 ms | 0 / 0 | `awdl0` both ends |
+
+Thermal nominal throughout. Each session ended with `ECONNRESET` on user Stop at high rate (bye queued behind the window) — cosmetic, to fix.
+
+Findings:
+1. **Single-phone direct capacity ≥ 48 Mbit/s** with the Mac also on infrastructure Wi-Fi — 2× the 24 Mbit/s two-phone aggregate headroom target and ~70× the measured G1 screen bitrate. Two-phone concurrency still untested (phone B blocked).
+2. RTT p95 ~265–320 ms at every rate (7.5, 24, 48 Mbit/s) → not queue-driven; likely AWDL channel time-sharing with the Mac's infrastructure association. Next: same test with the Mac unassociated (and/or internet via Ethernet) to isolate.
