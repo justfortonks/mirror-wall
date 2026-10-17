@@ -19,6 +19,9 @@ struct RadioDiscovery: Identifiable {
 final class PhonePairingState: ObservableObject {
     static let shared = PhonePairingState()
     @Published private(set) var status: ReceiverPairingStatus
+    @Published private var presence = PairingCredentialPresence()
+    var pairedReceivers: Set<UUID> { presence.receivers }
+    func refresh(_ rid: UUID, store: PairingKeyStore) { try? presence.refresh(rid, store: store) }
     private let key = "iosdirect.pairingStatus.v3"
     private init() {
         status = UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(ReceiverPairingStatus.self, from: $0) } ?? ReceiverPairingStatus()
@@ -40,7 +43,10 @@ final class RadioExperiment: ObservableObject {
     private var rePairObserver: NSObjectProtocol?
     private var pairingSubscription: AnyCancellable?
     var onReceiversChanged: (() -> Void)?
-    private var pairingRun = UUID()
+    let scanner = PairingScanPresentation()
+    private var pairingAttempt = PairingAttempt()
+    private var pairingTeardown = false
+    private var findDeadline: Date?
     func pairingFailure(_ rid: UUID) -> PairingRejection? { PhonePairingState.shared.status[rid] }
     func pairingLabel(_ result: RadioDiscovery) -> String {
         guard let rid = result.rid else { return "Not paired" }
@@ -58,7 +64,7 @@ final class RadioExperiment: ObservableObject {
     var selectedReceiver: RadioDiscovery? { receivers.first { $0.id == selected } }
     func isPaired(_ result: RadioDiscovery) -> Bool {
         guard let rid = result.rid else { return false }
-        return (try? pairingStore.credential(rid: rid)) != nil
+        return PhonePairingState.shared.pairedReceivers.contains(rid)
     }
     func credential() throws -> DeviceCredential {
         guard let rid = selectedReceiver?.rid, let credential = try pairingStore.credential(rid: rid) else {
@@ -72,42 +78,83 @@ final class RadioExperiment: ObservableObject {
         UserDefaults.standard.set(id.uuidString, forKey: key); return id
     }
     func scan(_ payload: String, expectedRID: UUID?) {
+        guard !pairingAttempt.busy else {
+            _ = pairingAttempt.begin(); syncPairingState(); return
+        }
         do {
-            // Validate completely before stopping an existing session or using TLS.
+            // Validate before stopping an existing session or using TLS.
             let invitation = try PairingInvitation(payload: payload, expectedReceiverID: expectedRID)
-            cancelPairing()
+            guard let run = pairingAttempt.begin() else { syncPairingState(); return }
+            pendingInvitation = invitation; findDeadline = Date().addingTimeInterval(5)
+            syncPairingState()
+            // Invalidate callbacks immediately; cancellation and provisional-key
+            // cleanup finish before the next client can touch this receiver's key.
+            stop()
             NotificationCenter.default.post(name: .pairingWillBegin, object: invitation.rid)
-            pendingInvitation = invitation
-            pairingBusy = true; pairingState = "Finding the Mac from this code…"; attemptPairing()
+            teardownPairer { [weak self] in
+                guard let self, self.pairingAttempt.id == run else { return }; self.attemptPairing()
+            }
         } catch { pairingState = String(describing: error) }
     }
+    private func syncPairingState() { pairingBusy = pairingAttempt.busy; pairingState = pairingAttempt.message }
+    private func teardownPairer(_ completion: @escaping @MainActor () -> Void) {
+        guard let old = pairer else {
+            if !pairingTeardown { completion() }; return
+        }
+        pairer = nil; pairingTeardown = true
+        old.cancel { [weak self, old] in
+            _ = old // Keep alive through onClosed and credential cleanup.
+            DispatchQueue.main.async {
+                guard let self else { return }; self.pairingTeardown = false
+                completion(); self.attemptPairing()
+            }
+        }
+    }
     private func attemptPairing() {
-        guard pairer == nil, let token = pendingInvitation else { return }
-        guard token.expires.addingTimeInterval(30) > Date() else { cancelPairing(); pairingState = PairingInvitationError.expired.description; return }
-        guard let target = receivers.first(where: { $0.rid == token.rid }) else { return }
+        guard !pairingTeardown, pairer == nil, let token = pendingInvitation, let run = pairingAttempt.id else { return }
+        guard token.expires.addingTimeInterval(30) >= Date() else {
+            pendingInvitation = nil; _ = pairingAttempt.update(.failed(PairingInvitationError.expired.description), attempt: run); syncPairingState(); return
+        }
+        guard let target = receivers.first(where: { $0.rid == token.rid }) else {
+            if let findDeadline, Date() >= findDeadline {
+                pendingInvitation = nil
+                _ = pairingAttempt.update(.failed("Pairing failed: this Mac was not discovered within 5 seconds; check that its pairing code is still open and scan again"), attempt: run)
+                syncPairingState()
+            }
+            return
+        }
         selected = target.id
         var info = utsname(); uname(&info)
         let model = withUnsafeBytes(of: &info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         let client = PairingClient(endpoint: target.endpoint, invitation: token, install: installID,
             label: UIDevice.current.name, model: model, store: pairingStore, log: log)
-        pairer = client; pendingInvitation = nil
-        let run = pairingRun
-        client.onState = { [weak self] state in DispatchQueue.main.async {
-            guard let self, self.pairingRun == run else { return }
-            self.pairingState = state
-            if state != "Waiting for approval on Mac" { self.pairingBusy = false; self.pairer = nil; self.pairingRevision += 1 }
+        pairer = client; pendingInvitation = nil; findDeadline = nil
+        client.onProgress = { [weak self] progress in DispatchQueue.main.async {
+            guard let self, self.pairingAttempt.update(progress, attempt: run) else { return }
+            if progress.terminal {
+                PhonePairingState.shared.refresh(token.rid, store: self.pairingStore)
+                self.pairer = nil; self.pairingRevision += 1
+            }
+            self.syncPairingState()
         } }
-        client.onPaired = { [weak self] _ in DispatchQueue.main.async {
-            guard let self, self.pairingRun == run else { return }
-            PhonePairingState.shared.clear(token.rid); self.pairingRevision += 1
+        client.onPaired = { [weak self] credential in DispatchQueue.main.async {
+            guard let self, self.pairingAttempt.id == run else { return }
+            // Read the committed store now; the labels in BOTH tabs update without
+            // a discovery event or relaunch. This cache never authorizes a session.
+            PhonePairingState.shared.refresh(credential.rid, store: self.pairingStore)
+            PhonePairingState.shared.clear(credential.rid); self.pairingRevision += 1
         } }
         client.start()
     }
-    func cancelPairing() { pairingRun = UUID(); pairer?.cancel(); pairer = nil; pendingInvitation = nil; pairingBusy = false; pairingState = "Pairing cancelled" }
+    func cancelPairing() {
+        pairingAttempt.cancel(); pendingInvitation = nil; findDeadline = nil; syncPairingState()
+        teardownPairer { }
+    }
     func forget(rid requestedRID: UUID? = nil) {
         guard let rid = requestedRID ?? connectionRID ?? selectedReceiver?.rid else { return }
         do {
-            try pairingStore.delete(account: rid.uuidString); PhonePairingState.shared.clear(rid); sender?.stop(); cancelPairing()
+            try pairingStore.delete(account: rid.uuidString); PhonePairingState.shared.clear(rid)
+            PhonePairingState.shared.refresh(rid, store: pairingStore); stop(); cancelPairing()
             NotificationCenter.default.post(name: .pairingForgotten, object: rid)
             pairingRevision += 1; pairingState = "Forgot this Mac; scan a new pairing code to reconnect"
         } catch { pairingState = String(describing: error) }
@@ -142,7 +189,7 @@ final class RadioExperiment: ObservableObject {
         forgottenObserver = NotificationCenter.default.addObserver(forName: .pairingForgotten, object: nil, queue: .main) { [weak self] notification in
             Task { @MainActor [weak self] in
                 guard let self else { return }; self.pairingRevision += 1
-                if self.connectionRID == notification.object as? UUID { self.sender?.stop() }
+                if self.connectionRID == notification.object as? UUID { self.stop() }
             }
         }
         do { log = try RadioLog(receiver: false); log?.event("radio.run", "synthetic only") }
@@ -184,6 +231,8 @@ final class RadioExperiment: ObservableObject {
                     return RadioDiscovery(endpoint: result.endpoint, rid: rid)
                 }.sorted { $0.id < $1.id }
                 if !self.receivers.contains(where: { $0.id == self.selected }), self.connectionRID == nil, self.pinnedRID == nil { self.selected = self.receivers.first?.id ?? "" }
+                for rid in self.receivers.compactMap(\.rid) { PhonePairingState.shared.refresh(rid, store: self.pairingStore) }
+                self.attemptPairing()
                 self.sender?.setReceiverDiscovered(self.receivers.contains { $0.rid == self.connectionRID })
                 self.onReceiversChanged?()
             }
@@ -224,6 +273,7 @@ final class RadioExperiment: ObservableObject {
             }
             sender.onPairingRejected = { [weak self] rejection in DispatchQueue.main.async {
                 guard let self, self.generation == run else { return }
+                PhonePairingState.shared.refresh(credential.rid, store: self.pairingStore)
                 PhonePairingState.shared.reject(credential.rid, reason: rejection)
                 self.pairingState = rejection.message
             } }
@@ -237,7 +287,9 @@ final class RadioExperiment: ObservableObject {
             state = "connecting with TLS-PSK"; running = true; sender.start()
         } catch { state = String(describing: error) }
     }
-    func stop() { sender?.stop() }
+    func stop() {
+        generation = UUID(); sender?.stop(); sender = nil; running = false; connectionRID = nil; state = "disconnected"
+    }
     deinit { if let rePairObserver { NotificationCenter.default.removeObserver(rePairObserver) }; if let forgottenObserver { NotificationCenter.default.removeObserver(forgottenObserver) }; timer?.invalidate(); browserRestart?.cancel(); browser?.cancel(); sender?.stop() }
 }
 
@@ -287,7 +339,7 @@ struct RadioExperimentView: View {
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                     experiment.restartBrowser(reason: "didBecomeActive")
                 }
-        }
+        }.modifier(PairingScannerPresenter(presentation: experiment.scanner, scanned: { experiment.scan($0, expectedRID: $1) }))
     }
     private func number(_ value: Double?) -> String { value.map { String(format: "%.1f", $0) } ?? "unavailable" }
 }
@@ -295,8 +347,6 @@ struct RadioExperimentView: View {
 struct PairingControls: View {
     @ObservedObject var discovery: RadioExperiment
     let forget: () -> Void
-    @State private var scanning = false
-    @State private var scanningRID: UUID?
     var body: some View {
         Group {
             if let rid = discovery.selectedRID, let failure = discovery.pairingFailure(rid) {
@@ -308,13 +358,10 @@ struct PairingControls: View {
                 .disabled(discovery.selectedRID == nil && discovery.connectionRID == nil)
             if discovery.pairingBusy { Button("Cancel pairing") { discovery.cancelPairing() } }
             if !discovery.pairingState.isEmpty { Text(discovery.pairingState) }
-        }.sheet(isPresented: $scanning) {
-            PairingScannerSheet(scanned: { discovery.scan($0, expectedRID: scanningRID) })
         }
     }
     private func showScanner() {
-        scanningRID = discovery.selectedRID
-        scanning = true
+        discovery.scanner.present(rid: discovery.selectedRID)
     }
 }
 

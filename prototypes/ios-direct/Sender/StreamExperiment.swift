@@ -49,9 +49,9 @@ final class StreamExperiment: ObservableObject {
             if self.capture.busy { self.capture.stop() }
         } }
         sink.onPairingRejected = { [weak self] rid, rejection in DispatchQueue.main.async {
-            guard let self else { return }
+            guard let self, self.connectionRID == rid else { return }
+            PhonePairingState.shared.refresh(rid, store: self.discovery.pairingStore)
             PhonePairingState.shared.reject(rid, reason: rejection)
-            guard self.connectionRID == rid else { return }
             self.discovery.pairingState = rejection.message
             self.running = false; self.connected = false
             // Sharing may have been authorized earlier, but recovery requires a new
@@ -131,7 +131,7 @@ struct StreamExperimentView: View {
                     experiment.discovery.restartBrowser(reason: "stream didBecomeActive")
                 }
                 .fullScreenCover(isPresented: $clock) { LatencyClockView() }
-        }
+        }.modifier(PairingScannerPresenter(presentation: experiment.discovery.scanner, scanned: { experiment.discovery.scan($0, expectedRID: $1) }))
     }
     private func number(_ value: Double?) -> String { value.map { String(format: "%.1f", $0) } ?? "—" }
 }

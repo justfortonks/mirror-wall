@@ -262,6 +262,28 @@ final class RadioLoopbackTests: XCTestCase {
         pairer.onPaired = { _ in XCTFail("denied phone paired") }; pairer.start(); wait(for: [denied], timeout: 3)
         try handshakeFails(receiver, identity: token.identity, key: token.key)
     }
+    func testAllowedPairingWithoutPairDoneEndsWithinFiveSecondsOfDecision() throws {
+        let (receiver, _) = try receiver(), token = try invitation(receiver)
+        let ended = expectation(description: "allowed but unconfirmed pairing ended")
+        var decision: UInt64 = 0
+        receiver.onApproval = { if let request = $0 { decision = radioNow(); receiver.approve(request.id, allow: true) } }
+        let channel = RadioChannel(NWConnection(to: try endpoint(receiver), using: RadioTLS.parameters(identities: [(token.identity, token.key)])))
+        clients.append(channel)
+        channel.onMessage = { [weak channel] message in
+            guard let channel else { return }
+            switch message {
+            case .authChallenge(let nonce):
+                channel.send(.authResponse(token.identity, PairCrypto.proof(key: token.key, nonce: nonce, rid: token.rid, identity: token.identity)))
+                channel.send(.pairRequest(install: UUID(), label: "phone", model: "test"))
+            case .pairGrant: break // Simulate a phone that never confirms the grant.
+            case .pairDenied:
+                XCTAssertLessThan(Double(radioNow() - decision) / 1e9, 5)
+                ended.fulfill()
+            default: XCTFail("unexpected pairing message")
+            }
+        }
+        channel.start(); wait(for: [ended], timeout: 5.5)
+    }
     func testCapturedLogsContainNoInvitationSecretDerivedKeyOrDeviceKeys() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("g3b-\(UUID()).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }

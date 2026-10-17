@@ -78,7 +78,7 @@ public final class RadioReceiver {
         tokenOwner = nil; onInvitation?(nil); onApproval?(nil); event("pair.invitationEnded", reason)
     }
     public func approve(_ session: UUID, allow: Bool) {
-        queue.async {
+        queue.async { [self] in
             guard let invitation = self.invitation, invitation.expires > self.now(), self.tokenOwner == session,
                   let channel = self.channels[session], let grant = self.grants[session], self.awaitingApproval.remove(session) != nil else { return }
             self.onApproval?(nil)
@@ -90,6 +90,12 @@ public final class RadioReceiver {
                 self.granted.insert(session)
                 channel.queue.async { channel.send(.pairGrant(credential)) }
                 self.event("pair.allowed", "session=\(session)")
+                // A decision must not leave a provisional credential/session hung.
+                // The channel's final denial has a one-second flush bound.
+                self.queue.asyncAfter(deadline: .now() + 4) { [weak self] in
+                    guard let self, self.tokenOwner == session, self.granted.contains(session) else { return }
+                    self.burnToken(reason: "pairDone deadline"); self.refreshListener()
+                }
             } catch { self.burnToken(reason: "storage failed"); self.refreshListener() }
         }
     }
@@ -224,7 +230,7 @@ public final class RadioReceiver {
                     channel.send(.keyframeRequest("video consumer unavailable")); return
                 }
                 let seq = frame.seq, pts = frame.ptsNs, size = frame.data.count
-                video.receive(frame) { [weak channel] status in
+                video.receive(frame, arrivalNs: radioNow()) { [weak channel] status in
                     channel?.queue.async { [weak channel] in
                         guard let channel, channel.active else { return }
                         channel.snapshot.deliveredBytes += UInt64(size)
