@@ -8,6 +8,7 @@ final class ReceiverExperiment: ObservableObject {
     @Published private(set) var sessions: [UUID: RadioSnapshot] = [:]
     @Published private(set) var events: [String] = []
     @Published private(set) var logFailure: String?
+    private let videoWindows = VideoSessionWindows()
     private var receiver: RadioReceiver?
     private var log: RadioLog?
     private var timer: Timer?
@@ -17,6 +18,17 @@ final class ReceiverExperiment: ObservableObject {
             log = try RadioLog(receiver: true)
             let receiver = RadioReceiver(label: Host.current().localizedName ?? "iOS Direct Receiver", log: log)
             self.receiver = receiver
+            // Create the decoder synchronously on the session queue. Window/UI work is
+            // posted to main; media never waits for main-thread delivery.
+            let windows = videoWindows, videoLog = log
+            receiver.makeVideoSession = { session, label, request in
+                let renderer = VideoSessionRenderer(session: session, log: videoLog, request: request)
+                renderer.onSample = { sample in DispatchQueue.main.async { windows.update(sample) } }
+                DispatchQueue.main.async {
+                    windows.open(session: session, label: label, renderer: renderer, model: VideoWindowModel(session: session))
+                }
+                return renderer
+            }
             receiver.onState = { [weak self] state, port in
                 DispatchQueue.main.async { self?.state = state + (port.map { " port \($0)" } ?? "") }
             }
@@ -39,6 +51,7 @@ final class ReceiverExperiment: ObservableObject {
     func newCode() {
         do {
             let credential = try RadioCode.generate(); code = credential.formatted
+            videoWindows.closeDisconnected()
             sessions.removeAll(); receiver?.start(code: credential)
             log?.event("receiver.newRun", "new test credential; all sessions disconnected")
         } catch { state = "random code generation failed: \(error)"; receiver?.stop(); code = "" }
@@ -52,18 +65,18 @@ struct IOSDirectReceiverApp: App {
     var body: some Scene {
         WindowGroup {
             VStack(alignment: .leading, spacing: 16) {
-                Text("iOS Direct — G2 receiver").font(.title)
+                Text("iOS Direct — G3a receiver").font(.title)
                 Text("Listener: \(experiment.state)").textSelection(.enabled)
                 HStack {
                     Text(experiment.code).font(.system(size: 32, weight: .semibold, design: .monospaced)).textSelection(.enabled)
                     Button("New code") { experiment.newCode() }
                 }
-                Text("G2 test credential. New code disconnects all phones. Synthetic bytes only; max two sessions.")
+                Text("G2 test credential. New code disconnects all phones. Synthetic rows + independent video windows; max two sessions.")
                     .foregroundStyle(.secondary)
                 if let failure = experiment.logFailure { Text("Log write failed: \(failure)").foregroundStyle(.red) }
                 if let url = experiment.logURL { ShareLink("Export receiver log", item: url) }
                 List {
-                    ForEach(experiment.sessions.values.sorted { $0.id.uuidString < $1.id.uuidString }) { m in
+                    ForEach(experiment.sessions.values.filter { ($0.mode ?? .synthetic) == .synthetic }.sorted { $0.id.uuidString < $1.id.uuidString }) { m in
                         VStack(alignment: .leading, spacing: 4) {
                             Text("\(m.label) · \(m.id.uuidString.prefix(8)) · \(m.state)").font(.headline)
                             Text(String(format: "Delivered %.2f Mbit/s · RTT p50 %@ / p95 %@ ms · gaps %llu · CRC %llu",

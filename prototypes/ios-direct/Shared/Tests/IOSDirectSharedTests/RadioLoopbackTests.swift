@@ -34,12 +34,12 @@ final class RadioLoopbackTests: XCTestCase {
         lock.lock(); let port = boundPort; lock.unlock()
         return (receiver, .hostPort(host: "127.0.0.1", port: try XCTUnwrap(port)))
     }
-    private func client(endpoint: NWEndpoint, code: RadioCode, install: UUID = UUID(),
+    private func client(endpoint: NWEndpoint, code: RadioCode, install: UUID = UUID(), version: UInt8 = 1, mode: RadioMode = .synthetic,
                         handler: @escaping (RadioChannel, RadioMessage) throws -> Void) -> RadioChannel {
         let channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(code: code)))
-        clients.append(channel)
+        clients.append(channel); channel.protocolVersion = version
         channel.onReady = { [weak channel] in
-            channel?.send(.hello(install: install, label: "same display name", version: 1, rate: 12))
+            channel?.send(.hello(install: install, label: "same display name", version: version, rate: 12, mode: mode))
         }
         channel.onMessage = { [weak channel] message in guard let channel else { return }; try handler(channel, message) }
         return channel
@@ -168,5 +168,71 @@ final class RadioLoopbackTests: XCTestCase {
         fresh.start(); wait(for: [admitted], timeout: 5)
     }
 
+    func testVideoConfigFragmentedBytesAndDecodeStatusAckOverTLS() throws {
+        let code = try RadioCode(bytes: Data(0..<10)), (receiver, endpoint) = try receiver(code: code)
+        let configured = expectation(description: "v2 config delivered")
+        let reassembled = expectation(description: "identical fragmented access unit")
+        let acked = expectation(description: "per-frame ACK after consumer result")
+        let frame = VideoAccessUnit(generation: 7, seq: 0, ptsNs: 987654, keyframe: true,
+                                    data: SyntheticPayload.make(seq: 0, count: 140_000))
+        receiver.makeVideoSession = { _, _, request in
+            let consumer = LoopbackVideoConsumer(request: request)
+            consumer.onConfig = { config in XCTAssertEqual(config, VideoTests.config); configured.fulfill() }
+            consumer.onFrame = { unit in XCTAssertEqual(unit, frame); reassembled.fulfill(); return .decoded }
+            return consumer
+        }
+        let client = client(endpoint: endpoint, code: code, version: 2, mode: .video) { channel, message in
+            switch message {
+            case .welcome:
+                channel.active = true
+                channel.send(.videoConfig(VideoTests.config))
+                for fragment in try frame.fragments() { channel.send(.videoFragment(fragment)) }
+            case let .videoAck(seq, pts, status):
+                XCTAssertEqual(seq, 0); XCTAssertEqual(pts, frame.ptsNs); XCTAssertEqual(status, .decoded)
+                XCTAssertEqual(channel.snapshot.tlsVersion, 0x0303); XCTAssertEqual(channel.snapshot.cipherSuite, 0x00a8)
+                acked.fulfill()
+            case .stats: break
+            default: XCTFail("unexpected video message \(message)")
+            }
+        }
+        client.start(); wait(for: [configured, reassembled, acked], timeout: 8)
+    }
+    func testVideoFragmentGapRequestsKeyframeAndAcksDroppedFrameOverTLS() throws {
+        let code = try RadioCode(bytes: Data(0..<10)), (receiver, endpoint) = try receiver(code: code)
+        let request = expectation(description: "fragment gap requests keyframe")
+        let dropped = expectation(description: "abandoned frame releases sender window")
+        receiver.makeVideoSession = { _, _, request in LoopbackVideoConsumer(request: request) }
+        let frame = VideoAccessUnit(generation: 7, seq: 0, ptsNs: 123, keyframe: true, data: Data(count: 140_000))
+        let client = client(endpoint: endpoint, code: code, version: 2, mode: .video) { channel, message in
+            switch message {
+            case .welcome:
+                channel.active = true; channel.send(.videoConfig(VideoTests.config))
+                let fragments = try frame.fragments()
+                channel.send(.videoFragment(fragments[0])); channel.send(.videoFragment(fragments[2]))
+            case .keyframeRequest: request.fulfill()
+            case let .videoAck(seq, pts, status):
+                XCTAssertEqual(seq, 0); XCTAssertEqual(pts, 123); XCTAssertEqual(status, .dropped); dropped.fulfill()
+            case .stats: break
+            default: XCTFail("unexpected gap message \(message)")
+            }
+        }
+        client.start(); wait(for: [request, dropped], timeout: 8)
+    }
+
+}
+
+/// This consumer deliberately tests transport/reassembly only, not H.264 decoding.
+private final class LoopbackVideoConsumer: RadioVideoConsumer {
+    var onConfig: ((VideoConfig) -> Void)?
+    var onFrame: ((VideoAccessUnit) -> VideoDecodeStatus)?
+    let request: (String) -> Void
+    init(request: @escaping (String) -> Void) { self.request = request }
+    func configure(_ config: VideoConfig) throws { onConfig?(config) }
+    func receive(_ frame: VideoAccessUnit, completion: @escaping (VideoDecodeStatus) -> Void) {
+        completion(onFrame?(frame) ?? .dropped)
+    }
+    func discontinuity(_ reason: String) { request(reason) }
+    func tick() {}
+    func close(_ reason: String) {}
 }
 #endif

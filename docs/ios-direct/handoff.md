@@ -83,3 +83,26 @@ TLS runtime result, direct route or gate pass is claimed**. Claude must run the
 README commands outside the sandbox, then device/local-network and controlled
 G2 acceptance. Review pending-overload behavior and the 65,536-byte body limit
 (65,516 synthetic bytes after metadata) in protocol.md before accepting G2.
+
+
+## G3a implementation handoff — 2026-10-16
+
+Stream mode now joins G1 capture/encode to a bounded G2 TLS-PSK video sink, with
+v2 config/AVCC fragments/per-frame decode ACK/keyframe recovery, 0.5→4 s reconnect
+without restarting capture, combined appState/stage JSONL and a CADisplayLink
+latency clock. Mac sessions own separate decoder queues, immediate-display layers,
+windows/stats and stale-callback epochs; synthetic v1 rows remain. Protocol bounds,
+rotation metadata and run steps are in [protocol](protocol.md) and the prototype
+README. At the unchanged 6 Mbit/s Latency rule, a full frame over 75,000 wire bytes
+is explicitly dropped/IDR requested; repeated oversized IDRs need hardware review.
+TLS security/project/background modes are unchanged. No production edits, commits,
+pushes or installs.
+
+All requested tests/builds attempted once: **0 tests executed; no source compiled**.
+SwiftPM: `sandbox-exec: sandbox_apply: Operation not permitted`. Both Xcode schemes:
+`xcodebuild: error: Could not resolve package dependencies:` followed by
+`<unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)`.
+No workaround/retry. Re-run original commands outside the blocker, including new
+fragment/queue and real TLS transport/reassembly tests (injected consumer, not H.264
+decode acceptance), then perform the README single-phone image/rotation/background
+send/reconnect/system-stop run. G3a background network-send gate remains **unproven**.

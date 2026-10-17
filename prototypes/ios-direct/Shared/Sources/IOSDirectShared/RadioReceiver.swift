@@ -5,6 +5,10 @@ private final class ReceiverSessionState {
     var helloSeen = false
     var admitted = false
     var expected: UInt64 = 0
+    var mode = RadioMode.synthetic
+    var video: RadioVideoConsumer?
+    var assembly = VideoReassembler()
+    var lastRequest: UInt64 = 0
 }
 
 /// Admission is serialized here; parsing, payload validation, metrics and sends
@@ -29,6 +33,9 @@ public final class RadioReceiver {
     public var onRemoved: ((UUID) -> Void)?
     public var onEvent: ((String) -> Void)?
     public var onData: ((UUID, Int) -> Void)? // Metadata-only test/diagnostic hook; session queue.
+    /// Factory runs on the session queue. The consumer owns decoding/display/timing;
+    /// completion must report actual decode output, never mere VT submission.
+    public var makeVideoSession: ((UUID, String, @escaping (String) -> Void) -> RadioVideoConsumer)?
     public init(label: String, log: RadioLog? = nil) { self.label = String(label.prefix(60)); self.log = log }
     private func event(_ name: String, _ details: String = "") { log?.event(name, details); onEvent?("\(name) \(details)") }
     public func start(code: RadioCode, advertise: Bool = true, loopbackOnly: Bool = false) {
@@ -109,16 +116,41 @@ public final class RadioReceiver {
         let id = UUID(), channel = RadioChannel(connection, id: id, log: log)
         channels[id] = channel; pending.insert(id)
         let session = ReceiverSessionState()
+        let handleAssembly: (VideoAssemblyEvent) -> Void = { [weak channel] event in
+            guard let channel else { return }
+            switch event {
+            case let .dropped(seq, pts, reason):
+                channel.send(.videoAck(seq: seq, ptsNs: pts, status: .dropped))
+                session.video?.discontinuity(reason)
+                if session.video == nil, radioNow() - session.lastRequest > 250_000_000 {
+                    session.lastRequest = radioNow(); channel.send(.keyframeRequest(reason))
+                }
+            case .frame(let frame):
+                guard let video = session.video else {
+                    channel.send(.videoAck(seq: frame.seq, ptsNs: frame.ptsNs, status: .dropped))
+                    channel.send(.keyframeRequest("video consumer unavailable")); return
+                }
+                let seq = frame.seq, pts = frame.ptsNs, size = frame.data.count
+                video.receive(frame) { [weak channel] status in
+                    channel?.queue.async { [weak channel] in
+                        guard let channel, channel.active else { return }
+                        channel.snapshot.deliveredBytes += UInt64(size)
+                        channel.send(.videoAck(seq: seq, ptsNs: pts, status: status))
+                    }
+                }
+            }
+        }
         channel.onMessage = { [weak self, weak channel] message in
             guard let self, let channel else { return }
             if !session.helloSeen {
-                guard case let .hello(install, label, version, rate, window) = message else { throw RadioError.protocolViolation("hello required") }
-                session.helloSeen = true; channel.snapshot.label = label; channel.snapshot.installID = install
+                guard case let .hello(install, label, version, rate, window, mode) = message else { throw RadioError.protocolViolation("hello required") }
+                session.helloSeen = true; session.mode = mode; channel.snapshot.label = label; channel.snapshot.installID = install
+                channel.snapshot.mode = mode
                 channel.snapshot.windowMode = window; channel.snapshot.windowBytes = window.bytes(mbit: Int(rate))
                 self.queue.async {
                     guard self.generation == run, self.pending.contains(id), self.channels[id] === channel else { return }
                     let rejection: String?
-                    if version != 1 { rejection = "version" }
+                    if !(version == 1 && mode == .synthetic || version == 2) || (mode == .video && window != .latency) { rejection = "version" }
                     else if self.active.count >= 2 { rejection = "capacity" }
                     else if self.active.values.contains(install) { rejection = "busy" }
                     else if !RadioPacer.rates.contains(Int(rate)) { rejection = "version" }
@@ -131,6 +163,14 @@ public final class RadioReceiver {
                         self.event("session.admit", "session=\(id) install=\(install)")
                         channel.queue.async {
                             guard !channel.closed else { return }; session.admitted = true; channel.active = true
+                            if mode == .video {
+                                session.video = self.makeVideoSession?(id, label, { [weak channel] reason in
+                                    channel?.queue.async { [weak channel] in
+                                        guard let channel, channel.active else { return }
+                                        channel.send(.keyframeRequest(String(reason.prefix(100))))
+                                    }
+                                })
+                            }
                             channel.send(.welcome(session: id, label: self.label)); channel.sample()
                         }
                     }
@@ -140,6 +180,7 @@ public final class RadioReceiver {
             guard session.admitted else { throw RadioError.protocolViolation("payload before welcome") }
             switch message {
             case let .data(seq, time, payload, crc):
+                guard session.mode == .synthetic else { throw RadioError.protocolViolation("synthetic data in video session") }
                 guard !payload.isEmpty else { throw RadioError.protocolViolation("empty data") }
                 if RadioCRC32.checksum(payload) != crc {
                     channel.snapshot.crcFailures += 1; throw RadioError.protocolViolation("CRC failure")
@@ -149,6 +190,13 @@ public final class RadioReceiver {
                 channel.snapshot.deliveredBytes += UInt64(payload.count)
                 channel.send(.ack(seq: seq, time: time, total: channel.snapshot.deliveredBytes))
                 self.onData?(id, payload.count)
+            case .videoConfig(let config):
+                guard session.mode == .video else { throw RadioError.protocolViolation("video in synthetic session") }
+                for event in session.assembly.abandon("config changed mid-frame") { handleAssembly(event) }
+                try session.video?.configure(config)
+            case .videoFragment(let fragment):
+                guard session.mode == .video else { throw RadioError.protocolViolation("video in synthetic session") }
+                for event in try session.assembly.accept(fragment, now: Double(radioNow()) / 1e9) { handleAssembly(event) }
             case .stats(let json):
                 let stats = try JSONDecoder().decode(RadioSnapshot.self, from: json)
                 guard stats.id == id, stats.installID == channel.snapshot.installID,
@@ -165,7 +213,10 @@ public final class RadioReceiver {
             }
         }
         channel.onTick = { [weak channel] in
-            guard let channel, channel.active, let json = try? JSONEncoder().encode(channel.snapshot) else { return }
+            guard let channel, channel.active else { return }
+            for event in session.assembly.expire(now: Double(radioNow()) / 1e9) { handleAssembly(event) }
+            session.video?.tick()
+            guard let json = try? JSONEncoder().encode(channel.snapshot) else { return }
             channel.send(.stats(json))
         }
         channel.onSample = { [weak self] sample in
@@ -175,6 +226,7 @@ public final class RadioReceiver {
             }
         }
         channel.onClosed = { [weak self] reason in
+            session.video?.close(reason); session.video = nil
             self?.queue.async { [weak self] in
                 guard let self, self.generation == run else { return }
                 self.channels.removeValue(forKey: id); self.pending.remove(id); self.active.removeValue(forKey: id)

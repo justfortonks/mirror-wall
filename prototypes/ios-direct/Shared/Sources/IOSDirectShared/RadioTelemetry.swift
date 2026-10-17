@@ -23,6 +23,7 @@ public struct RadioPath: Codable {
 }
 public struct RadioSnapshot: Codable, Identifiable {
     public var kind = "radio.metrics"
+    public var mode: RadioMode? = .synthetic
     public var id = UUID() // Connection/session routing ID, never a display name.
     public var installID: UUID?
     public var label = "pending"

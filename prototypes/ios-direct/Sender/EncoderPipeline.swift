@@ -11,6 +11,7 @@ final class EncoderPipeline {
         let pts: CMTime
         let orientation: UInt32
         let screenSize: CGSize?
+        let contentRect: CGRect?
     }
     private struct Format: Equatable {
         let sourceWidth: Int
@@ -18,6 +19,7 @@ final class EncoderPipeline {
         let pixelFormat: OSType
         let orientation: UInt32
         let screenSize: CGSize?
+        let contentRect: CGRect?
         let output: Dimensions
     }
     private let mailboxLock = NSLock()
@@ -36,10 +38,14 @@ final class EncoderPipeline {
     private let metrics: Telemetry
     private let log: RunLog
     private let sink: StubSink
-    init(metrics: Telemetry, log: RunLog) {
-        self.metrics = metrics; self.log = log; sink = StubSink(metrics: metrics)
-        sink.requestIDR = { [weak self] in self?.encodeQueue.async { [weak self] in self?.forceIDR = true } }
+    private let network: VideoNetworkSink?
+    private var videoConfig: VideoConfig?
+    init(metrics: Telemetry, log: RunLog, network: VideoNetworkSink? = nil) {
+        self.metrics = metrics; self.log = log; self.network = network; sink = StubSink(metrics: metrics)
+        sink.requestIDR = { [weak self] in self?.requestKeyframe() }
+        network?.requestIDR = { [weak self] in self?.requestKeyframe() }
     }
+    func requestKeyframe() { encodeQueue.async { [weak self] in self?.forceIDR = true } }
     func start() {
         stop()
         encodeQueue.sync { setEncoderState("unavailable: awaiting frame") }
@@ -57,7 +63,7 @@ final class EncoderPipeline {
         // Keep totals/hash aligned with a reset event without restarting capture.
         encodeQueue.sync { sink.resetHash(); metrics.reset() }
     }
-    func sampleSink() { sink.sampleQueue() }
+    func sampleSink() { if network == nil { sink.sampleQueue() } }
     func offer(_ sample: CMSampleBuffer) {
         metrics.update { $0.captureCallbacks += 1 }
         guard sample.isValid, CMSampleBufferDataIsReady(sample),
@@ -84,7 +90,7 @@ final class EncoderPipeline {
         guard pacer.accept(pts: pts.seconds) else { metrics.update { $0.pacingDrops += 1 }; return }
         metrics.update { $0.pacedFrames += 1 }
         guard frames.count < 2 else { metrics.update { $0.sourceDrops += 1 }; return }
-        frames.append(Frame(image: image, pts: pts, orientation: orientation, screenSize: screenRect?.size))
+        frames.append(Frame(image: image, pts: pts, orientation: orientation, screenSize: screenRect?.size, contentRect: contentRect))
         scheduleWorker()
     }
     private static func rect(_ value: Any?) -> CGRect? {
@@ -114,7 +120,8 @@ final class EncoderPipeline {
         if let transfer { VTPixelTransferSessionInvalidate(transfer) }
         session = nil; transfer = nil; inFlight = 0; forceIDR = true
         metrics.update { $0.generation = generation }
-        sink.begin(generation: generation)
+        videoConfig = nil
+        if let network { network.begin(encoderGeneration: generation) } else { sink.begin(generation: generation) }
     }
     private func setEncoderState(_ value: String) {
         metrics.update { $0.encoderState = value }
@@ -200,9 +207,9 @@ final class EncoderPipeline {
         }
         let next = Format(sourceWidth: width, sourceHeight: height,
                           pixelFormat: CVPixelBufferGetPixelFormatType(frame.image),
-                          orientation: frame.orientation, screenSize: frame.screenSize, output: dimensions)
+                          orientation: frame.orientation, screenSize: frame.screenSize, contentRect: frame.contentRect, output: dimensions)
         if format != next {
-            log.event("capture.frameFormat", "source=\(width)x\(height) pixelFormat=\(next.pixelFormat) orientation=\(frame.orientation) screenSize=\(String(describing: frame.screenSize)) output=\(dimensions) appState=\(metrics.snapshot().appState)")
+            log.event("capture.frameFormat", "source=\(width)x\(height) pixelFormat=\(next.pixelFormat) orientation=\(frame.orientation) screenSize=\(String(describing: frame.screenSize)) contentRect=\(String(describing: frame.contentRect)) output=\(dimensions) appState=\(metrics.snapshot().appState)")
             // iOS 27.1 explicitly marks SCStream.updateConfiguration unavailable. Keep capture
             // running and fit the delivered buffers; never rotate pixels or restart the stream.
             log.event("stream.reconfigurationUnavailable", "iOS 27.1: updateConfiguration unavailable; encoder generation follows delivered size/orientation")
@@ -285,17 +292,26 @@ final class EncoderPipeline {
             let extensions = CMFormatDescriptionGetExtensions(description)
             let atoms = (extensions as NSDictionary?)?[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] as? [String: Any]
             let avc = atoms?["avcC"] as? Data
+            if let avc, let format {
+                let rect = format.contentRect.map { VideoRect(x: Double($0.origin.x), y: Double($0.origin.y), width: Double($0.width), height: Double($0.height)) }
+                videoConfig = VideoConfig(generation: UInt32(truncatingIfNeeded: token), width: UInt16(dimensions.width),
+                    height: UInt16(dimensions.height), orientation: UInt8(clamping: format.orientation), contentRect: rect, avcC: avc)
+            }
             let profile = avc.flatMap { $0.count > 3 ? "avcC profile=\($0[1]) level=\($0[3])" : nil } ?? "avcC unavailable"
             metrics.update { $0.negotiatedProfile = profile }
             log.event("encoder.outputFormat", "generation=\(token) dims=\(dimensions.width)x\(dimensions.height) \(profile)")
         }
         // Reject overlarge output before copying. The sink accounts for the drop and requests IDR.
         guard size > 0, size <= 1_048_576 else {
-            metrics.update { $0.sinkDrops += 1 }; forceIDR = true; log.event("sink.oversize", "bytes=\(size)"); return
+            metrics.update { $0.sinkDrops += 1 }; forceIDR = true; network?.discontinuity("oversize"); log.event("sink.oversize", "bytes=\(size)"); return
         }
         var data = Data(count: size)
         let copied = data.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: size, destination: $0.baseAddress!) }
         guard copied == kCMBlockBufferNoErr else { fail("copy", status: copied); return }
-        sink.enqueue(data, pts: sample.presentationTimeStamp.seconds, generation: token)
+        if let network {
+            let pts = sample.presentationTimeStamp.seconds
+            guard pts.isFinite, pts >= 0, pts < Double(UInt64.max) / 1e9 else { network.discontinuity("invalidPTS"); return }
+            network.offer(data, ptsNs: UInt64(pts * 1e9), keyframe: keyframe, encoderGeneration: token, config: videoConfig)
+        } else { sink.enqueue(data, pts: sample.presentationTimeStamp.seconds, generation: token) }
     }
 }

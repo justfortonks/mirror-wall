@@ -14,6 +14,8 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     let metrics = Telemetry()
     private(set) var log: RunLog?
     var logURL: URL? { log?.url }
+    private let videoSink: VideoNetworkSink?
+    private var previousSample: MetricsSnapshot?
     private var pipeline: EncoderPipeline?
     private let captureQueue = DispatchQueue(label: "iosdirect.capture", qos: .userInitiated)
     private var capturedStream: SCStream? // captureQueue only
@@ -23,12 +25,13 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     private var timer: DispatchSourceTimer?
     private var observers: [NSObjectProtocol] = []
 
-    override init() {
+    init(videoSink: VideoNetworkSink? = nil) {
+        self.videoSink = videoSink
         super.init()
         do {
             let log = try RunLog(); self.log = log
-            let pipeline = EncoderPipeline(metrics: metrics, log: log); self.pipeline = pipeline
-            log.event("run.start", "G1b stub only; iOS=\(UIDevice.current.systemVersion); build=1; bitrate=6000000; fps=30")
+            let pipeline = EncoderPipeline(metrics: metrics, log: log, network: videoSink); self.pipeline = pipeline
+            log.event("run.start", "mode=\(videoSink == nil ? "capture-stub" : "stream-video"); iOS=\(UIDevice.current.systemVersion); build=1; bitrate=6000000; fps=30")
         } catch { setState("failed: log creation: \(error.localizedDescription)") }
         SCContentSharingPicker.shared.add(self)
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -90,7 +93,24 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
             $0.thermalState = thermal; $0.lowPower = process.isLowPowerModeEnabled
             $0.residentMemoryMB = residentMemoryMB()
         }
-        let snapshot = metrics.snapshot()
+        let current = metrics.snapshot(), network = videoSink?.snapshot()
+        if let previousSample, current.resetEpoch == previousSample.resetEpoch {
+            let seconds = current.monotonicTime - previousSample.monotonicTime
+            if seconds > 0 {
+                metrics.update {
+                    $0.capturedFPS = Double(current.validFrames - previousSample.validFrames) / seconds
+                    $0.pacedFPS = Double(current.pacedFrames - previousSample.pacedFrames) / seconds
+                    $0.encodedFPS = Double(current.encodeCompleted - previousSample.encodeCompleted) / seconds
+                    if let network {
+                        $0.sentFPS = Double(network.sent - (previousSample.video?.sent ?? 0)) / seconds
+                        $0.ackedFPS = Double(network.acked - (previousSample.video?.acked ?? 0)) / seconds
+                        $0.sentMbit = Double(network.sentBytes - (previousSample.video?.sentBytes ?? 0)) * 8 / seconds / 1e6
+                    }
+                }
+            }
+        }
+        metrics.update { $0.video = network }
+        let snapshot = metrics.snapshot(); previousSample = snapshot
         log?.write(snapshot)
         let failure = log?.error()
         DispatchQueue.main.async {

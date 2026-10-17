@@ -13,6 +13,7 @@ public final class RadioChannel {
     public var onClosed: ((String) -> Void)?
     public var onSample: ((RadioSnapshot) -> Void)?
     public var onTick: (() -> Void)?
+    public var protocolVersion: UInt8 = 1 // Set by the initiating hello, before application data.
     public var active = false
     public private(set) var closed = false
     private var draining = false
@@ -98,6 +99,8 @@ public final class RadioChannel {
                     try self.parser.feed(content) { frame in
                         guard !self.closed, !self.draining else { return }
                         let message = try RadioMessage(frame)
+                        if case .hello = message { self.protocolVersion = frame.version }
+                        else if frame.version != self.protocolVersion { throw RadioError.protocolViolation("session version changed") }
                         if self.active {
                             switch message {
                             case .ping(let echo): self.send(.pong(echo)); return
@@ -120,7 +123,7 @@ public final class RadioChannel {
     public func send(_ message: RadioMessage, completion: (() -> Void)? = nil) {
         guard !closed, !draining else { return }
         do {
-            let bytes = try message.frame().encoded()
+            let bytes = try message.frame(version: protocolVersion).encoded()
             guard snapshot.pendingNetworkBytes + bytes.count <= 262_144 else { close("network send backlog limit"); return }
             snapshot.pendingNetworkBytes += bytes.count
             connection.send(content: bytes, completion: .contentProcessed { [weak self] error in
@@ -128,7 +131,11 @@ public final class RadioChannel {
                 self.snapshot.pendingNetworkBytes -= bytes.count
                 if let error { self.close("send: \(error)"); return }
                 self.snapshot.sentWireBytes += UInt64(bytes.count)
-                if case .data(_, _, let payload, _) = message { self.snapshot.sentBytes += UInt64(payload.count) }
+                switch message {
+                case .data(_, _, let payload, _): self.snapshot.sentBytes += UInt64(payload.count)
+                case .videoFragment(let fragment): self.snapshot.sentBytes += UInt64(fragment.data.count)
+                default: break
+                }
                 completion?()
             })
         } catch { close(String(describing: error)) }

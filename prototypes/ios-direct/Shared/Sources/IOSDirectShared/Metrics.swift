@@ -14,6 +14,13 @@ public struct MetricsSnapshot: Codable {
     public var encoderLastFailingOSStatus: Int32?
     public var encoderNoSessionDrops = 0
     public var encoderRetryAfter: Double = 0
+    public var capturedFPS: Double = 0
+    public var pacedFPS: Double = 0
+    public var encodedFPS: Double = 0
+    public var sentFPS: Double = 0
+    public var ackedFPS: Double = 0
+    public var sentMbit: Double = 0
+    public var video: VideoSendSnapshot?
     public var captureCallbacks = 0
     public var validFrames = 0
     public var pacedFrames = 0

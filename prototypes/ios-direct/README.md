@@ -1,23 +1,22 @@
-# iOS Direct POC — G1 Capture and G2 Radio
+# iOS Direct POC — Capture, Radio and Stream
 
-Independent iOS 27 sender with Capture and Radio tabs, plus a macOS 14+ receiver.
-Capture remains ScreenCaptureKit → paced SDR H.264 VideoToolbox → bounded local
-counting/hash stub. Radio sends deterministic synthetic bytes through a separate
-TLS-PSK transport; it never consumes capture output. No third-party dependencies,
-production integration, audio workaround or broadcast extension.
+Independent iOS 27 sender with three modes and a macOS 14+ receiver. Capture is
+ScreenCaptureKit → paced SDR H.264 VideoToolbox → bounded local counting/hash
+stub. Radio sends deterministic synthetic bytes over G2 TLS-PSK. Stream joins
+capture/encode to that authenticated direct transport and a Mac video window.
+No third-party dependencies, production integration, audio workaround or
+broadcast extension. The G3a run and validation details are below.
 
-G1b separates encoder state from capture: encoder failures invalidate only VT,
-then retry on a paced frame after 0.25/0.5/1/2 seconds (2-second cap), with a new
-generation and forced IDR. Valid output resets backoff. JSON/UI report encoder
-state, recreate attempts/successes (create + properties + prepare), last failing
-OSStatus and no-session frame drops; attempts include initial creation. Nil pools
-have no OSStatus and are logged as such. Hardware readback -12900 is
-`"unknown (not supported)"`. No new device/background pass is claimed.
+G1b encoder recovery is preserved: failures invalidate only VT and retry on a
+paced frame after 0.25/0.5/1/2 seconds (2-second cap), with a new generation and
+forced IDR. Valid output resets backoff. JSON/UI report state, recreate attempts
+and successes, failing OSStatus and no-session drops. Nil pools have no fabricated
+OSStatus; unsupported hardware readback stays unknown.
 
-**G1b build validation is blocked by this shell's sandbox; no new successful compile,
-signed install or device/background pass is claimed.** See the G1-build entry in
-[results](../../docs/ios-direct/results.md). The full
-[G1 procedure](../../docs/ios-direct/test-plan.md) remains the acceptance procedure.
+G1/G2 hardware evidence is in [results](../../docs/ios-direct/results.md), runs
+1–7. That evidence does not establish G3a background network sending. The three
+G3a build/test commands were blocked before compilation/tests in this sandbox;
+exact errors are recorded below. No new signed install or device pass is claimed.
 
 ## Open, build and install
 
@@ -131,10 +130,10 @@ profile, PTS or memory data remains absent/unavailable, never an assumed success
   calls stopCapture; picker/start failures and delegate stops clean up downstream
   state. The OS can still suspend/stop execution; a missing
   interval is evidence to investigate, not filled in afterward.
-- G1 run 1 recorded two nil-pool failures after backgrounding followed by our
-  stopCapture path. G1b recovery, image correctness, background cadence, rotation,
-  stop latency and G1 gate success still need device validation. G2 Radio is
-  implemented separately below; no G2 runtime pass is claimed.
+- G1b background capture/encode and G2 single-phone direct transport have hardware
+  evidence in results runs 2–7. Visible rotation/image correctness, background
+  network send and recovery are new G3a observations; earlier passes do not prove
+  them. G2 two-phone qualification remains separate.
 
 SDK reference: `xcrun --sdk iphoneos --show-sdk-path` resolved to Xcode's
 `iPhoneOS27.1.sdk`. Implementation spelling/availability was checked against
@@ -197,7 +196,7 @@ Requested commands (repository root, no signing):
 ```sh
 cd prototypes/ios-direct/Shared && swift test 2>&1 | tail -15; cd -
 xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectSender -destination 'generic/platform=iOS' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
-xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectReceiver -destination 'platform=macOS' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
+xcodebuild -project prototypes/ios-direct/IOSDirectPOC.xcodeproj -scheme IOSDirectReceiver -destination 'platform=macOS,arch=arm64' -derivedDataPath prototypes/ios-direct/.build-xcode CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD"
 git status --porcelain
 ```
 
@@ -213,3 +212,88 @@ G1 capture/encoder/stub/telemetry sources and original tests are unchanged.
 Sandbox-free builds, Shared tests, signed launch/local-network permission, actual
 wrong-code handshake behavior and controlled one/two-phone radio measurements
 remain unresolved acceptance work.
+
+
+## G3a Stream: one real phone screen to a Mac window
+
+New **Stream** tab joins G1 screen capture/VideoToolbox to G2 TLS-PSK. Capture and
+Radio remain independent regression modes. Security stays entirely behind
+`RadioTLS.parameters(code:)`; pairing is G3b. No extra background mode is added.
+
+1. Launch Receiver and wait for listener ready. On the phone select Stream, pick
+   the discovered Mac and enter its displayed code. Tap **Connect** and wait for
+   **authenticated; ready to share**. Only then is **Share full display** enabled.
+   Approve the full-display system picker. A separate resizable, aspect-correct
+   black-letterboxed window opens for that session, titled with phone label and
+   short session ID. Stop any separate Capture/Radio experiment before this run.
+2. Verify a moving, asymmetric test image in portrait, then rotate both ways.
+   Compare the visible result with the phone. The raw delivered pixel size,
+   CGImagePropertyOrientation, content/screen rect and encoder generation are
+   logged; orientation is carried to config and applied by the Mac layer.
+   This answers the G1 rotation question only after the image is observed.
+3. For a foreground baseline, tap **Latency clock screen** for large, high-contrast
+   monotonic milliseconds updated by CADisplayLink. Photograph phone and Mac in
+   the same high-frame-rate camera view for later optical glass-to-glass timing.
+   Transport/ACK RTT and phone-minus-Mac timestamps are not optical latency.
+4. With no debugger/USB and the decisive no-AP setup from results run 7, go Home
+   and use continuously changing, privacy-safe content in other apps for at least
+   ten minutes. Record the background interval and any system capture indicators.
+   Export **stream stage log**, **TLS/path log** and **receiver log** afterward.
+   Check every second: `appState=background` with capture → paced → encode → sent
+   → ACKed progress and matching Mac received → decoded → displayed progress.
+   Static content can stop SCK updates; use a changing-content control. Timer
+   progress alone, sent completion alone or a successful build is not a pass.
+5. While capture remains authorized, interrupt/restore the link and record
+   `video.reconnectScheduled` / `video.welcome` with appState. Expected: 0.5→4 s
+   retry backoff, a new session/window, fresh config + IDR, and continued capture.
+   Test this while backgrounded. Then stop capture from the system indicator;
+   reconnect must **not** restart it or present consent. Test user Stop capture
+   and Disconnect separately. Disconnected windows turn black and show state.
+6. Repeat wrong-code/no-video and the existing G2 synthetic transfer. No commits,
+   installs, provisioning or hardware acceptance were performed by this change.
+
+Stream's queue is bounded to 1 MiB/100 ms with IDR recovery after any prediction
+gap. The 6 Mbit/s G2 Latency window stays **75,000 wire bytes**, including fragment
+metadata. An access unit bigger than that window is explicitly dropped with
+`latencyWindowOversize` and another IDR is requested; persistent oversized IDRs
+are an unresolved hardware risk, not a reason to silently increase the window.
+See [protocol v2](../../docs/ios-direct/protocol.md) for byte layout, per-frame
+ACK/decode status, one-frame reassembly, overflow behavior, decoder ownership and
+precise counter meanings. Mac “displayed” counts successful decoded-image enqueue
+to the layer; it does not prove physical scanout. Stats overlay is toggleable.
+
+Shared `VideoTests` cover v1/v2 messages, fragmentation up to 1 MiB, oversize
+rejection before allocation, missing/out-of-order/expired fragments, one partial
+frame and queue recovery that sends an IDR first after overflow. TLS loopback
+coverage sends config and fragmented bytes through the real receiver/admission
+path, checks identical reassembly and chosen consumer status ACK, and checks
+fragment-gap ACK + keyframe request. It deliberately does not claim H.264 decode.
+The requested commands above must pass outside any environment blocker before
+signed device/image/background/reconnect/optical acceptance.
+
+
+G3a validation in this sandbox (2026-10-16): all three requested commands were
+attempted once. **0 tests executed; neither app reached source compilation.**
+SwiftPM failed before the test target with:
+
+```text
+error: 'shared': Invalid manifest
+sandbox-exec: sandbox_apply: Operation not permitted
+```
+
+Both unsigned Xcode builds (receiver destination `platform=macOS,arch=arm64`)
+failed resolving the local package with:
+
+```text
+xcodebuild: error: Could not resolve package dependencies:
+  <unknown>:0: error: cannot open file '/Users/me/Library/Caches/org.swift.swiftpm/manifests/ManifestLoading/shared.dia' for diagnostics emission (Operation not permitted)
+```
+
+CoreSimulator service diagnostics also appeared. The pipeline statuses belong to
+`tail`/`grep`, not successful tests/builds. No sandbox/cache/compiler workaround or
+retry was used. Compile/API verification, TLS video loopback execution, real H.264
+image correctness, rotation, background send and background reconnect remain
+unverified. Run the same commands in an authorized normal shell, then the human
+steps above. This change leaves the project, `ARCHS=arm64`, TLS security code,
+`as __DispatchData`, single-argument message callback and `.waiting(.tls)` handling
+in place. No commits, pushes or installs.
