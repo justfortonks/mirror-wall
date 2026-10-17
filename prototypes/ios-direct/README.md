@@ -79,6 +79,73 @@ also pass direct SDK source typechecks. No new signed build/install or physical
 acceptance is claimed. Repeat the first-run pairing/system-stop/window scenarios
 on devices; the historical results ledger is unchanged.
 
+## G3c presentation and scanner fixes
+
+Compared `a7ebbc0` → `afab209` and the local `g3a-run2` / `g3b-run2` logs.
+The decode/presentation source was unchanged between those builds, and window
+reuse happens at session admission, not per frame. In session `516FAE87`, early
+received/decoded throughput is about 30 fps while newest-image presentation is
+about 19 fps: burst completions supersede decoded images before enqueue. The
+existing immediate scheduler added a forced 1 ms timer before presentation;
+that extra coalescing interval is removed. Already queued burst completions still
+show their newest image once, preserving the decode-all-reference policy. The
+old inter-arrival p95 retained ten seconds of samples. It now uses only the last
+one second, and becomes unavailable after that window has no arrivals.
+
+The run does **not** establish a new G3b main-thread bottleneck: later active
+samples recover to a 30 fps median, including the final two minutes. The source
+of the earlier transport/decode bursts remains unproven without a device rerun.
+Removing the extra timer does not promise 30 displayed fps from coalesced bursts.
+
+All per-frame assembly, timing, decode, ACK and layer enqueue work stays on
+session workers. UI snapshots are limited to two per second. Each once-per-second
+`video.receiver.metrics` record includes `timing` summaries (count, p50/p95/max in
+milliseconds) for `arrivalToSubmit`, `decode`, `completeToEnqueue`, `interArrival`.
+Every summary is a bounded rolling last-one-second window. Arrival is the complete
+assembled access unit, stamped before waiting for the decode queue; decode ends
+at the VT callback before its queue hop; enqueue is a successful layer enqueue.
+Completion-to-enqueue includes callback queue wait and optional smoothing; skipped
+images have no enqueue sample. These timings distinguish worker/decode delays
+from burst input, without per-frame log lines or physical scanout claims.
+`longestGapMS` remains a session maximum, separately from the rolling quantiles.
+
+The scanner is presented once from each screen's stable root with an independent
+presentation object, instead of a sheet on a changing Form `Group`. A retained
+native controller starts/stops the camera on appear/disappear; permission and
+metrics updates do not recreate it. One scan is delivered after sheet dismissal.
+Pairing uses typed attempt IDs/states, ignores a second in-flight scan with a
+message, invalidates obsolete callbacks, and awaits cancelled-client cleanup
+before starting another client. Missing Bonjour discovery fails visibly after
+five seconds. Success refreshes the shared non-secret credential-presence cache
+from storage and clears rejection in both tabs immediately; failure refreshes
+it after provisional-key cleanup. An obsolete Stream rejection cannot update
+a receiver after that stream was disconnected for re-pairing.
+
+After Allow, the Mac burns an unconfirmed grant at four seconds and bounds final
+message flushing to one second. The phone fails an unacknowledged saved grant at
+four seconds, cleans its provisional credential, and shows a reason. Real-TLS
+loopback checks both decision bounds; physical link loss can delay delivery of
+any remote decision, so device/offline behavior still needs verification. Waiting
+for the user's decision remains bounded by the invitation expiry. QR expiry and
+the TLS/HMAC/Keychain security model are unchanged.
+
+**G3c local validation: 71 Shared tests pass**, including a synthetic 300-frame
+30 fps receive/decode/scheduled-presentation sequence (300 displayed, zero skips),
+rolling timing expiry/queue delays, UI publication cadence, scan after rejection
+and revoke, duplicate scan/cancel/stale callback handling, immediate stored-state
+refresh, and two real-TLS decision/confirmation timeout cases. Sender and Receiver
+pass direct arm64 SDK source typechecks. Both unsigned Xcode builds were attempted
+with the documented manifest flag and no packageCachePath; both again stopped at
+the `shared.dia` manifest-cache permission error above, before app compilation.
+No linked/signed build or device acceptance is claimed.
+
+Device rerun: keep the scanner open while metrics update; test its first tap and
+camera permission, cancel/reopen, scan after rejection/revoke and denial, then
+Allow and confirm both tabs show Paired without relaunch. Stream moving content
+for several minutes with the new one-second stage timings, compare infrastructure
+and offline phases, and retain the current newest-image policy. Confirm repeated
+capture and per-device windows still behave as described below.
+
 ## Pair, connect and forget
 
 1. Launch Receiver and allow local-network access. Wait for listener ready. The

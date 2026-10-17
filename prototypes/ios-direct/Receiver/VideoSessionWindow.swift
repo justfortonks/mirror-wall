@@ -75,7 +75,12 @@ private struct VideoSessionView: View {
                     let s = model.stats
                     Text(String(format: "Rx %.1f · decode %.1f · displayed %.1f fps", s.receivedFPS, s.decodedFPS, s.displayedFPS))
                     Text(String(format: "%.2f Mbit/s · frame %d B · errors %d · IDR requests %d", s.receivedMbit, s.frameBytes, s.decodeErrors, s.keyframeRequests))
-                    Text(String(format: "arrival p95 %@ ms · longest gap %.0f ms", s.interArrivalP95MS.map { String(format: "%.1f", $0) } ?? "—", s.longestGapMS))
+                    Text(String(format: "Longest gap (session) %.0f ms", s.longestGapMS))
+                    if let timing = s.timing {
+                        Text("Last 1 s p50/p95 ms · arrival \(ms(timing.interArrival))")
+                        Text("arrival→submit \(ms(timing.arrivalToSubmit)) · decode \(ms(timing.decode))")
+                        Text("complete→enqueue \(ms(timing.completeToEnqueue))")
+                    }
                     Text("Skipped \(s.displaySkipped) · queue peak \(s.decodeQueueDepth)/8 · \(s.presentationMode)")
                     Text("Recoveries: \(s.recoveries.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ", "))")
                     Text("\(s.width)×\(s.height) · orientation \(s.orientation) · generation \(s.generation.map(String.init) ?? "—")")
@@ -83,6 +88,10 @@ private struct VideoSessionView: View {
             }.font(.system(.caption, design: .monospaced)).foregroundStyle(.white)
                 .padding(8).background(.black.opacity(0.7)).padding(8)
         }.frame(minWidth: 300, minHeight: 240)
+    }
+    private func ms(_ summary: VideoTimingSummary) -> String {
+        guard let p50 = summary.p50MS, let p95 = summary.p95MS else { return "—" }
+        return String(format: "%.1f/%.1f", p50, p95)
     }
 }
 

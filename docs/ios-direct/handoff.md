@@ -152,3 +152,36 @@ confirm recovery controls, scanner errors/re-pair, indicator stop → Share agai
 and one window per device. Run 1 also shows an OS socket abort after system capture
 stop; application code retains the session, but uninterrupted socket retention
 when capture's background execution ends is not established by loopback/typechecks.
+
+
+## G3c — presentation timing and scanner lifetime
+
+Compared `a7ebbc0`/`afab209` and run 2 logs. The renderer/decode policy was unchanged
+by G3b; no added per-frame main hop was found. Early session `516FAE87` decodes
+about 30 fps but presents about 19: burst output supersedes decoded pictures under
+the existing newest-image policy. Later samples recover to a 30 fps median.
+Removed the immediate scheduler's extra 1 ms timer, retained burst coalescing,
+and replaced the ten-second inter-arrival p95 with rolling one-second p50/p95.
+Per-second JSONL now aggregates arrival→submit, VT duration, complete→enqueue,
+and inter-arrival count/p50/p95/max. UI publication is capped at 2 Hz; media stays
+on session workers. The cause of the earlier burst input is still unproven;
+these changes require a real-device presentation rerun, not a claim that the
+whole 19 fps episode was a demonstrated G3b source regression.
+
+Scanner presentation moved off the dynamic Group to one stable root presenter;
+a native camera controller starts/stops on appear/disappear and emits one scan
+after dismissal. Typed attempt ownership rejects duplicate scans visibly, filters
+old callbacks, waits for cancelled-client cleanup and bounds missing discovery.
+Pair completion refreshes stored pairing presence/rejection in both tabs without
+relaunch. Stream callbacks cannot re-mark a disconnected receiver rejected.
+Unconfirmed Allow/grant paths now fail visibly within the tested four-second
+confirmation bounds; Mac final-message flushing is bounded by one second. See
+README for timing definitions and the remote-decision delivery limitation.
+
+**71 Shared tests pass**, including synthetic steady 30 fps with zero skips,
+last-second timing expiry, UI cadence, pairing retries/duplicate/stale callbacks,
+store refresh and real-TLS decision timeouts. Both app SDK source typechecks pass;
+both unsigned Xcode builds again fail package resolution at the unwritable
+SwiftPM manifest-cache `shared.dia`, before app compilation. No installs, commits
+or pushes; results.md and the protocol/security model are unchanged. Device
+scanner/Keychain and presentation acceptance remain outstanding.

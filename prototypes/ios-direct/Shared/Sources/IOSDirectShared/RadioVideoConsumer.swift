@@ -5,7 +5,14 @@ import Foundation
 public protocol RadioVideoConsumer: AnyObject {
     func configure(_ config: VideoConfig) throws
     func receive(_ frame: VideoAccessUnit, completion: @escaping (VideoDecodeStatus) -> Void)
+    func receive(_ frame: VideoAccessUnit, arrivalNs: UInt64, completion: @escaping (VideoDecodeStatus) -> Void)
     func discontinuity(_ reason: String)
     func tick()
     func close(_ reason: String)
+}
+
+public extension RadioVideoConsumer {
+    func receive(_ frame: VideoAccessUnit, arrivalNs: UInt64, completion: @escaping (VideoDecodeStatus) -> Void) {
+        receive(frame, completion: completion)
+    }
 }
