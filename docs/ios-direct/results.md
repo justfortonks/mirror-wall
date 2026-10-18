@@ -288,3 +288,24 @@ Logs: phone paced/encoded/sent/acked **30 fps**, sink queue 0; Mac received ≈3
 ## Phone B change — 2026-10-17
 
 Phone B is now an **iPhone 16e (iPhone17,5), iOS 27.0.1**, replacing the MDM-restricted iPhone 17e. Paired with the Mac, Developer Mode enabled, registered to Personal Team 499JQDRQF9 via Xcode (GUI step needed for device registration), build `426bf6f` installed. No Apple Account signed in (user report); phone A is signed into the user's Apple Account — accounts are not shared.
+
+## Run 12 — first two-phone run: phone A (17 Pro Max) + phone B (16e, no Apple Account) → Mac, 2026-10-17 01:14–01:19Z
+
+Build `426bf6f` (G3c + G3d). Phones unassociated, cellular off, no USB during run; Mac on home Wi-Fi. Both phones streamed concurrently ~3.5 min incl. background use; part of each session with smoothing on.
+
+| Item | Phone A | Phone B |
+| --- | --- | --- |
+| Pairing | existing pairing | **QR pair flawless** (user): invitation → request → Allow → paired in 17 s, no relaunch |
+| Phone captured / paced / encoded / sent / acked fps | 59.6 / 29.8 / 29.7 / 29.0 / 29.0 | 35.6 / 22.7 / 23.0 / 22.6 / 22.7 |
+| Mac received / displayed fps (median, p10) | 29 / **29** (22) | 23 / **22** (19) |
+| Display-skipped / dropped / keyframe req / decode errors | 23 / 0 / 0 / 0 | 16 / 0 / 0 / 0 |
+| Longest gap | 4.5 s | 1.4 s |
+| Thermal / memory | nominal / 92 MB | nominal / 89 MB |
+
+Mac timing (1 s windows): arrival→decode-submit p95 0.07 ms; decode p50 1.8 ms / p95 2.2 ms; decode→enqueue p95 0.4 ms; **inter-arrival p50 28 ms, p95 ~159 ms** (AWDL burstiness with Mac on Wi-Fi). User: scanner flawless; streams "decently well", a little jittery/laggy, smoothing helped a bit; two phones behaved like one.
+
+Findings:
+1. **Two concurrent sessions work** with independent windows/decoders, zero loss, no interference (first G4 evidence; not yet the offline/30-min acceptance run).
+2. The runs 10–11 display regression is gone after G3c (displayed ≈ received).
+3. **Sender pacer bug:** with ~36 fps source updates (phone B) the min-interval pacer keeps only ~23 fps. Needs deadline-based pacing that averages 30 fps from irregular input.
+4. Remaining jitter is link-side (Mac on home Wi-Fi). Mac-offline two-phone run still to do.
