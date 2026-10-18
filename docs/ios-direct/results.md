@@ -287,4 +287,4 @@ Logs: phone paced/encoded/sent/acked **30 fps**, sink queue 0; Mac received ≈3
 
 ## Phone B change — 2026-10-17
 
-Phone B is now an **iPhone 16e (iPhone17,5), iOS 27.0.1**, replacing the MDM-restricted iPhone 17e. Paired with the Mac, Developer Mode enabled, registered to Personal Team 499JQDRQF9 via Xcode (GUI step needed for device registration), build `426bf6f` installed. Apple Account relationship to be confirmed by the user.
+Phone B is now an **iPhone 16e (iPhone17,5), iOS 27.0.1**, replacing the MDM-restricted iPhone 17e. Paired with the Mac, Developer Mode enabled, registered to Personal Team 499JQDRQF9 via Xcode (GUI step needed for device registration), build `426bf6f` installed. No Apple Account signed in (user report); phone A is signed into the user's Apple Account — accounts are not shared.
