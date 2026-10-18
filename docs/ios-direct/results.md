@@ -309,3 +309,21 @@ Findings:
 2. The runs 10–11 display regression is gone after G3c (displayed ≈ received).
 3. **Sender pacer bug:** with ~36 fps source updates (phone B) the min-interval pacer keeps only ~23 fps. Needs deadline-based pacing that averages 30 fps from irregular input.
 4. Remaining jitter is link-side (Mac on home Wi-Fi). Mac-offline two-phone run still to do.
+
+## Run 13 — two phones, Mac internet on Ethernet with Wi-Fi unassociated, 2026-10-17 01:54–02:01Z
+
+Build `3fc668e` (deadline pacer). Mac: Ethernet with internet, Wi-Fi radio on but not joined to any network, Internet Sharing off. Phones unassociated, cellular off, no USB. ~6 min concurrent, background use; smoothing toggled on one window for the last part. (Phone clocks logged the date as 2026-10-18; times match.)
+
+| Item | Phone A (17 Pro Max) | Phone B (16e) |
+| --- | --- | --- |
+| Phone captured / paced / encoded / sent fps | 60.0 / 30.0 / 30.0 / 30.0 | **20.0** / 20.0 / 20.0 / 20.0 (source delivered 20 fps; pacer passed all) |
+| Mac displayed fps (median, p10) | **30.0 (29.97)** | 20.0 (19.99) |
+| Inter-arrival p50 / p95 (1 s windows, median) | 33 / **47 ms** | 50 / 55 ms |
+| Received Mbit/s | **5.8** (≈ 6 Mbit/s target) | 1.1 |
+| Skipped / dropped / keyframe req / decode errors | 0 / 0 / 0 / 0 | 2 / 0 / 0 / 0 |
+| Thermal | nominal | nominal |
+
+Compared with run 12 (Mac on home Wi-Fi): inter-arrival p95 ~150 ms → ~47–55 ms; phone A displayed p10 22 → 30. User: "definitely less laggy".
+Deadline pacer confirmed on hardware (paced = captured when source < 30 fps; A 60 → 30).
+**Bug found:** stopping capture from Control Center while backgrounded → iOS suspends the app, session drops; on return the reconnect stalled in TLS `preparing` (never reached the Mac) and both phones wrongly showed "This Mac didn't accept this phone". Fix in progress (stall ≠ rejection).
+Product note: **Mac on Ethernet with Wi-Fi unassociated is the recommended configuration.**
