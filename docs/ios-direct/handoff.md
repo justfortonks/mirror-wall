@@ -345,3 +345,23 @@ rejection, post-TLS peer close, revoked-key deletion, foreground recovery and
 single-use resolver callbacks. Both arm64 app SDK source typechecks pass. No
 linked app build or physical suspension/Bonjour acceptance is claimed. No
 commits, pushes or installs.
+
+## Checkpoint — Claude, end of day 2 (2026-10-17)
+
+Latest build `762457d`+: quality presets (Standard/High/Native, 60 fps toggle) and stalled-reconnect
+handling. **97 Shared tests pass**; both apps build. Installed on the **16e and the Mac receiver**;
+**Pro Max not yet updated** (was unplugged). G5 integration plan drafted:
+[integration-plan.md](integration-plan.md) — planning only, awaiting G4 acceptance and an explicit
+G5 decision before any change to Mirror Wall's production code.
+
+### Next session (needs the user)
+1. Plug in the Pro Max so Claude installs the latest build.
+2. Retest stop-from-Control-Center → return to app: expect "Reconnecting…" or a clean reconnect,
+   never "didn't accept this phone".
+3. Quality comparison on both phones (Mac on Ethernet, Wi-Fi unassociated): Standard vs High vs
+   Native, and 60 fps on/off, against production Mirror Wall's AirPlay picture. Phone logs show which
+   encoder properties (DataRateLimits, Quality) were accepted.
+4. What was on the 16e screen in run 13 (it delivered exactly 20 fps)? Use changing content
+   (e.g. a stopwatch or scrolling) on both phones for fps measurements.
+5. Remaining G4 acceptance: fully offline two-phone run (Mac unassociated, no Ethernet) and the
+   30-minute soak; optical latency with the latency clock.
