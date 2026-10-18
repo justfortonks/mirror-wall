@@ -284,3 +284,7 @@ Build `afab209`. Pairing checks (user report):
 
 Stream (session 03:29:34–03:34:47; Mac lost its infrastructure route at 03:31:30, i.e. Mac offline for the last ~3 min; smoothing off): user — better than the online test; laggy for the first ~20 s, then better.
 Logs: phone paced/encoded/sent/acked **30 fps**, sink queue 0; Mac received ≈30 fps but **displayed ≈19 fps with ≈10 frames/s display-skipped throughout**, inter-arrival p95 metric stuck ≈270 ms. Run 9 (`a7ebbc0`) displayed 30 fps with 11 skips total → **receiver presentation regression introduced in G3b/G3b-fix**, not the link. Fix in G3c.
+
+## Phone B change — 2026-10-17
+
+Phone B is now an **iPhone 16e (iPhone17,5), iOS 27.0.1**, replacing the MDM-restricted iPhone 17e. Paired with the Mac, Developer Mode enabled, registered to Personal Team 499JQDRQF9 via Xcode (GUI step needed for device registration), build `426bf6f` installed. Apple Account relationship to be confirmed by the user.
