@@ -11,6 +11,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     @Published private(set) var counters = MetricsSnapshot()
     @Published private(set) var busy = false
     @Published private(set) var logFailure: String?
+    @Published private(set) var streamSettings = StreamSettings()
     let metrics = Telemetry()
     private(set) var log: RunLog?
     var logURL: URL? { log?.url }
@@ -132,6 +133,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
                     $0.capturedFPS = Double(current.validFrames - previousSample.validFrames) / seconds
                     $0.pacedFPS = Double(current.pacedFrames - previousSample.pacedFrames) / seconds
                     $0.encodedFPS = Double(current.encodeCompleted - previousSample.encodeCompleted) / seconds
+                    $0.encodedMbit = Double(current.encodeBytes - previousSample.encodeBytes) * 8 / seconds / 1e6
                     if let network {
                         $0.sentFPS = Double(network.sent - (previousSample.video?.sent ?? 0)) / seconds
                         $0.ackedFPS = Double(network.acked - (previousSample.video?.acked ?? 0)) / seconds
@@ -151,6 +153,14 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
     }
     private func setState(_ value: String) {
         state = value; metrics.update { $0.captureState = value }; log?.event("capture.state", value)
+    }
+    func setStreamSettings(_ next: StreamSettings) { // main only
+        guard next != streamSettings else { return }
+        streamSettings = next
+        captureQueue.sync { pipeline?.setSettings(next) }
+        if stream != nil {
+            log?.event("stream.reconfigurationUnavailable", "live encoder settings applied; SCK dimensions remain as requested at Share; Stop/Share to request a larger capture size")
+        }
     }
     func shareDisplay() {
         guard !busy, log != nil, log?.error() == nil else { return }
@@ -207,7 +217,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
             configuration.captureDynamicRange = .SDR
             let rect = filter.contentRect
             let scale = CGFloat(filter.pointPixelScale)
-            if let size = Dimensions.fit(width: Int(rect.width * scale), height: Int(rect.height * scale)) {
+            if let size = self.streamSettings.preset.output(width: Int(rect.width * scale), height: Int(rect.height * scale)) {
                 configuration.width = size.width; configuration.height = size.height
             }
             // iPhoneOS 27.1 SCStream.h exposes width/height on iOS, but explicitly
@@ -223,7 +233,7 @@ final class CaptureExperiment: NSObject, ObservableObject, SCContentSharingPicke
                 self.orientationNotifications = 0; self.backgroundOrientationNotifications = 0
                 self.observeOrientation(notification: false)
                 self.log?.event("stream.startRequested", "full display; filterRect=\(rect) pointPixelScale=\(scale); requested=\(configuration.width)x\(configuration.height); SDR; no audio output")
-                self.log?.event("stream.configurationLimits", "iOS 27.1 SDK: minimumFrameInterval/pixelFormat/scalesToFit/preservesAspectRatio/updateConfiguration unavailable; explicit 30fps pacer; delivered pixel format recorded")
+                self.log?.event("stream.configurationLimits", "iOS 27.1 SDK: minimumFrameInterval/pixelFormat/scalesToFit/preservesAspectRatio/updateConfiguration unavailable; explicit \(self.streamSettings.fps)fps pacer; preset=\(self.streamSettings.preset.rawValue) targetBitrate=\(self.streamSettings.targetBitrate); delivered pixel format recorded")
                 newStream.startCapture { [weak self, weak newStream] error in
                     DispatchQueue.main.async {
                         guard let self, let newStream, token == self.request, self.stream === newStream else { return }

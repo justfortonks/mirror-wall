@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import Network
+import Combine
 import IOSDirectShared
 
 @MainActor
@@ -10,6 +12,9 @@ final class StreamExperiment: ObservableObject {
     @Published private(set) var state = "idle"
     @Published private(set) var connected = false
     @Published private(set) var running = false
+    @Published private(set) var unreachable = false
+    private var connectionRun = UUID()
+    private var captureActivity: AnyCancellable?
     @Published private(set) var logFailure: String?
     private let radioLog: RadioLog?
     private var rePairObserver: NSObjectProtocol?
@@ -37,6 +42,11 @@ final class StreamExperiment: ObservableObject {
             guard let self else { return }
             self.sink.setReceiverDiscovered(self.discovery.receivers.contains { $0.rid == self.connectionRID })
         }
+        discovery.onRecoveryAvailabilityChanged = { [weak sink] allowed in sink?.setRecoveryAllowed(allowed) }
+        captureActivity = capture.$busy.sink { [weak discovery] busy in discovery?.setBackgroundCaptureActive(busy) }
+        sink.onUnreachable = { [weak self] in DispatchQueue.main.async {
+            self?.unreachable = true
+        } }
         let metrics = capture.metrics, log = capture.log
         sink.onEvent = { name, details in log?.event(name, "\(details) appState=\(metrics.snapshot().appState)") }
         sink.onState = { [weak self] state, ready in
@@ -72,15 +82,42 @@ final class StreamExperiment: ObservableObject {
                 state = "log unavailable"; return
             }
             let install = discovery.installID
+            connectionRun = UUID(); unreachable = false
             running = true; connectionRID = credential.rid; discovery.pinSelection(credential.rid)
-            sink.start(endpoint: endpoint, credential: credential, install: install, label: UIDevice.current.name, log: radioLog, receiverDiscovered: true, pairingStore: discovery.pairingStore)
+            startSink(endpoint: endpoint, credential: credential, install: install)
+        } catch { state = String(describing: error) }
+    }
+    private func startSink(endpoint: NWEndpoint, credential: DeviceCredential, install: UUID) {
+        let discovery = self.discovery
+        sink.start(endpoint: endpoint, credential: credential, install: install, label: UIDevice.current.name,
+            log: radioLog, receiverDiscovered: true, pairingStore: discovery.pairingStore,
+            refreshReceiver: { [weak discovery] completion in DispatchQueue.main.async {
+                guard let discovery else { completion(nil); return }
+                discovery.refreshReceiver(credential.rid, completion: completion)
+            } })
+    }
+    func tryAgain() {
+        guard let rid = connectionRID ?? discovery.selectedRID else { return }
+        do {
+            guard let credential = try discovery.pairingStore.credential(rid: rid) else { return }
+            connectionRun = UUID(); let run = connectionRun
+            running = true; connected = false; unreachable = false; state = "Reconnecting…"
+            connectionRID = rid; discovery.pinSelection(rid)
+            discovery.refreshReceiver(rid) { [weak self] endpoint in
+                guard let self, self.connectionRun == run else { return }
+                guard let endpoint else {
+                    self.running = false; self.unreachable = true; self.state = ClientSessionPolicy.unreachableMessage; return
+                }
+                self.startSink(endpoint: endpoint, credential: credential, install: self.discovery.installID)
+            }
         } catch { state = String(describing: error) }
     }
     func shareDisplay() {
         guard connected, !capture.busy else { return }; capture.shareDisplay()
     }
     func disconnect() {
-        sink.stop(); if capture.busy { capture.stop() }; running = false; connected = false; connectionRID = nil; discovery.pinSelection(nil); state = "disconnected"
+        connectionRun = UUID(); sink.stop(); if capture.busy { capture.stop() }
+        running = false; connected = false; unreachable = false; connectionRID = nil; discovery.pinSelection(nil); state = "Disconnected — tap Connect"
     }
     func forgetReceiver() {
         let rid = connectionRID ?? discovery.selectedReceiver?.rid
@@ -98,6 +135,20 @@ struct StreamExperimentView: View {
         NavigationStack {
             Form {
                 StreamConnectionControls(experiment: experiment, discovery: experiment.discovery)
+                Section("Stream quality") {
+                    Picker("Preset", selection: Binding(get: { capture.streamSettings.preset }, set: {
+                        capture.setStreamSettings(StreamSettings(preset: $0, sixtyFPS: capture.streamSettings.sixtyFPS))
+                    })) {
+                        ForEach(StreamPreset.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    Toggle("60 fps", isOn: Binding(get: { capture.streamSettings.sixtyFPS }, set: {
+                        capture.setStreamSettings(StreamSettings(preset: capture.streamSettings.preset, sixtyFPS: $0))
+                    }))
+                    Text("Target \(capture.streamSettings.targetBitrate / 1_000_000) Mbit/s · up to \(capture.streamSettings.fps) fps")
+                    if capture.busy {
+                        Text("Quality changes apply while sharing. To request a larger capture size, stop capture and Share again.")
+                    }
+                }
                 Section("Full-display consent") {
                     Text("Session: \(experiment.state)")
                     Text("Capture: \(capture.state) · encoder: \(capture.counters.encoderState)")
@@ -114,6 +165,7 @@ struct StreamExperimentView: View {
                     let m = capture.counters
                     Text("App: \(m.appState)")
                     Text(String(format: "Capture %.1f · paced %.1f · encoded %.1f fps", m.capturedFPS, m.pacedFPS, m.encodedFPS))
+                    Text(String(format: "Encoded %.2f Mbit/s · %@ · %d fps · target %.0f Mbit/s", m.encodedMbit, m.streamPreset, m.maxFPS, Double(m.bitrate) / 1e6))
                     Text(String(format: "Sent %.1f · ACKed %.1f fps · %.2f Mbit/s", m.sentFPS, m.ackedFPS, m.sentMbit))
                     if let v = m.video {
                         Text(String(format: "Queue %d B / %.1f ms · outstanding %d B", v.queueBytes, v.queueAgeMS, v.outstandingBytes))
@@ -127,9 +179,6 @@ struct StreamExperimentView: View {
                 }
             }.navigationTitle("Stream experiment")
                 .onAppear { experiment.discovery.browse() }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    experiment.discovery.restartBrowser(reason: "stream didBecomeActive")
-                }
                 .fullScreenCover(isPresented: $clock) { LatencyClockView() }
         }.modifier(PairingScannerPresenter(presentation: experiment.discovery.scanner, scanned: { experiment.discovery.scan($0, expectedRID: $1) }))
     }
@@ -147,6 +196,10 @@ private struct StreamConnectionControls: View {
             }.disabled(experiment.running)
             PairingControls(discovery: discovery, forget: { experiment.forgetReceiver() })
             Button("Connect") { experiment.connect() }.disabled(experiment.running || !discovery.canConnect() || discovery.pairingBusy)
+            if experiment.unreachable {
+                Button("Try again") { experiment.tryAgain() }.disabled(experiment.running)
+                Button("Pair again") { discovery.scanner.present(rid: discovery.selectedRID) }
+            }
             Button("Restart discovery") { discovery.restartBrowser(reason: "stream user retry") }
         }
     }

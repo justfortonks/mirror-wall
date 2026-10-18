@@ -351,6 +351,7 @@ public final class RadioReceiver {
                 guard session.mode == .video else { throw RadioError.protocolViolation("video in synthetic session") }
                 for event in session.assembly.abandon("config changed mid-frame") { handleAssembly(event) }
                 try session.video?.configure(config)
+                channel.snapshot.windowBytes = (config.streamSettings ?? StreamSettings()).latencyWindowBytes
             case .videoFragment(let fragment):
                 guard session.mode == .video else { throw RadioError.protocolViolation("video in synthetic session") }
                 for event in try session.assembly.accept(fragment, now: Double(radioNow()) / 1e9) { handleAssembly(event) }

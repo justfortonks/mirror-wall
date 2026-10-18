@@ -1,15 +1,55 @@
 import Foundation
 
+public enum StreamPreset: String, Codable, CaseIterable {
+    case standard = "Standard", high = "High", native = "Native"
+    public var targetBitrate: Int {
+        switch self { case .standard: return 6_000_000; case .high: return 12_000_000; case .native: return 20_000_000 }
+    }
+    public var portraitBox: Dimensions? {
+        switch self {
+        case .standard: return Dimensions(width: 720, height: 1280)
+        case .high: return Dimensions(width: 1080, height: 2400)
+        case .native: return nil
+        }
+    }
+    var wireID: UInt8 { switch self { case .standard: return 0; case .high: return 1; case .native: return 2 } }
+    init(wireID: UInt8) throws {
+        switch wireID {
+        case 0: self = .standard
+        case 1: self = .high
+        case 2: self = .native
+        default: throw RadioError.protocolViolation("unknown stream preset")
+        }
+    }
+    public func output(width: Int, height: Int) -> Dimensions? {
+        Dimensions.fit(width: width, height: height, portraitBox: portraitBox)
+    }
+}
+
+public struct StreamSettings: Equatable, Codable {
+    public let preset: StreamPreset
+    public let sixtyFPS: Bool
+    public var fps: Int { sixtyFPS ? 60 : 30 }
+    public var targetBitrate: Int { preset.targetBitrate }
+    public var latencyWindowBytes: Int { min(150_000, targetBitrate / 80) }
+    public init(preset: StreamPreset = .standard, sixtyFPS: Bool = false) {
+        self.preset = preset; self.sixtyFPS = sixtyFPS
+    }
+}
+
 public struct Dimensions: Codable, Equatable {
     public let width: Int
     public let height: Int
     public init(width: Int, height: Int) { self.width = width; self.height = height }
     /// Rounding down to even pixels introduces less than two pixels of aspect error.
-    public static func fit(width: Int, height: Int) -> Dimensions? {
+    public static func fit(width: Int, height: Int,
+                           portraitBox: Dimensions? = Dimensions(width: 720, height: 1280)) -> Dimensions? {
         guard width >= 2, height >= 2 else { return nil }
         let portrait = height > width
-        let scale = min(1, min(Double(portrait ? 720 : 1280) / Double(width),
-                               Double(portrait ? 1280 : 720) / Double(height)))
+        if let portraitBox, portraitBox.width < 2 || portraitBox.height < 2 { return nil }
+        let box = portraitBox ?? Dimensions(width: width, height: height)
+        let scale = portraitBox == nil ? 1 : min(1, min(Double(portrait ? box.width : box.height) / Double(width),
+                               Double(portrait ? box.height : box.width) / Double(height)))
         return Dimensions(width: max(2, Int(Double(width) * scale) / 2 * 2),
                           height: max(2, Int(Double(height) * scale) / 2 * 2))
     }

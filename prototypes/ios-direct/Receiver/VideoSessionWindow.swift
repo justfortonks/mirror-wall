@@ -122,6 +122,9 @@ private struct VideoSessionView: View {
                 if showStats {
                     Text("Rotation \(model.rotation.degrees)° · source \(model.rotation.sourceLabel)")
                     let s = model.stats
+                    if let settings = s.streamSettings {
+                        Text("\(settings.preset.rawValue) · \(s.width)×\(s.height) · \(settings.fps) fps · target \(settings.targetBitrate / 1_000_000) Mbit/s")
+                    } else { Text("Stream quality metadata unavailable") }
                     Text(String(format: "Rx %.1f · decode %.1f · displayed %.1f fps", s.receivedFPS, s.decodedFPS, s.displayedFPS))
                     Text(String(format: "%.2f Mbit/s · frame %d B · errors %d · IDR requests %d", s.receivedMbit, s.frameBytes, s.decodeErrors, s.keyframeRequests))
                     Text(String(format: "Longest gap (session) %.0f ms", s.longestGapMS))

@@ -1,37 +1,94 @@
 import XCTest
+import Network
 @testable import IOSDirectShared
 
 final class ClientSessionPolicyTests: XCTestCase {
-    func testOnlyWelcomedAttemptCanReconnectAfterLinkLoss() {
+    func testLinkLossRetriesAfterWelcomeOrAStalledAdmission() {
         var policy = ClientSessionPolicy()
         XCTAssertEqual(policy.action(for: .linkLoss, receiverDiscovered: true), .stop)
         policy.welcomed()
         XCTAssertEqual(policy.action(for: .linkLoss, receiverDiscovered: true), .retry)
-        XCTAssertEqual(policy.action(for: .linkLoss, receiverDiscovered: false), .retry)
-        // The retry is a fresh TLS attempt. A prior welcome cannot authorize a
-        // chain of retries of attempts that have never reached welcome themselves.
         policy.beginAttempt()
         XCTAssertTrue(policy.everWelcomed); XCTAssertFalse(policy.welcomedThisAttempt)
-        XCTAssertEqual(policy.action(for: .linkLoss, receiverDiscovered: false), .stop)
-        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: false), .stop)
-        policy.welcomed()
+        XCTAssertEqual(policy.action(for: .linkLoss, receiverDiscovered: false), .retry)
+        policy = ClientSessionPolicy()
+        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: false), .retry)
+        policy.beginAttempt()
         XCTAssertEqual(policy.action(for: .linkLoss, receiverDiscovered: false), .retry)
     }
-    func testAuthenticationRejectionAlwaysStopsEvenAfterEarlierWelcome() {
+    func testOnlyAuthenticationEvidenceRejectsPairing() {
         var policy = ClientSessionPolicy(); policy.welcomed()
-        for cause: RadioCloseCause in [.authentication, .admissionDeadline(tlsReady: false), .admissionDeadline(tlsReady: true),
-            .rejected("unpaired"), .rejected("auth failure"), .rejected("authentication failed")] {
+        for cause: RadioCloseCause in [.authentication, .rejected("unpaired")] {
             XCTAssertEqual(policy.action(for: cause, receiverDiscovered: true), .pairingRejected(.notAccepted))
         }
         XCTAssertEqual(policy.action(for: .revoked, receiverDiscovered: true), .pairingRejected(.revoked))
-        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: true), receiverDiscovered: false), .pairingRejected(.notAccepted))
-        policy.beginAttempt()
-        // Discovery + preparing is the silent rejection seen on the phone in run 1.
-        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false, preparing: true), receiverDiscovered: true), .pairingRejected(.notAccepted))
-        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false, preparing: false), receiverDiscovered: true), .stop)
-        for cause: RadioCloseCause in [.localStop, .peerEnded, .protocolFailure, .rejected("capacity"), .rejected("busy")] {
+        for cause: RadioCloseCause in [.localStop, .peerEnded, .protocolFailure, .rejected("capacity"), .rejected("busy"), .rejected("auth failure")] {
             XCTAssertEqual(policy.action(for: cause, receiverDiscovered: true), .stop)
         }
+        // A deadline, including one after TLS ready, is not a peer rejection.
+        for ready in [false, true] {
+            for preparing in [false, true] {
+                var attempt = ClientSessionPolicy()
+                XCTAssertEqual(attempt.action(for: .admissionDeadline(tlsReady: ready, preparing: preparing), receiverDiscovered: true), .retry)
+            }
+        }
+    }
+    func testThreeConsecutiveDiscoveredStallsStopWithoutChangingPairing() throws {
+        let rid = UUID(), store = MemoryPairingKeyStore()
+        let credential = DeviceCredential(deviceID: UUID(), deviceKey: try PairCrypto.random(32), rid: rid, receiverName: "Mac")
+        try store.save(credential)
+        var policy = ClientSessionPolicy()
+        for index in 1...3 {
+            policy.beginAttempt()
+            XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false, preparing: true), receiverDiscovered: true), index == 3 ? .unreachable : .retry)
+            XCTAssertEqual(policy.consecutiveStalls, index)
+        }
+        XCTAssertEqual(ClientSessionPolicy.unreachableMessage, "Can't reach this Mac. If it was forgotten on the Mac, pair again.")
+        XCTAssertEqual(try store.credential(rid: rid), credential)
+        XCTAssertEqual(ReceiverPairingStatus().label(rid: rid, hasCredential: true), "Paired")
+        policy = ClientSessionPolicy() // Explicit Try again starts a new budget.
+        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: true), .retry)
+    }
+    func testStallsMustBeConsecutiveAndCurrentlyDiscovered() {
+        var policy = ClientSessionPolicy()
+        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: true), .retry)
+        policy.beginAttempt() // Starting another attempt does not reset the budget.
+        XCTAssertEqual(policy.consecutiveStalls, 1)
+        XCTAssertEqual(policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: false), .retry)
+        XCTAssertEqual(policy.consecutiveStalls, 0)
+        _ = policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: true)
+        policy.receiverUnavailable(); XCTAssertEqual(policy.consecutiveStalls, 0)
+        _ = policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: true)
+        policy.welcomed(); XCTAssertEqual(policy.consecutiveStalls, 0)
+        _ = policy.action(for: .admissionDeadline(tlsReady: false), receiverDiscovered: true)
+        _ = policy.action(for: .linkLoss, receiverDiscovered: true)
+        XCTAssertEqual(policy.consecutiveStalls, 0)
+    }
+    func testNWErrorsDistinguishPeerResetAfterTLSFromPreparingStall() {
+        XCTAssertEqual(RadioChannel.classify(.tls(-9858), tlsReady: false, welcomed: false), .authentication)
+        XCTAssertEqual(RadioChannel.classify(.posix(.ECONNRESET), tlsReady: false, welcomed: false), .linkLoss)
+        XCTAssertEqual(RadioChannel.classify(.posix(.ECONNRESET), tlsReady: true, welcomed: false), .authentication)
+        XCTAssertEqual(RadioChannel.classify(.posix(.ECONNRESET), tlsReady: true, welcomed: true), .linkLoss)
+        XCTAssertEqual(RadioChannel.classify(.posix(.ECONNABORTED), tlsReady: true, welcomed: false), .linkLoss)
+        XCTAssertEqual(RadioChannel.classify(.posix(.ETIMEDOUT), tlsReady: true, welcomed: false), .linkLoss)
+    }
+    func testFreshBrowseEpochRejectsCachedAndLateResultsAcrossSuspension() {
+        let rid = UUID(); var discovery = FreshReceiverResults<String>()
+        let beforeSuspension = discovery.generation
+        XCTAssertTrue(discovery.update([rid: "cached endpoint"], generation: beforeSuspension))
+        XCTAssertNotNil(discovery.endpoint(for: rid))
+        let foreground = discovery.restart()
+        XCTAssertNil(discovery.endpoint(for: rid), "never reuse pre-suspension cache")
+        XCTAssertFalse(discovery.update([rid: "late old callback"], generation: beforeSuspension))
+        XCTAssertNil(discovery.endpoint(for: rid))
+        XCTAssertTrue(discovery.update([rid: "fresh endpoint"], generation: foreground))
+        XCTAssertEqual(discovery.endpoint(for: rid), "fresh endpoint")
+        _ = discovery.restart() // Each retry also requires a new browse callback.
+        XCTAssertNil(discovery.endpoint(for: rid))
+    }
+    func testReconnectBackoffCapsAtFourSeconds() {
+        var backoff = ReconnectBackoff()
+        XCTAssertEqual((0..<7).map { _ in backoff.next() }, [0.5, 1, 2, 4, 4, 4, 4])
     }
     func testRevokedDeletesOnlyThatReceiverButAmbiguousFailurePreservesCredential() throws {
         let store = MemoryPairingKeyStore(), a = UUID(), b = UUID()
@@ -56,6 +113,13 @@ final class ClientSessionPolicyTests: XCTestCase {
         status.reject(a, reason: .revoked)
         XCTAssertEqual(status.label(rid: a, hasCredential: false), "Not paired")
         XCTAssertEqual(status[a]?.message, "This Mac forgot this phone. Pair again to reconnect.")
+    }
+    func testMigrationClearsOldTimeoutRejectionHintsButKeepsRevocation() {
+        let a = UUID(), b = UUID(); var status = ReceiverPairingStatus()
+        status.reject(a, reason: .notAccepted); status.reject(b, reason: .revoked)
+        status.clearLegacyReachabilityRejections()
+        XCTAssertEqual(status.label(rid: a, hasCredential: true), "Paired")
+        XCTAssertEqual(status[b], .revoked)
     }
     func testWindowRebindByVerifiedDeviceIgnoresObsoleteSessionCallbacks() {
         var windows = VideoWindowSessions()

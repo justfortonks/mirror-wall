@@ -50,6 +50,55 @@ final class VideoTests: XCTestCase {
         body.put(UInt16(0)); body.put(UInt16(17)); body.put(UInt32(VideoFragment.maxFrame + 1)); body.append(1)
         XCTAssertThrowsError(try RadioMessage(RadioFrame(.videoFragment, body, version: 2)))
     }
+    func testFourMiBBoundAcceptsThreePointNineAndRejectsFourPointOne() throws {
+        let frame = unit(bytes: Int(3.9 * 1_048_576))
+        var assembler = VideoReassembler(), events = [VideoAssemblyEvent]()
+        for fragment in try frame.fragments() { events += try assembler.accept(fragment, now: 0) }
+        XCTAssertEqual(events, [.frame(frame)])
+        let tooBig = Int(4.1 * 1_048_576)
+        let fragment = VideoFragment(generation: 1, seq: 1, ptsNs: 0, keyframe: true,
+            index: 0, count: 66, total: UInt32(tooBig), data: Data([1]))
+        XCTAssertThrowsError(try assembler.accept(fragment, now: 0))
+        XCTAssertEqual(assembler.bufferedBytes, 0); XCTAssertEqual(assembler.framesInProgress, 0)
+        XCTAssertThrowsError(try unit(bytes: tooBig).fragments())
+        var queue = VideoSendQueue()
+        XCTAssertTrue(queue.offer(frame, now: 0)); XCTAssertEqual(queue.pop(now: 0), frame)
+    }
+    func testConfigCarriesAllPresetMetadataAndPreservesItAcrossGenerations() throws {
+        for preset in StreamPreset.allCases {
+            for sixty in [false, true] {
+                for rect in [nil, Self.config.contentRect] {
+                    let settings = StreamSettings(preset: preset, sixtyFPS: sixty)
+                    let size = try XCTUnwrap(preset.output(width: 1320, height: 2868))
+                    let config = VideoConfig(generation: 9, width: UInt16(size.width), height: UInt16(size.height),
+                        orientation: 1, contentRect: rect, streamSettings: settings, avcC: Self.config.avcC)
+                    let frame = try RadioMessage.videoConfig(config).frame()
+                    XCTAssertEqual(frame.version, 3)
+                    XCTAssertEqual(try RadioMessage(frame), .videoConfig(config))
+                    XCTAssertEqual(config.withGeneration(10).streamSettings, settings)
+                    var state = VideoConfigurationState()
+                    XCTAssertEqual(try state.update(config), .changed)
+                    XCTAssertEqual(try state.update(config), .identical)
+                    let changed = VideoConfig(generation: 9, width: config.width, height: config.height, orientation: 1,
+                        contentRect: rect, streamSettings: StreamSettings(preset: preset, sixtyFPS: !sixty), avcC: config.avcC)
+                    XCTAssertThrowsError(try state.update(changed))
+                }
+            }
+        }
+    }
+    func testInvalidOrTruncatedQualityMetadataIsRejected() throws {
+        let config = VideoConfig(generation: 1, width: 588, height: 1280, orientation: 1,
+            streamSettings: StreamSettings(), avcC: Self.config.avcC)
+        let body = try RadioMessage.videoConfig(config).frame().body
+        // No rect: flags at 9, preset/fps/bitrate at 10...15.
+        for (offset, value): (Int, UInt8) in [(9, 4), (10, 3), (11, 59), (15, 1)] {
+            var bad = body; bad[offset] = value
+            XCTAssertThrowsError(try RadioMessage(RadioFrame(.videoConfig, bad, version: 3)))
+        }
+        for length in 10..<16 {
+            XCTAssertThrowsError(try RadioMessage(RadioFrame(.videoConfig, Data(body.prefix(length)), version: 3)))
+        }
+    }
     func testOutOfOrderMissingAndOneFrameInProgress() throws {
         let a = unit(), fragments = try a.fragments(), b = unit(1)
         var assembler = VideoReassembler()
@@ -79,9 +128,9 @@ final class VideoTests: XCTestCase {
     func testOverflowAndExpiryResumeOnlyOnKeyframe() {
         var queue = VideoSendQueue()
         XCTAssertFalse(queue.offer(unit(0, key: false, bytes: 10), now: 0))
-        XCTAssertTrue(queue.offer(unit(1, bytes: 600_000), now: 0))
-        XCTAssertTrue(queue.offer(unit(2, key: false, bytes: 400_000), now: 0.01))
-        XCTAssertFalse(queue.offer(unit(3, key: false, bytes: 100_000), now: 0.02))
+        XCTAssertTrue(queue.offer(unit(1, bytes: 2_400_000), now: 0))
+        XCTAssertTrue(queue.offer(unit(2, key: false, bytes: 1_600_000), now: 0.01))
+        XCTAssertFalse(queue.offer(unit(3, key: false, bytes: 400_000), now: 0.02))
         XCTAssertEqual(queue.bytes, 0); XCTAssertTrue(queue.waitingForKeyframe)
         XCTAssertFalse(queue.offer(unit(4, key: false, bytes: 10), now: 0.03))
         XCTAssertNil(queue.pop(now: 0.04))

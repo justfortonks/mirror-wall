@@ -16,6 +16,9 @@ public final class RadioSender {
     private var receiverDiscovered = false
     private var lastBlockedMS: Double = 0
     private var lastPacerSample = radioNow()
+    /// One connection per sender; the app coordinates fresh discovery/backoff.
+    public var onWelcome: (() -> Void)?
+    public var onClosed: ((RadioCloseCause) -> Void)?
     public var onPairingRejected: ((PairingRejection) -> Void)?
     public var onState: ((String) -> Void)?
     public var onSample: ((RadioSnapshot) -> Void)?
@@ -54,7 +57,7 @@ public final class RadioSender {
                 }
                 self.onPairingRejected?(rejection); text = rejection.message
             } else { text = reason }
-            self.onState?(text)
+            self.onState?(text); self.onClosed?(self.channel.closeCause)
         }
         channel.onSample = { [weak self] in self?.onSample?($0) }
         channel.onTick = { [weak self] in
@@ -68,11 +71,16 @@ public final class RadioSender {
     public func setReceiverDiscovered(_ discovered: Bool) { channel.queue.async { self.receiverDiscovered = discovered } }
     public func start() {
         channel.start()
-        // NWConnection may remain preparing while racing paths after a peer TLS
-        // rejection. Bound that silent case as well as handling explicit errors.
+        // Bound silent admission; preparing is a reachability stall, never proof
+        // that the receiver rejected a pairing.
         channel.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self, !self.channel.active, !self.channel.closed else { return }
             self.channel.close("TLS/auth/welcome deadline (5 s)", cause: .admissionDeadline(tlsReady: self.channel.tlsReady, preparing: self.channel.isPreparing))
+        }
+    }
+    public func pauseAdmission() {
+        channel.queue.async {
+            if !self.channel.active { self.channel.close("admission interrupted by background", cause: .admissionDeadline(tlsReady: self.channel.tlsReady, preparing: self.channel.isPreparing)) }
         }
     }
     public func stop() {
@@ -87,7 +95,7 @@ public final class RadioSender {
         case let .welcome(id, _):
             guard !channel.active else { throw RadioError.protocolViolation("duplicate welcome") }
             welcomed = true; channel.active = true; channel.snapshot.id = id
-            lastPacerSample = radioNow(); onState?("sending synthetic payload")
+            lastPacerSample = radioNow(); onWelcome?(); onState?("sending synthetic payload")
             let timer = DispatchSource.makeTimerSource(queue: channel.queue)
             timer.schedule(deadline: .now(), leeway: .microseconds(100))
             timer.setEventHandler { [weak self] in self?.pump() }; self.timer = timer; timer.resume()

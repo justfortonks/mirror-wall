@@ -283,12 +283,14 @@ The 10-byte header and 65,536-byte body cap are unchanged. Every record in a
 network session uses v3. Legacy v1/v2 hello decoding remains only for parser
 regression/rejection coverage; the channel never accepts those versions. Window
 0 = Latency, 1 = Capacity probe; mode is required text `synthetic` or `video`.
-Video uses Latency, at the Stream encoder's 6 Mbit/s target. Synthetic rates,
+Video uses Latency with the preset target (6/12/20 Mbit/s). The hello retains
+rate=6 as its bootstrap value; each videoConfig supplies the current target and
+updates transport window telemetry before media. Synthetic rates,
 including 36/48 Mbit/s capacity probes, preserve their pacing/window behavior.
 
 | Type | Value | Body (unsigned big-endian, no padding) |
 | --- | --- | --- |
-| videoConfig | 10 | generation:u32, width:u16, height:u16, orientation:u8, rectPresent:u8, optional contentRect:4×f64, avcC:remaining bytes |
+| videoConfig | 10 | generation:u32, width:u16, height:u16, orientation:u8, configFlags:u8, optional contentRect:4×f64, optional preset:u8 + fps:u8 + targetBitrate:u32, avcC:remaining bytes |
 | videoFragment | 11 | generation:u32, frameSeq:u64, ptsNs:u64, flags:u8, fragmentIndex:u16, fragmentCount:u16, totalLength:u32, fragmentBytes:remaining bytes |
 | keyframeRequest | 12 | reason:text |
 | videoAck | 13 | frameSeq:u64, echoedPtsNs:u64, decodeStatus:u8 |
@@ -328,10 +330,20 @@ turns swap content aspect and resize once around the existing frame center,
 preserving its longest content edge; same-aspect turns do not resize. No decoder
 recreation, flush, queue reset or IDR request is performed for rotation.
 
-`videoConfig` includes a one-byte presence flag and, when present, the SCK
-content rect's x/y/width/height as four IEEE-754 binary64 bit patterns (big endian).
+`videoConfig` includes a one-byte flags field: bit 0 indicates the SCK content
+rect, bit 1 indicates stream-quality metadata; all other bits must be zero. With
+bit 0 set, the SCK content rect's x/y/width/height follows as four IEEE-754
+binary64 bit patterns (big endian).
 These are **source attachment coordinates**, not encoder-scaled crop coordinates;
 they are diagnostic metadata and do not crop the image. All must be finite.
+After the optional rect, bit 1 adds exactly six bytes: preset ID (0=Standard,
+1=High, 2=Native), maximum fps (30 or 60), and target bitrate in bits/s (u32,
+respectively 6,000,000 / 12,000,000 / 20,000,000). Unknown IDs, invalid fps,
+inconsistent target rates and truncated metadata are rejected. Output size is
+already carried by width/height. Flags 0/1 preserve decoding of earlier configs
+without quality metadata (overlay reports unavailable; transport defaults to
+Standard's window). Updated sender and receiver are required for flags 2/3;
+earlier v3 receivers reject these flags. Framing remains **v3**.
 The remaining bytes are the complete AVCDecoderConfigurationRecord (`avcC`),
 including SPS/PPS. NAL length size must be 4. SPS/PPS lengths/types are validated;
 optional high-profile avcC extensions can follow the PPS list. Dimensions must
@@ -344,8 +356,8 @@ Actual rotation correctness remains a device observation, including whether SCK
 already orients any delivered buffers; compare asymmetric moving content.
 
 Config is sent after welcome and before the first frame of each generation.
-Encoder recreation, delivered size/orientation/rect changes and reconnect establish
-a fresh wire generation. Every IDR repeats its config to repair missing-config
+Preset/fps changes, encoder recreation, delivered size/orientation/rect changes
+and reconnect establish a fresh wire generation. Every IDR repeats its config to repair missing-config
 state. An identical config is idempotent; a changed config with the same generation
 or a regressing generation closes the session. Generation is per authenticated
 connection, and never identifies another phone.
@@ -355,11 +367,11 @@ unchanged AVCC access units from VideoToolbox, with 4-byte big-endian NAL length
 no Annex B conversion, base64 or re-encoding. Fragment metadata is 29 bytes, so
 `fragmentBytes` is at most **65,507 bytes**, which is also ≤ the existing
 `RadioFrame.maxData` (65,516). Index is zero based, count is nonzero, bytes are
-nonempty. Total access-unit length must be 1…1,048,576; larger totals close the
+nonempty. Total access-unit length must be 1…4,194,304; larger totals close the
 session before reassembly allocation. Encoder output above that cap is dropped
 before copying. The renderer additionally validates the complete AVCC NAL chain.
 
-Each session retains at most **one** partial frame, with a 1 MiB total cap.
+Each session retains at most **one** partial frame, with a 4 MiB total cap.
 Fragments must arrive in order with identical generation/seq/PTS/flags/count/total.
 Missing first/middle/last fragments, duplicates within an unfinished frame,
 inconsistent metadata, replacing an unfinished frame and a one-second partial-frame
@@ -381,11 +393,33 @@ receipt (including decode), with p50/p95 from the last ten seconds; it does **no
 subtract clocks on different machines. `ptsNs` is the sender's original monotonic
 SCK presentation timestamp converted to ns. Ping/pong remains independent.
 
+## Stream quality
+
+Stream defaults to Standard: portrait box 720×1280, 6 Mbit/s, 30 fps. High uses
+1080×2400 and 12 Mbit/s; Native uses the source size rounded down to even pixels
+and 20 Mbit/s. Landscape swaps the box axes. `Dimensions.fit` preserves the
+existing aspect/even rounding and never upscales. A separate 60 fps toggle applies
+to every preset: PTS pacer, ExpectedFrameRate and encoded duration use 60;
+MaxKeyFrameIntervalDuration stays one second. SCK width/height are requested from
+the selected preset at Share. iOS 27.1 has no live updateConfiguration API: live
+changes recreate only VT, clear the mailbox/prediction chain and send fresh
+config/IDR over the same authenticated session. A higher preset cannot restore
+source detail already removed by SCK; Stop/Share requests larger capture buffers.
+
+AverageBitRate uses the preset target. DataRateLimits is attempted as
+`[targetBitrate * 1.5 / 8, 1]` (bytes, seconds); Quality=0.75 is attempted once.
+Every property attempt logs its OSStatus; rejected optional rate/quality hints
+are left unsupported, with no forced fallback or encoder restart. Quality is a
+best-effort hint, not a guaranteed quality or bitrate floor. Per-second sender
+metrics include streamPreset, maxFPS, bitrate, dimensions and encodedMbit; the
+Mac overlay shows config metadata alongside measured receivedMbit. Window sizing
+continues to follow stream aspect and orientation.
+
 ## Stream queue, reconnect and stage evidence
 
 The network sink has its own serial worker. Encoder admission uses a lock around
 `VideoSendQueue`; dispatch blocks never retain a backlog of incoming media.
-Queued units are bounded by 1 MiB and 100 ms; expiry is checked on admission,
+Queued units are bounded by 4 MiB and 100 ms; expiry is checked on admission,
 dequeue and a 10 ms worker tick. An overflow/expiry/generation discontinuity clears
 the queued prediction chain (including queued inter frames and any obsolete IDR),
 counts the reason, requests IDR and rejects inter frames until the next keyframe.
@@ -393,11 +427,12 @@ The already admitted in-flight frame finishes in order; nothing after the gap is
 sent until a fresh IDR. Decoder errors and keyframe requests also clear the chain.
 
 Before sending any fragment, the **entire frame's wire size** is charged against
-Latency's **75,000 bytes** at 6 Mbit/s. The earlier review fix is preserved: an
+Latency's `min(150000, targetBitrate / 80)` bytes: **75,000** for Standard
+and **150,000** for High/Native (100 ms of target bytes, capped at 150 KB). The earlier review fix is preserved: an
 oversized unit (typically an IDR) is admitted **alone when no frame is outstanding**
-and counts `oversizeAdmittedAlone`. It remains bounded by the 1 MiB access-unit
+and counts `oversizeAdmittedAlone`. It remains bounded by the 4 MiB access-unit
 limit plus fragment overhead. This avoids an endless oversize/drop/IDR cycle.
-A single in-flight unit is separate from the 1 MiB/100 ms waiting queue.
+A single in-flight unit is separate from the 4 MiB/100 ms waiting queue.
 Fragment sends are serialized through successful `contentProcessed`; all channel
 sends retain the 262,144-byte backlog bound. ACK timeout is ten seconds.
 

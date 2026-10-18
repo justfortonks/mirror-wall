@@ -241,3 +241,107 @@ both signed apps build.
 
 Product notes so far: best latency with the Mac's Wi-Fi unassociated (or Mac internet on
 Ethernet — not yet measured). Smoothing (100 ms) is optional, default off.
+
+
+## Selectable stream quality — 2026-10-17
+
+Implemented in the standalone prototype only. Standard defaults to a portrait
+720×1280 box / 6 Mbit/s / 30 fps; High is 1080×2400 / 12 Mbit/s; Native is source
+size rounded down to even pixels / 20 Mbit/s. The separate 60 fps toggle defaults
+off. Landscape swaps box axes; the existing fitter never upscales. Phone A
+1320×2868 produces 588×1280 / 1080×2346 / 1320×2868. Phone B is 1170×2532,
+confirmed by `g4-run1/phoneB/2026-10-18T01-11-55Z-1FCAD1C2.jsonl`'s
+`stream.startRequested` (390×844 points at 3×); it produces 590×1280 /
+1080×2336 / 1170×2532. results.md was read only.
+
+The Stream controls work before Share and while capturing. Changes clear the
+source mailbox and queued prediction chain and recreate VT with fresh
+config/IDR on the retained authenticated session. The capture request at Share
+uses the selected preset. **SDK limitation:** iPhoneOS 27.1's SCStream.h explicitly
+marks updateConfiguration unavailable on iOS. Live quality changes fit currently
+delivered buffers; increasing the preset cannot recover detail already removed
+by SCK. Stop capture and Share again to request larger buffers. This limitation
+is shown in the UI and logged; capture consent/lifecycle is preserved.
+
+Video config stays v3 with documented optional quality metadata: preset ID,
+maximum fps and target bitrate, alongside existing width/height. Updated endpoints
+are required. The receiver overlay displays these with measured received Mbit/s;
+window sizing still follows stream aspect/orientation. Sender per-second metrics
+add encodedMbit, streamPreset and maxFPS (bitrate/dimensions already existed).
+Both frame/reassembly and waiting-queue byte caps are now 4 MiB. The latency
+window follows the preset: min(150 KB, 100 ms of target bytes), or 75/150/150 KB.
+Oversized IDRs still go alone, bounded by 4 MiB plus wire overhead. Authentication,
+pairing, TLS, timeouts, per-device windows and decode/presentation policy remain.
+
+AverageBitRate and ExpectedFrameRate follow the settings; frame duration follows
+30/60 fps and MaxKeyFrameIntervalDuration stays one second. Optional
+DataRateLimits=[targetBitrate × 1.5 / 8, 1] and Quality=0.75 are attempted once per
+encoder creation. Every setter logs OSStatus; optional rejection does not fail
+or force an unsupported encoder mode. [Apple describes Quality as a desired
+compression quality](https://developer.apple.com/documentation/videotoolbox/kvtcompressionpropertykey_quality),
+so it is treated as a hint, not a guaranteed bitrate/quality floor.
+
+Validation: **89 Shared tests pass, zero failures** (the original 82 plus seven).
+New coverage includes both phone sizes and landscape, 30/60 fps settings,
+60→60 / 120→60 pacing, all quality metadata combinations, malformed/truncated
+metadata rejection, generation preservation/idempotency, 3.9 MiB reassembly and
+4.1 MiB rejection before reassembly allocation. Real TLS loopback changes all
+three presets on one session, checks fresh config/IDRs, distinguishes the 75 KB
+and 150 KB windows, and delivers a 3.9 MiB Native IDR. Existing overflow fixtures
+were scaled to exercise the new 4 MiB bound. The specified command was used:
+`cd prototypes/ios-direct/Shared && swift test --disable-sandbox 2>&1 | tail -20`.
+Sender (iPhoneOS 27.1, arm64 iOS 27.0) and Receiver (macOS 27 SDK, arm64 macOS 14)
+source typechecks pass; compiler subprocess sandboxing was disabled to allow
+SwiftUI macros inside the existing restricted environment. Existing capture
+ownership warnings remain. This is source validation, not signed-app/device QA.
+
+**Encoder acceptance remains unverified:** a local Mac low-latency H.264 probe at
+all three phone-A sizes and both fps settings returned create OSStatus=-12903,
+before property setters could run. Therefore no AverageBitRate, DataRateLimits,
+Quality or other property is claimed accepted by this probe; this also says
+nothing about iPhone support. On-device setter logs, actual sharpness/bitrate,
+60 fps throughput, live changes, Native keyframes and latency comparisons remain
+to be checked. No installs, commits or pushes were performed. The Xcode project
+and results.md were not changed.
+
+Files changed:
+
+- Sender: `EncoderPipeline.swift`, `CaptureExperiment.swift`,
+  `StreamExperiment.swift`, `Telemetry.swift`.
+- Receiver: `VideoSessionRenderer.swift`, `VideoSessionWindow.swift`, `README.md`.
+- Shared sources: `Primitives.swift`, `VideoProtocol.swift`,
+  `VideoNetworkSink.swift`, `RadioReceiver.swift`, `Metrics.swift`.
+- Shared tests: `PrimitivesTests.swift`, `VideoTests.swift`,
+  `RadioLoopbackTests.swift`.
+- Documentation: `prototypes/ios-direct/README.md`,
+  `docs/ios-direct/protocol.md`, `docs/ios-direct/handoff.md`.
+
+
+## G4 run 2 follow-up — stalled reconnects are reachability failures
+
+The logs show defunct Bonjour discovery and preparing deadlines on both phones,
+with no corresponding Mac connection. Preparing/auth/welcome deadlines now retry
+through fresh discovery with 0.5 → 4 s backoff. Three consecutive discovered-Mac
+stalls stop as "Can't reach this Mac. If it was forgotten on the Mac, pair again."
+with Try again / Pair again, keeping the key and Paired label. TLS errors,
+post-TLS peer close/reset before welcome, reject unpaired, and authenticated
+revocation retain their distinct rejection handling; only revoked bye deletes a
+matching credential. Local aborts and timeouts alone do not prove rejection.
+
+Both modes invalidate browse epochs on backgrounding. Active background capture
+and fresh-discovery recovery remain available; when capture ends in background,
+new admission/recovery pauses for suspension. Foregrounding restarts the browser
+before releasing retries. An authenticated session is retained until link loss. Late resolver and
+browser callbacks cannot reuse old endpoints or start overlapping attempts. UI
+migration clears old ambiguous not-accepted hints once, preserving keys/revoked
+status and all TLS/HMAC checks. Quality presets, encoder/video-wire work, project
+and results.md are untouched. Real-device system-stop/return and three-stall/Try
+again acceptance remain required.
+
+Validation: **97 Shared tests pass (89 existing plus 8 additional tests)**, zero
+failures, with real TLS loopback. Coverage includes three actual preparing
+admission deadlines, fresh discovery/backoff, credential retention, explicit TLS
+rejection, post-TLS peer close, revoked-key deletion, foreground recovery and
+single-use resolver callbacks. Both arm64 app SDK source typechecks pass. No
+linked app build or physical suspension/Bonjour acceptance is claimed. No
+commits, pushes or installs.

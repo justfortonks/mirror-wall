@@ -42,14 +42,14 @@ public final class RadioChannel {
             switch state {
             case .ready:
                 guard let tls = self.connection.metadata(definition: NWProtocolTLS.definition) as? NWProtocolTLS.Metadata else {
-                    self.close("TLS metadata unavailable", cause: .authentication); return
+                    self.close("TLS metadata unavailable", cause: .protocolFailure); return
                 }
                 let metadata = tls.securityProtocolMetadata
                 let version = sec_protocol_metadata_get_negotiated_tls_protocol_version(metadata)
                 let cipher = sec_protocol_metadata_get_negotiated_tls_ciphersuite(metadata)
                 self.snapshot.tlsVersion = version.rawValue; self.snapshot.cipherSuite = cipher.rawValue
                 guard version == .TLSv12, cipher.rawValue == RadioTLS.cipherSuite else {
-                    self.close("unexpected TLS negotiation", cause: .authentication); return
+                    self.close("unexpected TLS negotiation", cause: .protocolFailure); return
                 }
                 self.event("tls.negotiated", "version=\(version.rawValue) cipher=\(cipher.rawValue)")
                 self.snapshot.path = self.connection.currentPath.map(RadioPath.init)
@@ -59,10 +59,10 @@ public final class RadioChannel {
                 switch error {
                 case .tls: self.close("handshake failed: \(error)", cause: .authentication)
                 case .posix(.ECONNRESET), .posix(.ECONNABORTED), .posix(.EPIPE), .posix(.ENOTCONN):
-                    if !self.active { self.close("handshake peer closed: \(error)", cause: .linkLoss) }
+                    if !self.active { self.close("handshake peer closed: \(error)", cause: self.cause(for: error)) }
                 default: break
                 }
-            case .failed(let error): self.close("connection failed: \(error)", cause: Self.cause(for: error))
+            case .failed(let error): self.close("connection failed: \(error)", cause: self.cause(for: error))
             case .cancelled: self.close("connection cancelled", cause: .localStop)
             default: break
             }
@@ -117,10 +117,10 @@ public final class RadioChannel {
                         try self.onMessage?(message)
                     }
                 }
-                if let error { self.close("receive: \(error)", cause: Self.cause(for: error)); return }
+                if let error { self.close("receive: \(error)", cause: self.cause(for: error)); return }
                 if eof { try self.parser.finish(); self.close("EOF", cause: self.tlsReady && !self.active ? .authentication : .linkLoss); return }
                 self.receive()
-            } catch { self.close(String(describing: error), cause: self.tlsReady && !self.active ? .authentication : .protocolFailure) }
+            } catch { self.close(String(describing: error), cause: .protocolFailure) }
         }
     }
     public func send(_ message: RadioMessage, completion: (() -> Void)? = nil) {
@@ -132,7 +132,7 @@ public final class RadioChannel {
             connection.send(content: bytes, completion: .contentProcessed { [weak self] error in
                 guard let self, !self.closed else { return }
                 self.snapshot.pendingNetworkBytes -= bytes.count
-                if let error { self.close("send: \(error)", cause: Self.cause(for: error)); return }
+                if let error { self.close("send: \(error)", cause: self.cause(for: error)); return }
                 self.snapshot.sentWireBytes += UInt64(bytes.count)
                 switch message {
                 case .data(_, _, let payload, _): self.snapshot.sentBytes += UInt64(payload.count)
@@ -163,8 +163,16 @@ public final class RadioChannel {
         snapshot.residentMemoryMB = radioMemoryMB()
         log?.write(snapshot); onSample?(snapshot)
     }
-    private static func cause(for error: NWError) -> RadioCloseCause {
-        if case .tls = error { return .authentication }; return .linkLoss
+    private func cause(for error: NWError) -> RadioCloseCause {
+        Self.classify(error, tlsReady: tlsReady, welcomed: active)
+    }
+    static func classify(_ error: NWError, tlsReady: Bool, welcomed: Bool) -> RadioCloseCause {
+        if case .tls = error { return .authentication }
+        switch error {
+        case .posix(.ECONNRESET), .posix(.EPIPE):
+            return tlsReady && !welcomed ? .authentication : .linkLoss
+        default: return .linkLoss
+        }
     }
     public func close(_ reason: String, cause: RadioCloseCause = .protocolFailure) {
         guard !closed else { return }; closeCause = cause; closed = true; active = false
