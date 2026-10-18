@@ -17,12 +17,16 @@ public struct Dimensions: Codable, Equatable {
 
 public struct FramePacer {
     private let interval: Double
-    private var last: Double?
+    private var next: Double?
     public init(fps: Double = 30) { precondition(fps > 0); interval = 1 / fps }
     public mutating func accept(pts: Double) -> Bool {
         guard pts.isFinite else { return false }
-        if let last, pts - last < interval - 0.000001 { return false }
-        last = pts
+        guard let next else {
+            next = pts + interval
+            return true
+        }
+        guard pts >= next - 0.001 else { return false }
+        self.next = max(next + interval, pts)
         return true
     }
 }

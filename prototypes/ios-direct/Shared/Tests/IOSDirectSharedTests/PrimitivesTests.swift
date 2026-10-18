@@ -21,6 +21,67 @@ final class PrimitivesTests: XCTestCase {
         XCTAssertFalse(pacer.accept(pts: .nan))
         XCTAssertFalse(pacer.accept(pts: 0))
     }
+    func testThirtyFPSFromThirtySixWithDeadlineGrid() {
+        var pacer = FramePacer()
+        let accepted = (0..<360).filter { pacer.accept(pts: Double($0) / 36) }.count
+        let rate = Double(accepted) / 10
+        XCTAssertGreaterThanOrEqual(rate, 29)
+        XCTAssertLessThanOrEqual(rate, 30)
+    }
+    func testThirtyFPSFromSixtyWithRandomJitter() {
+        var pacer = FramePacer()
+        let accepted = jitteredTimestamps(fps: 60, duration: 10, seed: 0x51A7)
+            .filter { pacer.accept(pts: $0) }.count
+        let rate = Double(accepted) / 10
+        XCTAssertGreaterThanOrEqual(rate, 29)
+        XCTAssertLessThanOrEqual(rate, 30)
+    }
+    func testThirtyFPSInputWithRandomJitterIsNotHalved() {
+        var pacer = FramePacer()
+        let accepted = jitteredTimestamps(fps: 30, duration: 10, seed: 0x30A7)
+            .filter { pacer.accept(pts: $0) }.count
+        XCTAssertGreaterThanOrEqual(Double(accepted) / 10, 28.5)
+    }
+    func testTwentyFourFPSInputAcceptsEveryFrame() {
+        var pacer = FramePacer()
+        let timestamps = (0..<240).map { Double($0) / 24 }
+        let accepted = timestamps.filter { pacer.accept(pts: $0) }
+        XCTAssertEqual(accepted.count, timestamps.count)
+    }
+    func testLongGapDoesNotCauseCatchUpBurst() {
+        var pacer = FramePacer()
+        for index in 0..<30 {
+            _ = pacer.accept(pts: Double(index) / 60)
+        }
+
+        let gapEnd = 2.5
+        var acceptedAfterGap: [Double] = []
+        for index in 0..<6 {
+            let pts = gapEnd + Double(index) / 60
+            if pacer.accept(pts: pts) { acceptedAfterGap.append(pts) }
+        }
+        let acceptedWithin40msAfterGap = acceptedAfterGap.filter {
+            $0 > gapEnd && $0 <= gapEnd + 0.040
+        }
+        XCTAssertLessThanOrEqual(acceptedWithin40msAfterGap.count, 2)
+    }
+    func testNonFinitePresentationTimestampsAreRejected() {
+        var pacer = FramePacer()
+        XCTAssertFalse(pacer.accept(pts: .nan))
+        XCTAssertFalse(pacer.accept(pts: .infinity))
+        XCTAssertFalse(pacer.accept(pts: -.infinity))
+        XCTAssertTrue(pacer.accept(pts: 0))
+    }
+
+    private func jitteredTimestamps(fps: Double, duration: Double, seed: UInt64) -> [Double] {
+        var state = seed
+        return (0..<Int(fps * duration)).map { index in
+            state = 2_862_933_555_777_941_757 &* state &+ 3_037_000_493
+            let unit = Double(state >> 11) / Double(UInt64(1) << 53)
+            let jitter = (unit * 2 - 1) * 0.003
+            return Double(index) / fps + jitter
+        }
+    }
     func testEncoderBackoff() {
         var backoff = EncoderBackoff()
         XCTAssertTrue(backoff.canAttempt(now: 10))
