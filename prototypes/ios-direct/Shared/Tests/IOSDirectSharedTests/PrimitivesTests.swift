@@ -2,6 +2,38 @@ import XCTest
 @testable import IOSDirectShared
 
 final class PrimitivesTests: XCTestCase {
+    func testPresetOutputForBothPhonesAndLandscape() throws {
+        // Phone B: g4-run1 phoneB stream.startRequested: 390x844 points at 3x.
+        for (source, expected) in [
+            (Dimensions(width: 1320, height: 2868), [Dimensions(width: 588, height: 1280), Dimensions(width: 1080, height: 2346), Dimensions(width: 1320, height: 2868)]),
+            (Dimensions(width: 1170, height: 2532), [Dimensions(width: 590, height: 1280), Dimensions(width: 1080, height: 2336), Dimensions(width: 1170, height: 2532)])
+        ] {
+            for (preset, output) in zip(StreamPreset.allCases, expected) {
+                XCTAssertEqual(preset.output(width: source.width, height: source.height), output)
+                XCTAssertEqual(preset.output(width: source.height, height: source.width), Dimensions(width: output.height, height: output.width))
+            }
+        }
+        XCTAssertEqual(StreamPreset.native.output(width: 1171, height: 2533), Dimensions(width: 1170, height: 2532))
+        XCTAssertEqual(StreamPreset.high.output(width: 100, height: 200), Dimensions(width: 100, height: 200), "never upscale")
+        XCTAssertNil(StreamPreset.native.output(width: 0, height: 2532))
+    }
+    func testPresetRatesFPSAndLatencyWindows() {
+        XCTAssertEqual(StreamSettings(), StreamSettings(preset: .standard, sixtyFPS: false))
+        for (preset, bitrate, window) in [(StreamPreset.standard, 6_000_000, 75_000), (.high, 12_000_000, 150_000), (.native, 20_000_000, 150_000)] {
+            for sixty in [false, true] {
+                let settings = StreamSettings(preset: preset, sixtyFPS: sixty)
+                XCTAssertEqual(settings.targetBitrate, bitrate); XCTAssertEqual(settings.latencyWindowBytes, window)
+                XCTAssertEqual(settings.fps, sixty ? 60 : 30)
+            }
+        }
+    }
+    func testSixtyFPSFromSixtyAndOneTwenty() {
+        for inputFPS in [60, 120] {
+            var pacer = FramePacer(fps: 60)
+            let accepted = (0..<inputFPS * 10).filter { pacer.accept(pts: Double($0) / Double(inputFPS)) }
+            XCTAssertEqual(accepted.count, 600)
+        }
+    }
     func testFitter() throws {
         XCTAssertEqual(Dimensions.fit(width: 1920, height: 1080), Dimensions(width: 1280, height: 720))
         XCTAssertEqual(Dimensions.fit(width: 1080, height: 1920), Dimensions(width: 720, height: 1280))

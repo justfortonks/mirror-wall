@@ -17,6 +17,9 @@ public struct MetricsSnapshot: Codable {
     public var capturedFPS: Double = 0
     public var pacedFPS: Double = 0
     public var encodedFPS: Double = 0
+    public var encodedMbit: Double = 0
+    public var streamPreset = StreamPreset.standard.rawValue
+    public var maxFPS = 30
     public var sentFPS: Double = 0
     public var ackedFPS: Double = 0
     public var sentMbit: Double = 0

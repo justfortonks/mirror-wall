@@ -31,7 +31,13 @@ public final class VideoNetworkSink {
     private var channel: RadioChannel?
     private var timer: DispatchSourceTimer?
     private var run = UUID()
-    private var retryDelay = 0.5
+    private var backoff = ReconnectBackoff()
+    private var reconnectAllowed = true
+    private var needsReconnect = false
+    private var retryWork: DispatchWorkItem?
+    private var resolution = UUID()
+    private var resolvingReceiver = false
+    private var retryConnection: (() -> Void)?
     private var stopped = true
     private var policy = ClientSessionPolicy()
     private var receiverDiscovered = false
@@ -42,12 +48,12 @@ public final class VideoNetworkSink {
     private struct Outstanding { let bytes: Int; let pts: UInt64; let sentAt: UInt64 }
     private var outstanding: [UInt64: Outstanding] = [:]
     private var rtt = RadioRTT()
-    private let cap = RadioWindowMode.latency.bytes(mbit: 6)
     /// Installed once, before start. These callbacks must return quickly.
     public var requestIDR: (() -> Void)?
     public var onState: ((String, Bool) -> Void)?
     public var onEvent: ((String, String) -> Void)?
     public var onStopped: (() -> Void)?
+    public var onUnreachable: (() -> Void)?
     public var onPairingRejected: ((UUID, PairingRejection) -> Void)?
     public var onRadioSample: ((RadioSnapshot) -> Void)?
     public init() {}
@@ -64,11 +70,17 @@ public final class VideoNetworkSink {
         lock.lock(); self.ready = ready; value.state = text; lock.unlock()
         event("video.connection", text); onState?(text, ready)
     }
-    public func start(endpoint: NWEndpoint, credential: DeviceCredential, install: UUID, label: String, log: RadioLog? = nil, receiverDiscovered: Bool = false, pairingStore: PairingKeyStore? = nil) {
+    public func start(endpoint: NWEndpoint, credential: DeviceCredential, install: UUID, label: String, log: RadioLog? = nil, receiverDiscovered: Bool = false, pairingStore: PairingKeyStore? = nil,
+                      refreshReceiver: ((@escaping (NWEndpoint?) -> Void) -> Void)? = nil) {
         queue.async {
-            self.stopOnQueue(); self.stopped = false; self.policy = ClientSessionPolicy(); self.retryDelay = 0.5
+            self.stopOnQueue(); self.stopped = false; self.policy = ClientSessionPolicy(); self.backoff = ReconnectBackoff()
             self.receiverDiscovered = receiverDiscovered
             let run = self.run
+            self.retryConnection = { [weak self] in
+                guard let self else { return }
+                self.resolveReceiver(refreshReceiver, credential: credential, install: install, label: label,
+                                     log: log, pairingStore: pairingStore, run: run)
+            }
             let timer = DispatchSource.makeTimerSource(queue: self.queue)
             timer.schedule(deadline: .now() + .milliseconds(10), repeating: .milliseconds(10))
             timer.setEventHandler { [weak self] in self?.pump() }
@@ -77,9 +89,24 @@ public final class VideoNetworkSink {
         }
     }
     public func setReceiverDiscovered(_ discovered: Bool) { queue.async { self.receiverDiscovered = discovered } }
+    /// Keep recovery available during runnable background capture. Once capture
+    /// ends and suspension is possible, admission waits for fresh foreground discovery.
+    public func setRecoveryAllowed(_ active: Bool) {
+        queue.async {
+            self.reconnectAllowed = active
+            if !active {
+                self.receiverDiscovered = false
+                self.retryWork?.cancel(); self.retryWork = nil; self.resolution = UUID(); self.resolvingReceiver = false
+                if let channel = self.channel { channel.queue.async {
+                    if !channel.active { channel.close("admission interrupted by background", cause: .admissionDeadline(tlsReady: channel.tlsReady, preparing: channel.isPreparing)) }
+                } }
+            } else if self.needsReconnect { self.scheduleReconnect(reason: "foreground recovery") }
+        }
+    }
     public func stop() { queue.async { self.stopOnQueue() } }
     private func stopOnQueue() {
         stopped = true; run = UUID(); timer?.cancel(); timer = nil
+        retryWork?.cancel(); retryWork = nil; resolution = UUID(); resolvingReceiver = false; needsReconnect = false; retryConnection = nil
         let old = channel; channel = nil
         old?.queue.async { if old?.active == true { old?.finish(.bye("user stop"), reason: "stopped") } else { old?.close("stopped", cause: .localStop) } }
         lock.lock(); ready = false; pending.discontinuity("disconnect"); lock.unlock()
@@ -89,11 +116,12 @@ public final class VideoNetworkSink {
     private func connect(endpoint: NWEndpoint, credential: DeviceCredential, install: UUID, label: String, log: RadioLog?, pairingStore: PairingKeyStore?, run: UUID) {
         guard !stopped, self.run == run else { return }
         policy.beginAttempt()
-        state(policy.everWelcomed ? "reconnecting" : "connecting with TLS-PSK", ready: false)
+        state(policy.everWelcomed || needsReconnect ? "Reconnecting…" : "connecting with TLS-PSK", ready: false)
+        needsReconnect = false
         let channel = RadioChannel(NWConnection(to: endpoint, using: RadioTLS.parameters(credential: credential)), log: log)
         self.channel = channel; channel.protocolVersion = 3
         channel.snapshot.installID = install; channel.snapshot.label = String(label.prefix(60)); channel.snapshot.mode = .video
-        channel.snapshot.windowMode = .latency; channel.snapshot.windowBytes = cap
+        channel.snapshot.windowMode = .latency; channel.snapshot.windowBytes = StreamSettings().latencyWindowBytes
         channel.snapshot.deviceID = credential.deviceID
         var challenged = false
         channel.onMessage = { [weak self, weak channel] message in
@@ -146,19 +174,15 @@ public final class VideoNetworkSink {
                     }
                     self.state(rejection.message, ready: false); self.onPairingRejected?(credential.rid, rejection); self.onStopped?()
                     return
+                case .unreachable:
+                    self.stopped = true; self.timer?.cancel(); self.timer = nil
+                    self.state(ClientSessionPolicy.unreachableMessage, ready: false); self.onUnreachable?(); self.onStopped?(); return
                 case .stop:
                     self.stopped = true; self.timer?.cancel(); self.timer = nil
-                    self.state(reason, ready: false); self.onStopped?(); return
+                    self.state(channel.closeCause == .linkLoss ? "Disconnected — tap Connect" : reason, ready: false); self.onStopped?(); return
                 case .retry: break
                 }
-                let delay = self.retryDelay; self.retryDelay = min(4, delay * 2)
-                self.state("Connection lost; reconnecting", ready: false)
-                self.event("video.reconnectScheduled", "delay=\(delay) reason=\(reason)")
-                self.queue.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    guard let self, self.run == run, !self.stopped else { return }
-                    self.update { $0.reconnectAttempts += 1 }
-                    self.connect(endpoint: endpoint, credential: credential, install: install, label: label, log: log, pairingStore: pairingStore, run: run)
-                }
+                self.scheduleReconnect(reason: reason)
             }
         }
         channel.start()
@@ -169,6 +193,39 @@ public final class VideoNetworkSink {
             }
         }
     }
+    private func scheduleReconnect(reason: String) {
+        guard !stopped else { return }
+        needsReconnect = true; state("Reconnecting…", ready: false)
+        guard reconnectAllowed, retryWork == nil, !resolvingReceiver else { return }
+        let run = self.run, delay = backoff.next()
+        event("video.reconnectScheduled", "delay=\(delay) reason=\(reason)")
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.run == run, !self.stopped, self.reconnectAllowed, self.needsReconnect else { return }
+            self.retryWork = nil; self.retryConnection?()
+        }
+        retryWork = work; queue.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+    private func resolveReceiver(_ refresh: ((@escaping (NWEndpoint?) -> Void) -> Void)?, credential: DeviceCredential,
+                                 install: UUID, label: String, log: RadioLog?, pairingStore: PairingKeyStore?, run: UUID) {
+        guard let refresh else {
+            // No fallback to the endpoint captured by start. Apps must refresh
+            // Bonjour; loopback callers explicitly supply a resolver when retrying.
+            stopped = true; timer?.cancel(); timer = nil
+            state(ClientSessionPolicy.unreachableMessage, ready: false); onUnreachable?(); onStopped?(); return
+        }
+        resolution = UUID(); let request = resolution; resolvingReceiver = true
+        refresh { [weak self] endpoint in self?.queue.async { [weak self] in
+            guard let self, self.run == run, self.resolution == request, !self.stopped, self.reconnectAllowed else { return }
+            self.resolution = UUID(); self.resolvingReceiver = false
+            guard let endpoint else {
+                self.receiverDiscovered = false; self.policy.receiverUnavailable()
+                self.scheduleReconnect(reason: "receiver not freshly discovered"); return
+            }
+            self.receiverDiscovered = true; self.update { $0.reconnectAttempts += 1 }
+            self.connect(endpoint: endpoint, credential: credential, install: install, label: label,
+                         log: log, pairingStore: pairingStore, run: run)
+        } }
+    }
     private func receive(_ message: RadioMessage, channel: RadioChannel) {
         switch message {
         case .welcome(let session, _):
@@ -177,7 +234,7 @@ public final class VideoNetworkSink {
             wireGeneration &+= 1; sentConfig = nil; sequence = 0; rtt = RadioRTT()
             update { $0.session = session; $0.rttP50MS = nil; $0.rttP95MS = nil; if policy.everWelcomed { $0.reconnects += 1 } }
             event("video.welcome", "session=\(session) reconnect=\(policy.everWelcomed)")
-            policy.welcomed(); retryDelay = 0.5; state("authenticated; ready to share", ready: true)
+            policy.welcomed(); backoff = ReconnectBackoff(); state("authenticated; ready to share", ready: true)
             requestIDR?(); pump()
         case let .videoAck(seq, pts, status):
             guard let item = outstanding.removeValue(forKey: seq), item.pts == pts else {
@@ -277,6 +334,7 @@ public final class VideoNetworkSink {
         guard let first = pending.peek(), let config else { lock.unlock(); return }
         // A frame larger than the window (typically an IDR) goes alone when nothing is in flight;
         // dropping it would request another IDR of the same size and never recover.
+        let cap = (config.streamSettings ?? StreamSettings()).latencyWindowBytes
         let fits = value.outstandingBytes + first.wireBytes <= cap
         guard fits || value.outstandingBytes == 0,
               let frame = pending.pop(now: Double(now) / 1e9) else { lock.unlock(); return }
@@ -297,6 +355,7 @@ public final class VideoNetworkSink {
         if wire.keyframe {
             channel.queue.async { [weak self, weak channel] in
                 guard let channel else { return }
+                channel.snapshot.windowBytes = (wireConfig.streamSettings ?? StreamSettings()).latencyWindowBytes
                 channel.send(.videoConfig(wireConfig)) { self?.queue.async { self?.sendFragment(channel) } }
             }
         } else { sendFragment(channel) }
@@ -318,5 +377,5 @@ public final class VideoNetworkSink {
             }
         }
     }
-    deinit { timer?.cancel(); channel?.connection.cancel() }
+    deinit { retryWork?.cancel(); timer?.cancel(); channel?.connection.cancel() }
 }

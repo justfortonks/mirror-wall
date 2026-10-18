@@ -24,6 +24,7 @@ final class Telemetry {
             fresh.encoderState = old.encoderState; fresh.encoderLastFailingOSStatus = old.encoderLastFailingOSStatus
             fresh.encoderRetryAfter = old.encoderRetryAfter
             fresh.dimensions = old.dimensions; fresh.generation = old.generation
+            fresh.streamPreset = old.streamPreset; fresh.maxFPS = old.maxFPS; fresh.bitrate = old.bitrate
             fresh.sourceDimensions = old.sourceDimensions; fresh.frameOrientation = old.frameOrientation
             fresh.frameScreenRect = old.frameScreenRect; fresh.frameContentRect = old.frameContentRect
             fresh.frameScaleFactor = old.frameScaleFactor; fresh.frameContentScale = old.frameContentScale

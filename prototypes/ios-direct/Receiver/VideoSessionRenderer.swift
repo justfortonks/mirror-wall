@@ -10,6 +10,7 @@ struct VideoReceiveSnapshot: Codable {
     var state = "waiting for config"
     var generation: UInt32?
     var width = 0, height = 0, orientation: UInt8 = 1
+    var streamSettings: StreamSettings?
     var captureOrientationHint: OrientationHint?, deviceOrientationHint: OrientationHint?
     var contentRect: VideoRect?
     var received = 0, decoded = 0, displayed = 0, decodeErrors = 0, displayDrops = 0, dropped = 0
@@ -94,6 +95,7 @@ final class VideoSessionRenderer: RadioVideoConsumer {
             resetDecoder(); format = nil
             stats.generation = config.generation; stats.width = Int(config.width); stats.height = Int(config.height)
             stats.orientation = config.orientation; stats.contentRect = config.contentRect
+            stats.streamSettings = config.streamSettings
             stats.state = "waiting for keyframe"
             let sets = try config.parameterSets(), joined = sets.reduce(into: Data()) { $0.append($1) }
             var description: CMFormatDescription?

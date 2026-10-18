@@ -28,31 +28,63 @@ public enum PairingRejection: String, Codable {
     }
 }
 public enum ClientSessionAction: Equatable {
-    case retry, stop
+    case retry, stop, unreachable
     case pairingRejected(PairingRejection)
 }
 public struct ClientSessionPolicy {
+    public static let unreachableMessage = "Can't reach this Mac. If it was forgotten on the Mac, pair again."
     public private(set) var everWelcomed = false
     public private(set) var welcomedThisAttempt = false
+    public private(set) var consecutiveStalls = 0
+    private var recovering = false
     public init() {}
     public mutating func beginAttempt() { welcomedThisAttempt = false }
-    public mutating func welcomed() { everWelcomed = true; welcomedThisAttempt = true }
-    public func action(for cause: RadioCloseCause, receiverDiscovered: Bool) -> ClientSessionAction {
+    public mutating func welcomed() {
+        everWelcomed = true; welcomedThisAttempt = true; consecutiveStalls = 0; recovering = false
+    }
+    public mutating func receiverUnavailable() { consecutiveStalls = 0 }
+    public mutating func action(for cause: RadioCloseCause, receiverDiscovered: Bool) -> ClientSessionAction {
         switch cause {
         case .authentication: return .pairingRejected(.notAccepted)
         case .revoked: return .pairingRejected(.revoked)
-        case .admissionDeadline(let tlsReady, let preparing):
-            if tlsReady || (receiverDiscovered && preparing) { return .pairingRejected(.notAccepted) }
-            return welcomedThisAttempt ? .retry : .stop
+        case .admissionDeadline:
+            // Neither discovery nor a silent TLS timeout proves that the peer
+            // rejected a credential. Count only consecutive discovered stalls.
+            consecutiveStalls = receiverDiscovered ? consecutiveStalls + 1 : 0
+            recovering = true
+            return consecutiveStalls >= 3 ? .unreachable : .retry
         case .rejected(let reason):
-            if ["unpaired", "auth failure", "auth failed", "authentication failed", "unauthorized"].contains(reason.lowercased()) {
+            if reason.lowercased() == "unpaired" {
                 return .pairingRejected(.notAccepted)
             }
             return .stop
-        case .linkLoss: return welcomedThisAttempt ? .retry : .stop
+        case .linkLoss:
+            consecutiveStalls = 0
+            return everWelcomed || recovering ? .retry : .stop
         case .peerEnded, .localStop, .protocolFailure: return .stop
         }
     }
+}
+
+/// Backoff and browse epochs are shared by both network modes. A result from an
+/// earlier browser (even the same service name/rid) can never satisfy a retry.
+public struct ReconnectBackoff {
+    private var delay = 0.5
+    public init() {}
+    public mutating func next() -> Double { defer { delay = min(4, delay * 2) }; return delay }
+}
+public struct FreshReceiverResults<Endpoint> {
+    public private(set) var generation = UUID()
+    private var results: [UUID: Endpoint] = [:]
+    public init() {}
+    @discardableResult public mutating func restart() -> UUID {
+        generation = UUID(); results.removeAll(); return generation
+    }
+    @discardableResult public mutating func update(_ results: [UUID: Endpoint], generation: UUID) -> Bool {
+        guard generation == self.generation else { return false }
+        self.results = results; return true
+    }
+    public func endpoint(for rid: UUID) -> Endpoint? { results[rid] }
 }
 
 /// UI state shared by Radio and Stream; never confers authentication. Kept apart
@@ -63,6 +95,9 @@ public struct ReceiverPairingStatus: Codable {
     public subscript(_ rid: UUID) -> PairingRejection? { failures[rid] }
     public mutating func reject(_ rid: UUID, reason: PairingRejection) { failures[rid] = reason }
     public mutating func clear(_ rid: UUID) { failures.removeValue(forKey: rid) }
+    /// One-time migration: old builds persisted preparing timeouts as rejection.
+    /// This clears UI hints only; a connection still requires TLS and HMAC.
+    public mutating func clearLegacyReachabilityRejections() { failures = failures.filter { $0.value != .notAccepted } }
     public func label(rid: UUID, hasCredential: Bool) -> String {
         if let failure = failures[rid] { return failure == .notAccepted ? "Pairing rejected" : "Not paired" }
         return hasCredential ? "Paired" : "Not paired"

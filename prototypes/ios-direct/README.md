@@ -178,12 +178,18 @@ capture and per-device windows still behave as described below.
    `bye revoked`. Other phones continue. An authenticated revocation removes the
    phone's stored pairing too. Phone **Forget this Mac** deletes its
    credential and stops its connections/capture to that receiver. Reconnecting
-   requires another QR/approval. If a reconnect fails after an offline revocation,
-   the phone stops retrying and shows "This Mac didn't accept this phone. It may
-   have been forgotten on the Mac." Use **Pair again** or **Forget this Mac**.
-   Ambiguous failure retains the key and marks Pairing rejected in both modes,
-   including after relaunch. Authenticated revocation deletes the key and shows
-   "This Mac forgot this phone. Pair again to reconnect."
+   requires another QR/approval. An actual TLS error, peer close/reset after TLS
+   ready but before welcome, or `reject unpaired` stops recovery and shows
+   "This Mac didn't accept this phone. It may have been forgotten on the Mac."
+   The key is retained; use **Pair again** or **Forget this Mac**. A silent
+   preparing deadline is a link problem: show **Reconnecting…**, restart Bonjour,
+   wait for a fresh receiver result, then authenticate again with 0.5 → 4 s
+   backoff. After three consecutive admission stalls against a currently
+   discovered Mac, stop with "Can't reach this Mac. If it was forgotten on the
+   Mac, pair again." **Try again** starts a fresh discovery/budget; **Pair again**
+   opens the scanner. This state retains the credential and the **Paired** label.
+   Only authenticated revocation deletes the key and shows "This Mac forgot
+   this phone. Pair again to reconnect."
 
 Receiver UUID/name live in `receiver-identity.json`; non-secret phone metadata is
 in `paired-devices.json`, both next to Mac logs. Secret keys are Generic Password
@@ -227,10 +233,13 @@ AP-free routing.
 - With the decisive no-AP setup, go Home for ten continuously changing unlocked
   background minutes. Check capture → paced → encode → send → ACK plus Mac
   received → decoded → displayed progress. Timer progress alone is insufficient.
-- Interrupt/restore a link after welcome: expect a fresh authentication attempt
-  after 0.5 seconds. An attempt that never reaches welcome is not retried; TLS/auth
-  failure or a preparing deadline against a discovered Mac stops with pairing
-  recovery controls. Test initial rejection and rejected reconnects separately.
+- Interrupt/restore a link after welcome: expect **Reconnecting…**, 0.5 → 4 s
+  backoff and fresh Bonjour discovery before each new authentication attempt.
+  Backgrounding invalidates cached results; active background capture and its
+  link recovery can continue. When capture ends in background, admission/recovery
+  pauses for suspension. Foregrounding restarts discovery before
+  releasing retries. Test three preparing stalls (can't reach, still Paired),
+  actual TLS rejection, and authenticated revocation separately.
 - Stop capture from the app and system indicator. Share again on the retained
   connection; check new generation/config/IDR and one window for that device.
   Capture must stay stopped if a transport reconnect occurs. Run 1 showed that iOS
@@ -241,18 +250,40 @@ AP-free routing.
 ## Preserved capture and stream behavior
 
 G1 recovery invalidates only VT on failure, retries after 0.25/0.5/1/2 seconds,
-creates a generation and forces IDR; valid output resets backoff. Source samples
-use a two-frame mailbox, explicit 30 FPS PTS pacing, even/aspect fitting up to
-1280×720 or 720×1280, SDR H.264 at 6 Mbit/s, real time, no frame reordering and
-one-second keyframes. Unsupported SDK setters/readbacks stay unavailable. No
-capture lifecycle, encoder or stub source was changed for G3b.
+creates a generation and forces IDR; valid output resets backoff. The two-frame
+mailbox, SDR H.264, real-time encoding, no frame reordering and one-second
+keyframes remain. Unsupported SDK setters/readbacks stay unavailable.
 
-Stream queues remain bounded to 1 MiB/100 ms with prediction-chain/IDR recovery.
-The 75,000-byte latency window charges a complete frame before fragments. The
-review fix admits an oversized frame **alone when nothing is outstanding**,
-counting `oversizeAdmittedAlone`; the 1 MiB access-unit cap remains. No endless
-oversize-IDR drop loop is reintroduced. A network loss clears queued/outstanding
-media without restarting the authorized capture pipeline.
+In **Stream → Stream quality**, choose before Share:
+
+| Preset | Portrait output box | Target | Default max fps |
+| --- | --- | --- | --- |
+| Standard (default) | 720×1280 | 6 Mbit/s | 30 |
+| High | 1080×2400 | 12 Mbit/s | 30 |
+| Native | Source size, even dimensions | 20 Mbit/s | 30 |
+
+Landscape swaps box axes; fitting preserves aspect with the existing even-pixel
+rounding and never upscales. **60 fps** defaults off and applies to every preset.
+Changing either control while sharing clears queued source frames and restarts
+only the encoder with a fresh generation/config/IDR on the same session. SCK
+width/height use the selected preset at Share. iOS 27.1 does not support live
+capture resizing: after increasing quality, **Stop capture → Share** is needed
+to request larger SCK buffers and recover source detail. The UI explains this.
+
+AverageBitRate follows the preset; DataRateLimits (1.5× over 1 s) and Quality=0.75
+are attempted once and every property OSStatus is logged. Optional hints that the
+encoder rejects do not stop sharing. This does not guarantee a bitrate floor.
+Per-second sender logs show actual encoded Mbit/s, preset, output size, fps and
+target; the Mac overlay shows quality metadata and measured received Mbit/s.
+
+Stream queues remain bounded to 4 MiB/100 ms with prediction-chain/IDR recovery.
+The latency window is `min(150000, targetBitrate / 80)`: Standard 75,000 bytes,
+High/Native 150,000 bytes. It charges a complete frame before fragments and admits
+an oversized frame **alone when nothing is outstanding**, counting
+`oversizeAdmittedAlone`; the access-unit/reassembly cap is 4 MiB. A network loss
+clears queued/outstanding media without restarting authorized capture. Protocol
+stays v3; updated endpoints are required for optional quality metadata (see
+[wire layout](../../docs/ios-direct/protocol.md)).
 
 Each Mac session preserves its private decoder, eight-frame/300 ms decode bound,
 idempotent config, decode-all-reference policy and newest decoded presentation.
@@ -304,3 +335,32 @@ The injected loopback consumer does not exercise VideoToolbox or visible rotatio
 All Sender/Receiver sources pass direct arm64 SDK typechecks (iPhoneOS 27.1 /
 macOS 27.0, Swift 5 mode); this is not a linked/signed build or device acceptance.
 No installs, commits or pushes; historical `results.md` is unchanged.
+
+
+## G4 run 2 follow-up — reconnect reachability
+
+Run 2 shows a defunct browser and a five-second preparing stall without any Mac
+connection attempt. That timeout no longer changes pairing status. Both Radio
+and Stream use the shared stall budget/backoff and require a new browse epoch
+before retrying. Late callbacks from an earlier browser/request are ignored;
+there is no cached endpoint fallback. Repeated foreground notifications cannot
+start overlapping resolutions. Foreground handling lives in the discovery object
+rather than whichever tab happens to be visible. Returning after system capture
+stop may recover a fresh authenticated session; capture remains stopped. A
+terminal ordinary disconnect says **Disconnected — tap Connect**.
+
+A one-time UI-state migration clears legacy not-accepted hints (old builds also
+saved preparing timeouts there). It keeps credentials and revoked status;
+TLS/HMAC still determines admission. The quality-preset, encoder and video-wire
+work is unchanged. Device verification: system-stop capture while backgrounded,
+return on both phones, confirm fresh discovery and no pairing rejection without
+TLS evidence, test Try again after three discovered stalls, then verify explicit
+TLS failure and Mac Forget still take their separate recovery paths.
+
+Validation: **97 Shared tests pass (89 existing plus 8 additional tests)**, zero
+failures, with real TLS loopback. Coverage includes three actual preparing
+admission deadlines, fresh discovery/backoff, credential retention, explicit TLS
+rejection, post-TLS peer close, revoked-key deletion, foreground recovery and
+single-use resolver callbacks. Both arm64 app SDK source typechecks pass. No
+linked app build or physical suspension/Bonjour acceptance is claimed. No
+commits, pushes or installs.

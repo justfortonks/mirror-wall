@@ -75,3 +75,13 @@ The injected loopback consumer does not exercise VideoToolbox or visible rotatio
 All Sender/Receiver sources pass direct arm64 SDK typechecks (iPhoneOS 27.1 /
 macOS 27.0, Swift 5 mode); this is not a linked/signed build or device acceptance.
 No installs, commits or pushes; historical `results.md` is unchanged.
+
+## Selectable stream quality
+
+The overlay shows the sender's Standard/High/Native preset, encoded output size,
+maximum 30/60 fps and target 6/12/20 Mbit/s beside measured received Mbit/s.
+Older configs without quality metadata show unavailable. Reassembly and queued
+access units are bounded to 4 MiB; decode count/age limits stay eight/300 ms.
+Window sizing still follows stream aspect. Install matching updated sender and
+receiver builds for the v3 quality-config extension. No device quality, 60 fps or
+latency acceptance is implied by Shared tests or SDK typechecks.

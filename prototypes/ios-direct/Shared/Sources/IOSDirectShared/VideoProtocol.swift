@@ -14,14 +14,17 @@ public struct VideoConfig: Equatable {
     /// Raw SCStreamFrameInfo.videoOrientation (CGImagePropertyOrientation); pixels are not rotated here.
     public let orientation: UInt8
     public let contentRect: VideoRect?
+    public let streamSettings: StreamSettings?
     public let avcC: Data
     public init(generation: UInt32, width: UInt16, height: UInt16, orientation: UInt8,
-                contentRect: VideoRect? = nil, avcC: Data) {
+                contentRect: VideoRect? = nil, streamSettings: StreamSettings? = nil, avcC: Data) {
         self.generation = generation; self.width = width; self.height = height
         self.orientation = orientation; self.contentRect = contentRect; self.avcC = avcC
+        self.streamSettings = streamSettings
     }
     public func withGeneration(_ generation: UInt32) -> VideoConfig {
-        VideoConfig(generation: generation, width: width, height: height, orientation: orientation, contentRect: contentRect, avcC: avcC)
+        VideoConfig(generation: generation, width: width, height: height, orientation: orientation,
+                    contentRect: contentRect, streamSettings: streamSettings, avcC: avcC)
     }
     /// Parse AVCDecoderConfigurationRecord without trusting its length fields. High-profile
     /// extension bytes may follow PPS; VideoToolbox only needs the SPS/PPS parameter sets.
@@ -51,12 +54,15 @@ public struct VideoConfig: Equatable {
     func body() throws -> Data {
         _ = try parameterSets()
         var b = Data(); b.put(generation); b.put(width); b.put(height); b.put(orientation)
-        b.put(UInt8(contentRect == nil ? 0 : 1))
+        b.put(UInt8((contentRect == nil ? 0 : 1) | (streamSettings == nil ? 0 : 2)))
         if let rect = contentRect {
             for value in [rect.x, rect.y, rect.width, rect.height] {
                 guard value.isFinite else { throw RadioError.protocolViolation("invalid content rect") }
                 b.put(value.bitPattern)
             }
+        }
+        if let settings = streamSettings {
+            b.put(settings.preset.wireID); b.put(UInt8(settings.fps)); b.put(UInt32(settings.targetBitrate))
         }
         b.append(avcC); return b
     }
@@ -64,9 +70,9 @@ public struct VideoConfig: Equatable {
         var r = BodyReader(data: data)
         let generation: UInt32 = try r.number(), width: UInt16 = try r.number(), height: UInt16 = try r.number()
         let orientation: UInt8 = try r.number(), present: UInt8 = try r.number()
-        guard present <= 1 else { throw RadioError.protocolViolation("invalid rect flag") }
+        guard present <= 3 else { throw RadioError.protocolViolation("invalid config flags") }
         var rect: VideoRect?
-        if present == 1 {
+        if present & 1 != 0 {
             var values = [Double]()
             for _ in 0..<4 {
                 let bits: UInt64 = try r.number(), value = Double(bitPattern: bits)
@@ -75,8 +81,17 @@ public struct VideoConfig: Equatable {
             }
             rect = VideoRect(x: values[0], y: values[1], width: values[2], height: values[3])
         }
+        var settings: StreamSettings?
+        if present & 2 != 0 {
+            let preset = try StreamPreset(wireID: r.number())
+            let fps: UInt8 = try r.number(), bitrate: UInt32 = try r.number()
+            guard (fps == 30 || fps == 60), bitrate == UInt32(preset.targetBitrate) else {
+                throw RadioError.protocolViolation("invalid stream settings")
+            }
+            settings = StreamSettings(preset: preset, sixtyFPS: fps == 60)
+        }
         self.init(generation: generation, width: width, height: height, orientation: orientation,
-                  contentRect: rect, avcC: Data(data.dropFirst(r.offset)))
+                  contentRect: rect, streamSettings: settings, avcC: Data(data.dropFirst(r.offset)))
         _ = try parameterSets()
     }
 }
@@ -101,7 +116,7 @@ public struct VideoAccessUnit: Equatable {
     }
 }
 public struct VideoFragment: Equatable {
-    public static let maxFrame = 1_048_576
+    public static let maxFrame = 4 * 1_048_576
     public static let maxData = min(RadioFrame.maxData, RadioFrame.maxBody - 29)
     public let generation: UInt32, seq: UInt64, ptsNs: UInt64
     public let keyframe: Bool
@@ -159,7 +174,7 @@ public struct VideoReassembler {
         first != nil && now - started >= 1 ? abandon("fragment timeout") : []
     }
     public mutating func accept(_ f: VideoFragment, now: Double) throws -> [VideoAssemblyEvent] {
-        try f.validate() // Reject total >1 MiB before reserving/appending anything.
+        try f.validate() // Reject total >4 MiB before reserving/appending anything.
         var events = expire(now: now)
         if let old = first, old.seq != f.seq {
             events += abandon("missing fragment / replaced frame")

@@ -27,6 +27,7 @@ final class EncoderPipeline {
     private var workerScheduled = false
     private var accepting = false
     private var pacer = FramePacer()
+    private var settings = StreamSettings() // encodeQueue; changes serialized with capture offers.
     private let encodeQueue = DispatchQueue(label: "iosdirect.encode", qos: .userInitiated)
     private var transfer: VTPixelTransferSession?
     private var backoff = EncoderBackoff()
@@ -46,10 +47,20 @@ final class EncoderPipeline {
         network?.requestIDR = { [weak self] in self?.requestKeyframe() }
     }
     func requestKeyframe() { encodeQueue.async { [weak self] in self?.forceIDR = true } }
+    /// Capture queue serializes this with offer(). No media or transport restart.
+    func setSettings(_ next: StreamSettings) {
+        mailboxLock.lock(); frames.removeAll(); pacer = FramePacer(fps: Double(next.fps)); mailboxLock.unlock()
+        encodeQueue.sync {
+            guard settings != next else { return }
+            settings = next; invalidate(); format = nil; backoff.reset()
+            metrics.update { $0.streamPreset = next.preset.rawValue; $0.maxFPS = next.fps; $0.bitrate = next.targetBitrate }
+            log.event("encoder.settings", "preset=\(next.preset.rawValue) fps=\(next.fps) targetBitrate=\(next.targetBitrate) generation=\(generation)")
+        }
+    }
     func start() {
         stop()
         encodeQueue.sync { setEncoderState("unavailable: awaiting frame") }
-        mailboxLock.lock(); accepting = true; pacer = FramePacer(); mailboxLock.unlock()
+        mailboxLock.lock(); accepting = true; pacer = FramePacer(fps: Double(settings.fps)); mailboxLock.unlock()
     }
     func stop() {
         mailboxLock.lock(); accepting = false; frames.removeAll(); mailboxLock.unlock()
@@ -157,14 +168,14 @@ final class EncoderPipeline {
             height: Int32(next.output.height), codecType: kCMVideoCodecType_H264, encoderSpecification: spec,
             imageBufferAttributes: attrs as CFDictionary, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &created)
-        log.event("encoder.create", "generation=\(generation) dims=\(next.output) source=\(next.sourceWidth)x\(next.sourceHeight) orientation=\(next.orientation) lowLatency=true appState=\(metrics.snapshot().appState) OSStatus=\(status)")
+        log.event("encoder.create", "generation=\(generation) preset=\(settings.preset.rawValue) dims=\(next.output) fps=\(settings.fps) targetBitrate=\(settings.targetBitrate) source=\(next.sourceWidth)x\(next.sourceHeight) orientation=\(next.orientation) lowLatency=true appState=\(metrics.snapshot().appState) OSStatus=\(status)")
         // Retain even a partial result so failure always invalidates/releases it.
         session = created
         guard status == noErr, let created else { fail("create", status: status, unavailable: true); return false }
         let properties: [(CFString, CFTypeRef)] = [
             (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue),
-            (kVTCompressionPropertyKey_ExpectedFrameRate, 30 as CFNumber),
-            (kVTCompressionPropertyKey_AverageBitRate, 6_000_000 as CFNumber),
+            (kVTCompressionPropertyKey_ExpectedFrameRate, settings.fps as CFNumber),
+            (kVTCompressionPropertyKey_AverageBitRate, settings.targetBitrate as CFNumber),
             (kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 1 as CFNumber),
             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse),
             (kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel)
@@ -173,6 +184,16 @@ final class EncoderPipeline {
             let result = VTSessionSetProperty(created, key: key, value: value)
             log.event("encoder.property", "\(key)=\(value) OSStatus=\(result)")
             if result != noErr { fail("property \(key)", status: result, unavailable: true); return false }
+        }
+        // Optional rate/quality hints: try once and keep the low-latency encoder's
+        // supported behavior on rejection. Quality is a hint, not a bitrate floor.
+        let optionalProperties: [(CFString, CFTypeRef)] = [
+            (kVTCompressionPropertyKey_DataRateLimits, [settings.targetBitrate * 3 / 16, 1] as CFArray),
+            (kVTCompressionPropertyKey_Quality, 0.75 as CFNumber)
+        ]
+        for (key, value) in optionalProperties {
+            let result = VTSessionSetProperty(created, key: key, value: value)
+            log.event("encoder.property", "\(key)=\(value) OSStatus=\(result) optional=true accepted=\(result == noErr)")
         }
         let prepared = VTCompressionSessionPrepareToEncodeFrames(created)
         log.event("encoder.prepare", "OSStatus=\(prepared)")
@@ -201,7 +222,7 @@ final class EncoderPipeline {
     }
     private func encode(_ frame: Frame) {
         let width = CVPixelBufferGetWidth(frame.image), height = CVPixelBufferGetHeight(frame.image)
-        guard let dimensions = Dimensions.fit(width: width, height: height) else {
+        guard let dimensions = settings.preset.output(width: width, height: height) else {
             if backoff.canAttempt(now: uptime()) { fail("invalid source dimensions") }
             dropWithoutSession(); return
         }
@@ -262,7 +283,7 @@ final class EncoderPipeline {
         forceIDR = false; inFlight += 1
         metrics.update { $0.encodeSubmitted += 1 }
         let status = VTCompressionSessionEncodeFrame(session, imageBuffer: buffer,
-            presentationTimeStamp: frame.pts, duration: CMTime(value: 1, timescale: 30),
+            presentationTimeStamp: frame.pts, duration: CMTime(value: 1, timescale: CMTimeScale(settings.fps)),
             frameProperties: properties, infoFlagsOut: nil, outputHandler: { [weak self] status, flags, sample in
                 guard let self else { return }
                 self.encodeQueue.async { self.completed(token: token, status: status, flags: flags, sample: sample) }
@@ -295,14 +316,15 @@ final class EncoderPipeline {
             if let avc, let format {
                 let rect = format.contentRect.map { VideoRect(x: Double($0.origin.x), y: Double($0.origin.y), width: Double($0.width), height: Double($0.height)) }
                 videoConfig = VideoConfig(generation: UInt32(truncatingIfNeeded: token), width: UInt16(dimensions.width),
-                    height: UInt16(dimensions.height), orientation: UInt8(clamping: format.orientation), contentRect: rect, avcC: avc)
+                    height: UInt16(dimensions.height), orientation: UInt8(clamping: format.orientation), contentRect: rect,
+                    streamSettings: settings, avcC: avc)
             }
             let profile = avc.flatMap { $0.count > 3 ? "avcC profile=\($0[1]) level=\($0[3])" : nil } ?? "avcC unavailable"
             metrics.update { $0.negotiatedProfile = profile }
             log.event("encoder.outputFormat", "generation=\(token) dims=\(dimensions.width)x\(dimensions.height) \(profile)")
         }
         // Reject overlarge output before copying. The sink accounts for the drop and requests IDR.
-        guard size > 0, size <= 1_048_576 else {
+        guard size > 0, size <= VideoFragment.maxFrame else {
             metrics.update { $0.sinkDrops += 1 }; forceIDR = true; network?.discontinuity("oversize"); log.event("sink.oversize", "bytes=\(size)"); return
         }
         var data = Data(count: size)
