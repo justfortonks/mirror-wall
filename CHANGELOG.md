@@ -5,6 +5,13 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 19, 2026: Dimmed iPhones no longer stuck on "Screen off"
+
+- An iPhone left on with its brightness at zero pauses its stream the way a locked iPhone does,
+  so its tile said "Screen off" for as long as it stayed dimmed. Now a paused iPhone that's still
+  connected 75 seconds later shows as Live again, since iOS ends mirroring about a minute after a
+  screen really goes off. Mac and Windows.
+
 ## October 16, 2026: OBS feed follows slot renames, and a list of test builds
 
 - Renaming a slot now renames its OBS feed (Syphon on the Mac, Spout on Windows) and its own
