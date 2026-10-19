@@ -70,6 +70,17 @@ internal sealed class SlotStore : Observable
     /// <summary>Shows Mirror Wall's icon in the notification area, and keeps the app running (and
     /// mirroring) when the wall's window is closed. On by default.</summary>
     public bool ShowsTrayIcon => settings.TrayIcon;
+    /// <summary>The app's look. Windows follow <see cref="Theme"/> changes as they happen.</summary>
+    public Theme Theme => settings.Theme;
+    /// <summary>Open to the Stage at launch, with the wall tucked away. Off by default.</summary>
+    public bool OpensToStage => settings.OpenToStage;
+    /// <summary>Put each phone on the Stage as it connects. Off by default.</summary>
+    public bool AddsPhonesToStage => settings.AddPhonesToStage;
+    /// <summary>The Stage's caption bar, for the current theme.</summary>
+    public bool ShowsStageCaption => settings.Theme == Theme.Imprivata ? settings.StageCaptionImprivata : settings.StageCaptionStandard;
+    /// <summary>Slots with a phone connected, so a phone only goes on the Stage when it first
+    /// connects, and taking it off mid-demo sticks until it reconnects.</summary>
+    private readonly HashSet<int> connectedSlotIds = new();
 
     private bool anySlotInUse;
     /// <summary>True while a phone is connecting, mirroring or has its screen off, or a slot is recording.</summary>
@@ -120,11 +131,27 @@ internal sealed class SlotStore : Observable
     private void SlotChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(Slot.State) or nameof(Slot.RecordingSince)) UpdateKeepAwake();
+        if (sender is Slot connecting && e.PropertyName is nameof(Slot.State)) PutOnStageIfNew(connecting);
         if (sender is Slot slot && e.PropertyName is nameof(Slot.State) or nameof(Slot.HasPicture))
         {
             // After the change has settled, as the Mac app does.
             Application.Current.Dispatcher.BeginInvoke(() => SendStandbyToObs(slot));
         }
+    }
+
+    /// <summary>With "Put phones on the Stage as they connect" on, a phone that connects goes on the
+    /// Stage. It can still be taken off from the Stage's control bar; that holds until the phone
+    /// disconnects and connects again.</summary>
+    private void PutOnStageIfNew(Slot slot)
+    {
+        bool connected = slot.State is SlotState.Connecting or SlotState.Live or SlotState.Paused;
+        if (!connected)
+        {
+            connectedSlotIds.Remove(slot.Id);
+            return;
+        }
+        if (!connectedSlotIds.Add(slot.Id)) return;
+        if (settings.AddPhonesToStage && !slot.ShowsOnStage) SetShowsOnStage(slot, true);
     }
 
     // MARK: Allow-list and alerts
@@ -269,6 +296,7 @@ internal sealed class SlotStore : Observable
         slot.SetObsFeed(false, "");
         slot.Shutdown();
         slot.PropertyChanged -= SlotChanged;
+        connectedSlotIds.Remove(slot.Id);
         StandbyPictures.Discard(slot.Config.Standby);
         Slots.Remove(slot);
         settings.PopOutCustomLongSides.Remove(slot.Id);
@@ -441,7 +469,16 @@ internal sealed class SlotStore : Observable
         if (stageWindow == null)
         {
             stageWindow = new StageWindow(this);
-            stageWindow.Closed += (_, _) => stageWindow = null;
+            stageWindow.Closed += (_, _) =>
+            {
+                stageWindow = null;
+                // Opened to the Stage with no notification area icon: closing the Stage mustn't
+                // leave Mirror Wall running with nothing on screen to get back to it from.
+                if (!ShowsTrayIcon && !App.Current.Quitting && Application.Current.MainWindow is { IsVisible: false })
+                {
+                    MainWindow.ShowMain();
+                }
+            };
             stageWindow.Show();
         }
         if (stageWindow.WindowState == WindowState.Minimized) stageWindow.WindowState = WindowState.Normal;
@@ -610,6 +647,39 @@ internal sealed class SlotStore : Observable
         settings.TrayIcon = on;
         settings.Save();
         Changed(nameof(ShowsTrayIcon));
+    }
+
+    public void SetTheme(Theme theme)
+    {
+        if (theme == settings.Theme) return;
+        settings.Theme = theme;
+        settings.Save();
+        Themes.Apply(theme);
+        Changed(nameof(Theme));
+        Changed(nameof(ShowsStageCaption));
+    }
+
+    public void SetOpensToStage(bool on)
+    {
+        if (on == settings.OpenToStage) return;
+        settings.OpenToStage = on;
+        settings.Save();
+        Changed(nameof(OpensToStage));
+    }
+
+    public void SetAddsPhonesToStage(bool on)
+    {
+        if (on == settings.AddPhonesToStage) return;
+        settings.AddPhonesToStage = on;
+        settings.Save();
+        Changed(nameof(AddsPhonesToStage));
+    }
+
+    public void SetShowsStageCaption(bool on)
+    {
+        if (settings.Theme == Theme.Imprivata) settings.StageCaptionImprivata = on; else settings.StageCaptionStandard = on;
+        settings.Save();
+        Changed(nameof(ShowsStageCaption));
     }
 
     /// <summary>

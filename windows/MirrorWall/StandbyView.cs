@@ -53,4 +53,5 @@ internal static class Glyphs
     public const string Moon = "";
     public const string Broadcast = "";
     public const string Close = "";
+    public const string Layout = "\uF0E2"; // GridView
 }

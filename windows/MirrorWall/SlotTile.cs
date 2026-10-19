@@ -43,6 +43,8 @@ internal sealed class SlotTile : UserControl
     };
     private readonly StatsOverlay stats;
     private readonly Button popOutButton = new();
+    /// <summary>Imprivata theme only: the brand's hex pattern in the corner while the slot waits.</summary>
+    private readonly HexPattern hexPattern;
 
     private readonly Ellipse dot = new() { Width = 8, Height = 8, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock nameText = new() { FontWeight = FontWeights.SemiBold, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
@@ -66,6 +68,11 @@ internal sealed class SlotTile : UserControl
         this.toggleFocus = toggleFocus;
         stats = new StatsOverlay(slot);
         VerticalAlignment = VerticalAlignment.Top;
+        hexPattern = new HexPattern
+        {
+            Radius = 13, Columns = 5, Rows = 5, Density = 0.75, Seed = (ulong)slot.Id + 7,
+            Height = 120, VerticalAlignment = VerticalAlignment.Top,
+        };
 
         RenderOptions.SetBitmapScalingMode(picture, BitmapScalingMode.HighQuality);
         placeholder.Children.Add(placeholderIcon);
@@ -85,6 +92,7 @@ internal sealed class SlotTile : UserControl
         };
 
         var layers = new Grid();
+        layers.Children.Add(hexPattern);
         layers.Children.Add(standby);
         layers.Children.Add(picture);
         layers.Children.Add(placeholder);
@@ -228,6 +236,13 @@ internal sealed class SlotTile : UserControl
         standby.Children.Clear();
         if (!showsPicture && hasStandbyImage) standby.Children.Add(StandbyView.Make(standbyPicture, slot));
         placeholder.Visibility = !showsPicture && !hasStandbyImage ? Visibility.Visible : Visibility.Collapsed;
+        var theme = store.Theme;
+        bool waiting = !showsPicture && !hasStandbyImage;
+        // Black behind a phone's picture; the theme's color while the slot waits for one.
+        frame.Background = waiting ? Themes.EmptyTileBackground(theme) : Brushes.Black;
+        hexPattern.Visibility = waiting && theme == Theme.Imprivata ? Visibility.Visible : Visibility.Collapsed;
+        bool problem = slot.State is SlotState.Failed or SlotState.Disconnected;
+        placeholderIcon.Foreground = theme != Theme.Imprivata ? Faint : problem ? Themes.RedBrush(theme) : Themes.Frozen(Themes.Teal);
         placeholderIcon.Text = slot.State switch
         {
             SlotState.Failed => Glyphs.Warning,
@@ -249,20 +264,14 @@ internal sealed class SlotTile : UserControl
         popOutButton.Content = poppedOut ? Glyphs.PopIn : Glyphs.PopOut;
         popOutButton.ToolTip = poppedOut ? "Close this slot's own window" : "Open this slot in its own window, for OBS";
 
-        dot.Fill = slot.State switch
-        {
-            SlotState.Live => Brushes.LimeGreen,
-            SlotState.Waiting or SlotState.Connecting or SlotState.Paused => Brushes.Gold,
-            SlotState.Disconnected => Brushes.Orange,
-            SlotState.Stopped => Brushes.Gray,
-            _ => Brushes.Red,
-        };
+        dot.Fill = Themes.StatusBrush(theme, slot.State);
+        recordingText.Foreground = Themes.RedBrush(theme);
         nameText.Text = slot.Name;
         obsIcon.Visibility = slot.ObsFeedName != null ? Visibility.Visible : Visibility.Collapsed;
         obsIcon.ToolTip = $"Sending to OBS: add a Spout2 Capture source and pick \"{slot.ObsFeedName}\"";
 
         recordButton.Content = slot.RecordingSince == null ? Glyphs.Record : Glyphs.Stop;
-        recordButton.Foreground = slot.RecordingSince == null ? (Brush)GetValue(ForegroundProperty) : Brushes.Red;
+        recordButton.Foreground = slot.RecordingSince == null ? (Brush)GetValue(ForegroundProperty) : Themes.RedBrush(theme);
         recordButton.ToolTip = slot.RecordingSince != null ? "Stop recording"
             : slot.ShowsPicture ? $"Start recording to {System.IO.Path.GetFileName(SaveFolders.Recordings)}"
             : $"Record to {System.IO.Path.GetFileName(SaveFolders.Recordings)} when a phone connects";

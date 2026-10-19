@@ -27,9 +27,10 @@ product names are their trademarks.
 
 ### Barlow typeface (SIL Open Font License 1.1)
 
-The Barlow font files in `Contents/Resources/Brand` are Copyright 2017 The Barlow Project
-Authors (<https://github.com/jpt/barlow>), licensed under the SIL Open Font License 1.1; the full
-licence is `Contents/Resources/Brand/OFL.txt`.
+The Barlow font files (on the Mac in `Contents/Resources/Brand`, on Windows built into the
+app) are Copyright 2017 The Barlow Project Authors (<https://github.com/jpt/barlow>),
+licensed under the SIL Open Font License 1.1; the full licence is `Brand/OFL.txt` (on the Mac
+`Contents/Resources/Brand/OFL.txt`, on Windows in the install folder).
 
 ### UxPlay (GNU GPL v3)
 

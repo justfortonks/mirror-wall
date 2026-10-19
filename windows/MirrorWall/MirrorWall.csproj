@@ -41,6 +41,11 @@
     <Resource Include="..\..\Sources\MirrorWall\Resources\AppIcon.png" Link="AppIcon.png" />
     <!-- Photos of Android phones' fronts, for their frames (PhoneBezelFrame.cs, BezelPhotos). -->
     <EmbeddedResource Include="..\..\Sources\MirrorWall\Resources\Bezels\*.png" LogicalName="Bezels.%(Filename)%(Extension)" />
+    <!-- Imprivata theme (Themes.cs): Barlow, shared with the Mac app, under its SIL Open Font
+         License, and the logo, which is kept out of git and copied only if it's been added locally. -->
+    <Resource Include="..\..\Sources\MirrorWall\Resources\Brand\*.ttf" Link="Brand\%(Filename)%(Extension)" />
+    <None Include="..\..\Sources\MirrorWall\Resources\Brand\OFL.txt" Link="Brand\OFL.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\Sources\MirrorWall\Resources\Brand\imprivata-logo*.png" Link="Brand\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
