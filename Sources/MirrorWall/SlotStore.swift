@@ -64,8 +64,32 @@ final class SlotStore: ObservableObject {
     static let menuBarIconKey = "showMenuBarIcon"
     /// Settings › Wall › Stage: open to the Stage at launch, with the wall tucked away.
     static let opensToStageKey = "opensToStage"
-    /// Settings › Wall › Stage: put each phone on the Stage as it connects.
-    static let addsPhonesToStageKey = "addsPhonesToStage"
+    /// Settings › Wall › Stage › Phones on the Stage (StagePhones).
+    static let stagePhonesKey = "stagePhones"
+
+    /// Which phones the Stage shows, chosen in Settings › Wall › Stage.
+    enum StagePhones: String, CaseIterable, Identifiable {
+        /// None at launch; put phones on it as you go (the default).
+        case none
+        /// Every phone, as it connects.
+        case all
+        /// The phones ticked last time, remembered from one launch to the next.
+        case chosen
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .none: return "None until I add them"
+            case .all: return "Every phone that connects"
+            case .chosen: return "The phones I chose last time"
+            }
+        }
+
+        static var current: StagePhones {
+            UserDefaults.standard.string(forKey: stagePhonesKey).flatMap(StagePhones.init(rawValue:)) ?? .none
+        }
+    }
 
     private var popOutWindows: [Int: PopOutWindow] = [:]
     private var stageWindow: StageWindow?
@@ -111,10 +135,15 @@ final class SlotStore: ObservableObject {
         bezelsForAllSlots = defaults.bool(forKey: bezelsForAllSlotsKey)
         keepsMacAwake = defaults.bool(forKey: keepsMacAwakeKey)
         stageLayout = defaults.string(forKey: stageLayoutKey).flatMap(StageLayout.init(rawValue:)) ?? .sideBySide
+        // The Stage starts empty unless it's set to remember the phones chosen last time.
+        let clearsStage = StagePhones.current != .chosen && configs.contains { $0.onStage != nil }
+        if clearsStage {
+            for index in configs.indices { configs[index].onStage = nil }
+        }
         slots = configs.map { Slot(config: $0) }
         uxplayURL = Self.locateUxPlay(savedPath: defaults.string(forKey: uxplayPathKey))
         slots.forEach(watch)
-        if saved != nil { save() }
+        if saved != nil || clearsStage { save() }
         updateWindowTitles() // also starts the OBS feeds that were on
     }
 
@@ -159,7 +188,7 @@ final class SlotStore: ObservableObject {
         watchForStage(slot)
     }
 
-    /// With Settings › Wall › Stage › "Put phones on the Stage as they connect" on, a phone that
+    /// With Settings › Wall › Stage › Phones on the Stage set to every phone, a phone that
     /// connects goes on the Stage. It can still be taken off from the Stage's control bar; that
     /// holds until the phone disconnects and connects again.
     private func watchForStage(_ slot: Slot) {
@@ -171,7 +200,7 @@ final class SlotStore: ObservableObject {
                     let connected = slot.state == .connecting || slot.state == .live || slot.state == .paused
                     if connected, !self.connectedSlotIDs.contains(slot.id) {
                         self.connectedSlotIDs.insert(slot.id)
-                        if self.defaults.bool(forKey: Self.addsPhonesToStageKey), !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
+                        if StagePhones.current == .all, !slot.showsOnStage { self.setShowsOnStage(slot, on: true) }
                     } else if !connected {
                         self.connectedSlotIDs.remove(slot.id)
                     }

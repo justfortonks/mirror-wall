@@ -26,6 +26,11 @@ internal sealed class SlotStore : Observable
     public SlotStore()
     {
         var configs = settings.Slots ?? Enumerable.Range(1, 2).Select(id => new SlotConfig(id, SlotConfig.DefaultName(id, ComputerName))).ToList();
+        // The Stage starts empty unless it's set to remember the phones chosen last time.
+        if (settings.StagePhones != StagePhones.Chosen)
+        {
+            foreach (var config in configs) config.OnStage = null;
+        }
         if (!SlotConfig.FrameRates.Contains(settings.MaxFrameRate)) settings.MaxFrameRate = 30;
         foreach (var config in configs.OrderBy(config => config.Id))
         {
@@ -74,8 +79,8 @@ internal sealed class SlotStore : Observable
     public Theme Theme => settings.Theme;
     /// <summary>Open to the Stage at launch, with the wall tucked away. Off by default.</summary>
     public bool OpensToStage => settings.OpenToStage;
-    /// <summary>Put each phone on the Stage as it connects. Off by default.</summary>
-    public bool AddsPhonesToStage => settings.AddPhonesToStage;
+    /// <summary>Which phones the Stage shows. None at launch by default.</summary>
+    public StagePhones StagePhones => settings.StagePhones;
     /// <summary>The Stage's caption bar, for the current theme.</summary>
     public bool ShowsStageCaption => settings.Theme == Theme.Branded ? settings.StageCaptionBranded : settings.StageCaptionStandard;
     /// <summary>Slots with a phone connected, so a phone only goes on the Stage when it first
@@ -139,8 +144,8 @@ internal sealed class SlotStore : Observable
         }
     }
 
-    /// <summary>With "Put phones on the Stage as they connect" on, a phone that connects goes on the
-    /// Stage. It can still be taken off from the Stage's control bar; that holds until the phone
+    /// <summary>With Settings › Wall › Stage › Phones on the Stage set to every phone, a phone that
+    /// connects goes on the Stage. It can still be taken off from the Stage's control bar; that holds until the phone
     /// disconnects and connects again.</summary>
     private void PutOnStageIfNew(Slot slot)
     {
@@ -151,7 +156,7 @@ internal sealed class SlotStore : Observable
             return;
         }
         if (!connectedSlotIds.Add(slot.Id)) return;
-        if (settings.AddPhonesToStage && !slot.ShowsOnStage) SetShowsOnStage(slot, true);
+        if (settings.StagePhones == StagePhones.All && !slot.ShowsOnStage) SetShowsOnStage(slot, true);
     }
 
     // MARK: Allow-list and alerts
@@ -667,12 +672,12 @@ internal sealed class SlotStore : Observable
         Changed(nameof(OpensToStage));
     }
 
-    public void SetAddsPhonesToStage(bool on)
+    public void SetStagePhones(StagePhones choice)
     {
-        if (on == settings.AddPhonesToStage) return;
-        settings.AddPhonesToStage = on;
+        if (choice == settings.StagePhones) return;
+        settings.StagePhones = choice;
         settings.Save();
-        Changed(nameof(AddsPhonesToStage));
+        Changed(nameof(StagePhones));
     }
 
     public void SetShowsStageCaption(bool on)

@@ -50,7 +50,7 @@ internal sealed class SettingsWindow : Window
             or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect)
             or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows)
             or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.KeepsAwake) or nameof(SlotStore.ShowsTrayIcon)
-            or nameof(SlotStore.Theme) or nameof(SlotStore.OpensToStage) or nameof(SlotStore.AddsPhonesToStage))
+            or nameof(SlotStore.Theme) or nameof(SlotStore.OpensToStage) or nameof(SlotStore.StagePhones))
         {
             Build();
         }
@@ -149,10 +149,19 @@ internal sealed class SettingsWindow : Window
         var openToStage = new CheckBox { Content = "Open to the Stage when Mirror Wall starts", IsChecked = store.OpensToStage };
         openToStage.Click += (_, _) => store.SetOpensToStage(openToStage.IsChecked == true);
         content.Children.Add(openToStage);
-        var addToStage = new CheckBox { Content = "Put phones on the Stage as they connect", IsChecked = store.AddsPhonesToStage, Margin = new Thickness(0, 8, 0, 0) };
-        addToStage.Click += (_, _) => store.SetAddsPhonesToStage(addToStage.IsChecked == true);
-        content.Children.Add(addToStage);
-        Note("Opening to the Stage keeps the wall closed at launch, and clicking the notification area icon brings back the Stage; the wall is still in the Stage's menus. A phone taken off the Stage stays off until it reconnects.");
+        content.Children.Add(new TextBlock { Text = "Phones on the Stage", Margin = new Thickness(0, 12, 0, 4) });
+        var stagePhones = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+        stagePhones.Items.Add("None until I add them");
+        stagePhones.Items.Add("Every phone that connects");
+        stagePhones.Items.Add("The phones I chose last time");
+        stagePhones.SelectedIndex = (int)store.StagePhones;
+        stagePhones.SelectionChanged += (_, _) =>
+        {
+            var chosen = (StagePhones)stagePhones.SelectedIndex;
+            Dispatcher.BeginInvoke(() => store.SetStagePhones(chosen));
+        };
+        content.Children.Add(stagePhones);
+        Note("Opening to the Stage keeps the wall closed at launch, and clicking the notification area icon brings back the Stage; the wall is still in the Stage's menus. Put a phone on the Stage with its chip on the Stage's control bar, its ⋯ menu › Show on Stage, or View › Phones on Stage. With every phone, one taken off the Stage stays off until it reconnects.");
 
         Tab("OBS");
         Header("OBS and own windows");

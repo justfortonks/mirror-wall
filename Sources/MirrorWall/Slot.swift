@@ -286,12 +286,13 @@ final class Slot: ObservableObject, Identifiable {
         syphonFeed?.bezelTurns = phoneTurns
     }
 
-    /// Whether the phone appears in the Stage window while it's mirroring.
-    var showsOnStage: Bool { config.onStage ?? true }
+    /// Whether the phone appears in the Stage window while it's mirroring. Off until it's put on
+    /// the Stage (see SlotStore.StagePhones).
+    var showsOnStage: Bool { config.onStage ?? false }
 
     func setShowsOnStage(_ on: Bool) {
         objectWillChange.send()
-        config.onStage = on ? nil : false
+        config.onStage = on ? true : nil
     }
 
     /// True while the slot is sending its picture to OBS through Syphon.
