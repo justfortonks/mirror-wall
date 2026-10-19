@@ -30,14 +30,18 @@ public partial class App : Application
         // least leaves a note of why.
         AppDomain.CurrentDomain.UnhandledException += (_, args) => WriteCrashLog(args.ExceptionObject);
         Native.RunAtFullSpeed();
+        Themes.Apply(Settings.Current.Theme);
         Store = new SlotStore();
         Tray = new TrayIcon(Store);
         var window = new MainWindow(Store);
         MainWindow = window;
-        window.Show();
+        // Settings › Wall › Stage › "Open to the Stage": the wall stays tucked away (it's still in
+        // the Stage's menus and the notification area icon's), and the Stage opens instead.
+        if (!Store.OpensToStage) window.Show();
         Store.StartAll();
         Store.RestoreOwnWindows();
-        window.Activate();
+        if (Store.OpensToStage) Store.ShowStage();
+        else window.Activate();
     }
 
     /// <summary>

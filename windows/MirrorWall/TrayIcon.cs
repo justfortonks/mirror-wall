@@ -31,7 +31,8 @@ internal sealed class TrayIcon : IDisposable
         icon.ContextMenuStrip.Opening += (_, _) => BuildMenu();
         icon.MouseClick += (_, e) =>
         {
-            if (e.Button == Forms.MouseButtons.Left) MainWindow.ShowMain();
+            // With "Open to the Stage" on, the Stage is the window being shared, so it comes back instead.
+            if (e.Button == Forms.MouseButtons.Left) { if (store.OpensToStage) store.ShowStage(); else MainWindow.ShowMain(); }
         };
         icon.Visible = store.ShowsTrayIcon;
         store.PropertyChanged += StoreChanged;
@@ -60,8 +61,8 @@ internal sealed class TrayIcon : IDisposable
             menu.Items.Add($"{Dot(slot.State)} {slot.Name}: {Status(slot)}", null, (_, _) => Later(() => store.OpenOwnWindow(slot)));
         }
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Show Mirror Wall Window", null, (_, _) => Later(MainWindow.ShowMain));
         menu.Items.Add("Show Stage", null, (_, _) => Later(store.ShowStage));
+        menu.Items.Add("Show Wall", null, (_, _) => Later(MainWindow.ShowMain));
         if (store.IsAnyRecording)
             menu.Items.Add("Stop All Recordings", null, (_, _) => Later(store.StopAllRecordings));
         else

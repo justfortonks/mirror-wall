@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using MirrorWall.Core;
 
@@ -82,6 +83,9 @@ internal sealed class MainWindow : Window
         root.Children.Add(bar);
         root.Children.Add(body);
         Content = root;
+        // View › Show Stage, as ⌘1 is on the Mac.
+        InputBindings.Add(new KeyBinding(new RelayCommand(store.ShowStage), Key.D1, ModifierKeys.Control));
+        ApplyTheme();
 
         foreach (var slot in store.Slots) AddTile(slot);
         store.Slots.CollectionChanged += SlotsChanged;
@@ -132,7 +136,7 @@ internal sealed class MainWindow : Window
             new Separator(),
             Menus.Submenu("Pop-out Window Size", Menus.PopOutSizeItems(store)),
             new Separator(),
-            Menus.Item("Show Stage", store.ShowStage),
+            Menus.Item("Show Stage", store.ShowStage, shortcut: "Ctrl+1"),
             Menus.Submenu("Stage Layout", Menus.StageLayoutItems(store)),
             Menus.Submenu("Phones on Stage", Menus.StageSlotItems(store)),
         }));
@@ -175,6 +179,16 @@ internal sealed class MainWindow : Window
     private void StoreChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SlotStore.UxPlayPath) or nameof(SlotStore.CanAddSlot)) Update();
+        if (e.PropertyName is nameof(SlotStore.Theme)) ApplyTheme();
+    }
+
+    /// <summary>The wall's color and type: Brand Blue and Barlow, or Windows' own.</summary>
+    private void ApplyTheme()
+    {
+        var theme = store.Theme;
+        if (Themes.WallBackground(theme) is { } background) Background = background;
+        else ClearValue(BackgroundProperty);
+        Themes.UseFont(this, theme);
     }
 
     private void AddTile(Slot slot) => tiles[slot.Id] = new SlotTile(slot, store, ToggleFocus);
@@ -319,4 +333,12 @@ internal static class AboutWindow
             $"Mirror Wall {Version}\n\nShows iPhones (AirPlay) and Android phones (Mirror Wall Cast) mirrored over Wi-Fi, a tile per phone, with windows and Spout feeds for OBS.\n\nThe receiver is UxPlay (GPL-3.0), with GStreamer and FFmpeg (LGPL). Spout2 is BSD-licensed.",
             "About Mirror Wall", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+}
+
+/// <summary>Runs an action, for a keyboard shortcut.</summary>
+internal sealed class RelayCommand(Action action) : ICommand
+{
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
+    public bool CanExecute(object? parameter) => true;
+    public void Execute(object? parameter) => action();
 }
