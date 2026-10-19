@@ -6,6 +6,17 @@ namespace MirrorWall;
 /// <summary>The size of slots' own windows (see <see cref="PopOutWindow"/>).</summary>
 public enum PopOutSize { Small, Medium, Large, Custom }
 
+/// <summary>Which phones the Stage shows, as on the Mac.</summary>
+public enum StagePhones
+{
+    /// <summary>None at launch; put phones on it as you go.</summary>
+    None,
+    /// <summary>Every phone, as it connects.</summary>
+    All,
+    /// <summary>The phones ticked last time, remembered from one launch to the next.</summary>
+    Chosen,
+}
+
 /// <summary>
 /// Everything the app remembers, saved as JSON in %APPDATA%\Mirror Wall\settings.json (the Mac
 /// app keeps the same things in its user defaults).
@@ -57,8 +68,8 @@ internal sealed class Settings
     public Theme Theme { get; set; } = Theme.Standard;
     /// <summary>Open the Stage instead of the wall when Mirror Wall starts. Off by default.</summary>
     public bool OpenToStage { get; set; }
-    /// <summary>Put each phone on the Stage as it connects. Off by default.</summary>
-    public bool AddPhonesToStage { get; set; }
+    /// <summary>Which phones the Stage shows (Settings › Wall › Stage). None at launch by default.</summary>
+    public StagePhones StagePhones { get; set; } = StagePhones.None;
     /// <summary>Whether the Stage shows its "Live demo" caption bar, remembered per theme: off for
     /// Standard and on for Imprivata until changed.</summary>
     public bool StageCaptionStandard { get; set; }

@@ -32,6 +32,15 @@ struct ContentView: View {
                 .help("Add a slot another iPhone can mirror to")
             }
             ToolbarItem {
+                Button {
+                    store.showStage()
+                } label: {
+                    Label("Stage", systemImage: "rectangle.inset.filled.on.rectangle")
+                        .labelStyle(.titleAndIcon)
+                }
+                .help("Open the Stage: every phone on it in one window, for sharing in Teams, Zoom or OBS (⌘1)")
+            }
+            ToolbarItem {
                 SettingsLink {
                     Label("Settings", systemImage: "gearshape")
                 }
@@ -75,6 +84,7 @@ struct ContentView: View {
                 .contextMenu {
                     Button("Add Slot") { store.addSlot() }
                         .disabled(!store.canAddSlot)
+                    Button("Show Stage") { store.showStage() }
                 }
             }
         }

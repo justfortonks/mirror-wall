@@ -13,7 +13,7 @@ struct SettingsView: View {
     @AppStorage(Updater.channelKey) private var updateChannel = UpdateChannel.stable.rawValue
     @AppStorage(Theme.key) private var theme = Theme.standard.rawValue
     @AppStorage(SlotStore.opensToStageKey) private var opensToStage = false
-    @AppStorage(SlotStore.addsPhonesToStageKey) private var addsPhonesToStage = false
+    @AppStorage(SlotStore.stagePhonesKey) private var stagePhones = SlotStore.StagePhones.none.rawValue
 
     var body: some View {
         TabView {
@@ -121,11 +121,15 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("Open to the Stage when Mirror Wall starts", isOn: $opensToStage)
-                    Toggle("Put phones on the Stage as they connect", isOn: $addsPhonesToStage)
+                    Picker("Phones on the Stage", selection: $stagePhones) {
+                        ForEach(SlotStore.StagePhones.allCases) { choice in
+                            Text(choice.title).tag(choice.rawValue)
+                        }
+                    }
                 } header: {
                     Text("Stage")
                 } footer: {
-                    Text("Opening to the Stage keeps the wall closed at launch, and clicking the Dock icon brings back the Stage; the wall is still in Window › Show Wall. A phone taken off the Stage stays off until it reconnects.")
+                    Text("Opening to the Stage keeps the wall closed at launch, and clicking the Dock icon brings back the Stage; the wall is still in Window › Show Wall. Put a phone on the Stage with its chip on the Stage's control bar, its ⋯ menu › Show on Stage, or View › Phones on Stage. With every phone, one taken off the Stage stays off until it reconnects.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

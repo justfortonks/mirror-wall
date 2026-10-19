@@ -15,8 +15,10 @@ if it hasn't been released yet.
   for each phone (its menu has that phone's options), Add Slot, Layout, Bezels, Record All and
   more. Before any phone connects, it shows a "Ready for phones" screen with how to connect to
   each slot. Right-click the Stage to show or hide the caption bar.
-- Two new switches in Settings › Wall › Stage, both off unless you turn them on: open to
-  the Stage when Mirror Wall starts, and put phones on the Stage as they connect.
+- The wall has a Stage button next to Add Slot, and right-clicking the wall offers Show Stage.
+- The Stage now starts with no phones on it. Settings › Wall › Stage › Phones on the Stage can
+  instead put every phone on it as it connects, or bring back the phones you chose last time.
+  The same section can open Mirror Wall straight to the Stage.
 - "Show Mirror Wall Window" is now "Show Wall", and View › Show Stage is ⌘1 on the Mac and
   Ctrl+1 on Windows. On Windows with "Open to the Stage" on, clicking the notification area icon
   brings back the Stage.
