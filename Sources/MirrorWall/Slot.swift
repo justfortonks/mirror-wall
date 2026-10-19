@@ -102,6 +102,10 @@ final class Slot: ObservableObject, Identifiable {
     private var uxplayURL: URL?
     private var watchdog: Timer?
     static let silenceLimit: TimeInterval = 10
+    /// iOS ends Screen Mirroring about a minute after its screen really goes off. A phone that
+    /// paused its stream but is still checking in well after that has its screen on, just dimmed
+    /// or showing a still picture (iPhones at zero brightness pause the stream too).
+    static let stillScreenLimit: TimeInterval = 75
     /// Bumped on every start and stop, so callbacks from an old uxplay process are ignored.
     private var generation = 0
     /// When the receiver last started, to tell a crash after running a while (start a fresh one)
@@ -624,6 +628,13 @@ final class Slot: ObservableObject, Identifiable {
     }
 
     private func checkForSilence() {
+        if state == .paused, let pausedAt, let lastSignOfLifeAt,
+           Date().timeIntervalSince(pausedAt) > Self.stillScreenLimit,
+           Date().timeIntervalSince(lastSignOfLifeAt) <= Self.silenceLimit {
+            append("Still connected \(Int(Self.stillScreenLimit)) seconds after the phone paused its stream, so its screen is on; showing it as live")
+            state = .live
+            return
+        }
         guard let lastSignOfLifeAt, state == .live || state == .paused || state == .connecting,
               Date().timeIntervalSince(lastSignOfLifeAt) > Self.silenceLimit else { return }
         append("No check-in or video from the phone for \(Int(Self.silenceLimit)) seconds; treating it as disconnected")
