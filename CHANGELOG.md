@@ -5,6 +5,20 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 23, 2026: A friendlier Stage
+
+- The Stage has a control bar that fades in when you move the mouse over it, with a chip
+  for each phone (its menu has that phone's options), Add Slot, Layout, Bezels, Record All and
+  more. Before any phone connects, it shows a "Ready for phones" screen with how to connect to
+  each slot. Right-click the Stage to show or hide the caption bar.
+- The wall has a Stage button next to Add Slot, and right-clicking the wall offers Show Stage.
+- The Stage now starts with no phones on it. Settings › Wall › Stage › Phones on the Stage can
+  instead put every phone on it as it connects, or bring back the phones you chose last time.
+  The same section can open Mirror Wall straight to the Stage.
+- "Show Mirror Wall Window" is now "Show Wall", and View › Show Stage is ⌘1 on the Mac and
+  Ctrl+1 on Windows. On Windows with "Open to the Stage" on, clicking the notification area icon
+  brings back the Stage.
+
 ## October 19, 2026: Dimmed iPhones no longer stuck on "Screen off"
 
 - An iPhone left on with its brightness at zero pauses its stream the way a locked iPhone does,

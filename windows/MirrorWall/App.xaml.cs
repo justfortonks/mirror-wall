@@ -34,10 +34,13 @@ public partial class App : Application
         Tray = new TrayIcon(Store);
         var window = new MainWindow(Store);
         MainWindow = window;
-        window.Show();
+        // Settings › Wall › Stage › "Open to the Stage": the wall stays tucked away (it's still in
+        // the Stage's menus and the notification area icon's), and the Stage opens instead.
+        if (!Store.OpensToStage) window.Show();
         Store.StartAll();
         Store.RestoreOwnWindows();
-        window.Activate();
+        if (Store.OpensToStage) Store.ShowStage();
+        else window.Activate();
     }
 
     /// <summary>

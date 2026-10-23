@@ -49,7 +49,8 @@ internal sealed class SettingsWindow : Window
         if (e.PropertyName is nameof(SlotStore.KnownPhones) or nameof(SlotStore.AllowListEnabled)
             or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect)
             or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows)
-            or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.KeepsAwake) or nameof(SlotStore.ShowsTrayIcon))
+            or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.KeepsAwake) or nameof(SlotStore.ShowsTrayIcon)
+            or nameof(SlotStore.OpensToStage) or nameof(SlotStore.StagePhones))
         {
             Build();
         }
@@ -130,6 +131,24 @@ internal sealed class SettingsWindow : Window
         bezels.Click += (_, _) => store.SetBezelsForAllSlots(bezels.IsChecked == true);
         content.Children.Add(bezels);
         Note("Draws the phone around its picture, on the wall and in the slot's own window, styled after the phone's model (home button, notch or Dynamic Island). A slot's ⋯ menu can still turn its own frame off or on. Recordings and screenshots stay unframed; the OBS (Spout) feed does too unless a slot's ⋯ menu › Phone Bezel › In the OBS Feed is on.");
+
+        Header("Stage");
+        var openToStage = new CheckBox { Content = "Open to the Stage when Mirror Wall starts", IsChecked = store.OpensToStage };
+        openToStage.Click += (_, _) => store.SetOpensToStage(openToStage.IsChecked == true);
+        content.Children.Add(openToStage);
+        content.Children.Add(new TextBlock { Text = "Phones on the Stage", Margin = new Thickness(0, 12, 0, 4) });
+        var stagePhones = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+        stagePhones.Items.Add("None until I add them");
+        stagePhones.Items.Add("Every phone that connects");
+        stagePhones.Items.Add("The phones I chose last time");
+        stagePhones.SelectedIndex = (int)store.StagePhones;
+        stagePhones.SelectionChanged += (_, _) =>
+        {
+            var chosen = (StagePhones)stagePhones.SelectedIndex;
+            Dispatcher.BeginInvoke(() => store.SetStagePhones(chosen));
+        };
+        content.Children.Add(stagePhones);
+        Note("Opening to the Stage keeps the wall closed at launch, and clicking the notification area icon brings back the Stage; the wall is still in the Stage's menus. Put a phone on the Stage with its chip on the Stage's control bar, its ⋯ menu › Show on Stage, or View › Phones on Stage. With every phone, one taken off the Stage stays off until it reconnects.");
 
         Tab("OBS");
         Header("OBS and own windows");

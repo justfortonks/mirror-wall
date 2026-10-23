@@ -25,8 +25,8 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// Whether the slot's OBS feed has the phone frame around the picture, with see-through
     /// corners; nil (off) by default.
     public var feedBezel: Bool?
-    /// Whether the slot's phone appears in the Stage window while it's mirroring; nil (on) by
-    /// default.
+    /// Whether the slot's phone appears in the Stage window while it's mirroring; nil (off) by
+    /// default, and cleared at launch unless the Stage remembers its phones.
     public var onStage: Bool?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {

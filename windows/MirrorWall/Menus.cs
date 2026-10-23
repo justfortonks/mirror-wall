@@ -8,9 +8,9 @@ namespace MirrorWall;
 /// own windows. Built when a menu opens, so ticks always match the current settings.</summary>
 internal static class Menus
 {
-    public static MenuItem Item(string header, Action action, bool enabled = true, bool? isChecked = null)
+    public static MenuItem Item(string header, Action action, bool enabled = true, bool? isChecked = null, string? shortcut = null)
     {
-        var item = new MenuItem { Header = header, IsEnabled = enabled };
+        var item = new MenuItem { Header = header, IsEnabled = enabled, InputGestureText = shortcut ?? "" };
         if (isChecked is bool ticked)
         {
             item.IsCheckable = true;
