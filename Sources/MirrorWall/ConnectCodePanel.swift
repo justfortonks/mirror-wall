@@ -137,12 +137,13 @@ struct ConnectCodeView: View {
                         HStack {
                             Text(address.label).font(Brand.font(12)).foregroundStyle(.secondary)
                             Spacer()
-                            Text("\(address.address):\(link.port)").font(.system(size: 12, design: .monospaced))
+                            Text("\(address.address):\(link.port)").font(Brand.mono(12)).foregroundStyle(Brand.signalText)
                         }
                     }
                 }
                 .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color(nsColor: .quaternaryLabelColor).opacity(0.3)))
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Brand.surfaceSunken))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Brand.signal.opacity(0.35)))
                 Text("The phone tries each address, Wi-Fi first. A customer's guest Wi-Fi usually keeps devices apart; a VPN both share (Tailscale) still works.")
                     .font(Brand.font(11))
                     .multilineTextAlignment(.center)

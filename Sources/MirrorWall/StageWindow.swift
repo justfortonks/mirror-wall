@@ -233,9 +233,7 @@ struct StageView: View {
                 : proxy.size.height - barHeight - 10
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topTrailing) {
-                    Brand.stage
-                    // The pool of light the devices stand in.
-                    Brand.stageLight()
+                    StageBackdrop()
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 if phones.isEmpty {
@@ -376,7 +374,7 @@ struct StageControls: View {
         .buttonStyle(.plain)
         .padding(5)
         .background(Brand.stageRaised.opacity(0.96), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Brand.stageLine))
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
     }
@@ -461,7 +459,7 @@ private struct StageSlotChip: View {
             StageSlotActions(slot: slot, store: store)
         } label: {
             HStack(spacing: 6) {
-                Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
+                Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8).modifier(Brand.glow(stageDotColor(slot.state), on: Brand.glows(slot.state)))
                 Text(slot.displayName).lineLimit(1).frame(maxWidth: 170)
                 if reconnecting {
                     Text("reconnecting").font(Brand.font(11)).opacity(0.75)
@@ -478,6 +476,7 @@ private struct StageSlotChip: View {
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Capsule().fill(Brand.gel))
+                        .modifier(Brand.glow(Brand.gel, radius: 6))
                 }
             }
             .font(Brand.font(12, .semibold))
@@ -542,7 +541,7 @@ private struct WaitingPills: View {
             HStack(spacing: 8) {
                 ForEach(slots) { slot in
                     HStack(spacing: 7) {
-                        Circle().fill(stageDotColor(slot.state)).frame(width: 7, height: 7)
+                        Circle().fill(stageDotColor(slot.state)).frame(width: 7, height: 7).modifier(Brand.glow(stageDotColor(slot.state), on: Brand.glows(slot.state)))
                         Text(slot.name).font(Brand.font(12, .semibold))
                         Text(stageStatus(slot.state)).font(Brand.font(11)).opacity(0.7)
                     }
@@ -584,7 +583,7 @@ private struct StageEmptyState: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(slots) { slot in
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
+                            Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8).modifier(Brand.glow(stageDotColor(slot.state), on: Brand.glows(slot.state)))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(slot.name).font(Brand.font(14, .semibold))
                                 Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast, or scan the QR code (⌘K)")
@@ -623,6 +622,7 @@ private struct StageCaption: View {
                 Circle()
                     .fill(Brand.gel)
                     .frame(width: height * 0.16, height: height * 0.16)
+                    .modifier(Brand.glow(Brand.gel))
                 Text(phones.contains(where: { $0.isFrozen || $0.state != .live || $0.isQuiet }) ? "Demo" : "Live demo")
                     .font(Brand.font(height * 0.36, .bold))
                 Text("· \(names)")

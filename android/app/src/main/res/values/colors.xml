@@ -3,17 +3,19 @@
     <!-- Mirror Wall palette, light appearance. The dark values are in values-night/colors.xml;
          keep both in step with the design system's tokens.json. -->
     <color name="lamp">#FFB030</color>
-    <color name="gel">#FF4F8B</color>
+    <color name="gel">#FF3D8F</color>
+    <color name="signal">#27E0FF</color>
     <color name="hot">#E5484D</color>
     <color name="surface">#F5F0E6</color>
     <color name="surface_raised">#FFFFFF</color>
     <color name="surface_sunken">#ECE6D9</color>
-    <color name="ink">#121015</color>
-    <color name="ink_muted">#5C5763</color>
-    <color name="ink_faint">#8E889A</color>
+    <color name="ink">#10121C</color>
+    <color name="ink_muted">#5A5B6E</color>
+    <color name="ink_faint">#8E8FA3</color>
     <color name="line">#D9D2C4</color>
     <color name="lamp_text">#8A5A00</color>
-    <color name="standby">#8E889A</color>
-    <!-- The launcher icon's background: house black, both appearances. -->
-    <color name="icon_background">#121015</color>
+    <color name="signal_text">#0A7F94</color>
+    <color name="standby">#8E8FA3</color>
+    <!-- The launcher icon's background: night, both appearances. -->
+    <color name="icon_background">#0B0D16</color>
 </resources>

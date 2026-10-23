@@ -20,7 +20,13 @@ import android.widget.TextView
 object Brand {
     // Identity, the same in both appearances
     const val lamp = 0xFFFFB030.toInt()
-    const val gel = 0xFFFF4F8B.toInt()
+    const val gel = 0xFFFF3D8F.toInt()
+    /** Signal: links, addresses, section labels. */
+    const val signal = 0xFF27E0FF.toInt()
+    /** Night: the header, both appearances (it's a piece of the Stage). */
+    const val night = 0xFF0B0D16.toInt()
+    const val onNight = 0xFFEEF0FF.toInt()
+    const val onNightMuted = 0xFFA9AFD6.toInt()
     const val hot = 0xFFE5484D.toInt()
     /** Ink on lamp (the only text color that reads on it). */
     const val onLamp = 0xFF121015.toInt()
@@ -34,6 +40,7 @@ object Brand {
     fun inkFaint(context: Context) = context.getColor(R.color.ink_faint)
     fun line(context: Context) = context.getColor(R.color.line)
     fun lampText(context: Context) = context.getColor(R.color.lamp_text)
+    fun signalText(context: Context) = context.getColor(R.color.signal_text)
     fun standby(context: Context) = context.getColor(R.color.standby)
     fun isDark(context: Context) =
         context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
@@ -114,8 +121,9 @@ object Brand {
         this.text = text.uppercase()
         typeface = bold(context)
         textSize = 11f
-        letterSpacing = 0.08f
-        setTextColor(inkMuted(context))
+        letterSpacing = 0.1f
+        typeface = Typeface.MONOSPACE
+        setTextColor(signalText(context))
         val pad = dp(context, 16f)
         setPadding(0, pad + pad / 2, 0, pad / 2)
     }

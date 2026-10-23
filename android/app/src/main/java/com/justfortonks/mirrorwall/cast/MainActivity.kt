@@ -403,7 +403,7 @@ class MainActivity : Activity() {
                 addView(Brand.body(this@MainActivity, slot.name, 16f).apply { typeface = Brand.semibold(this@MainActivity) })
                 addView(Brand.body(this@MainActivity, "Tap to share this screen", 13f, Brand.inkMuted(this@MainActivity)))
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            addView(Brand.body(this@MainActivity, "›", 24f, Brand.lampText(this@MainActivity)))
+            addView(Brand.body(this@MainActivity, "›", 24f, Brand.signalText(this@MainActivity)))
         }
     }
 
@@ -423,8 +423,8 @@ class MainActivity : Activity() {
     private fun buildViews() {
         val pad = Brand.dp(this, 16f)
 
-        // Header: the lamp, with ink on it; the wordmark in Fraunces as the eyebrow.
-        val header = FrameLayout(this).apply { setBackgroundColor(Brand.lamp) }
+        // Header: a piece of the Stage. Night with the wordmark in Fraunces lamp, a signal hairline under it.
+        val header = FrameLayout(this).apply { setBackgroundColor(Brand.night) }
         val headerColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad + pad / 4, pad, pad + pad / 4, pad + pad / 2)
@@ -433,24 +433,25 @@ class MainActivity : Activity() {
             text = "Mirror Wall Cast"
             typeface = Brand.display(this@MainActivity)
             textSize = 15f
-            setTextColor(Brand.onLamp)
+            setTextColor(Brand.lamp)
         })
         headline = TextView(this).apply {
             typeface = Brand.bold(this@MainActivity)
             textSize = 28f
-            setTextColor(Brand.onLamp)
+            setTextColor(Brand.onNight)
             setPadding(0, pad / 4, 0, 0)
         }
         headerColumn.addView(headline)
-        status = Brand.body(this, "", 15f, Color.argb(200, 18, 16, 21))
+        status = Brand.body(this, "", 15f, Brand.onNightMuted)
         headerColumn.addView(status)
         stopButton = Button(this).apply {
             text = "Stop sharing"
             setOnClickListener { stopSharing() }
-            Brand.pill(this, Brand.onLamp, Brand.lamp)
+            Brand.pill(this)
         }
         headerColumn.addView(stopButton, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = pad })
         header.addView(headerColumn, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        header.addView(View(this).apply { setBackgroundColor(Brand.signal) }, FrameLayout.LayoutParams(MATCH_PARENT, Brand.dp(this, 1f), Gravity.BOTTOM))
 
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -572,18 +573,17 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         @Suppress("DEPRECATION")
-        window.statusBarColor = Brand.lamp
+        window.statusBarColor = Brand.night
         if (Build.VERSION.SDK_INT >= 30) {
-            // Dark status bar icons on the lamp header; navigation icons follow the page's appearance.
-            val light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                (if (Brand.isDark(this)) 0 else WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+            // Light status bar icons on the night header; navigation icons follow the page's appearance.
+            val light = if (Brand.isDark(this)) 0 else WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
             window.insetsController?.setSystemBarsAppearance(
                 light,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
             )
         } else {
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            window.decorView.systemUiVisibility = window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
         }
         showSlots()
     }

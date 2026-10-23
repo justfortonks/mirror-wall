@@ -280,6 +280,7 @@ struct SlotTile: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
+                    .modifier(Brand.glow(statusColor, on: Brand.glows(slot.state)))
                 Text(slot.name)
                     .font(Brand.font(14, .semibold))
                     .lineLimit(1)

@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Mirror Wall palette, dark appearance. -->
-    <color name="surface">#121015</color>
-    <color name="surface_raised">#1B191F</color>
-    <color name="surface_sunken">#0C0B0E</color>
-    <color name="ink">#F5F0E6</color>
-    <color name="ink_muted">#B8B2A7</color>
-    <color name="ink_faint">#6A6472</color>
-    <color name="line">#2D2A33</color>
+    <!-- Mirror Wall palette, dark appearance: night, not black. -->
+    <color name="surface">#0B0D16</color>
+    <color name="surface_raised">#141829</color>
+    <color name="surface_sunken">#06070C</color>
+    <color name="ink">#EEF0FF</color>
+    <color name="ink_muted">#A9AFD6</color>
+    <color name="ink_faint">#6F77A8</color>
+    <color name="line">#262B45</color>
     <color name="lamp_text">#FFD27A</color>
-    <color name="standby">#6A6472</color>
+    <color name="signal_text">#27E0FF</color>
+    <color name="standby">#4A5078</color>
 </resources>

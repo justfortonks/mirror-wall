@@ -17,47 +17,68 @@ enum Brand {
 
     /// The spotlight: primary actions, the live device's pool of light, focus. Ink goes on it, never white.
     static let lamp = Color(hex: 0xFFB030)
-    /// The lighting gel: live and recording states only.
-    static let gel = Color(hex: 0xFF4F8B)
+    /// The lighting gel: live and recording states only. Glows.
+    static let gel = Color(hex: 0xFF3D8F)
+    /// Signal: links, addresses, the QR chip, "connecting". The cyan in the floor grid.
+    static let signal = Color(hex: 0x27E0FF)
+    /// Haze: the violet glow in the Stage's corners. Never a fill, never text.
+    static let haze = Color(hex: 0x6B4CFF)
     /// Alerts and destructive actions: lost connection, failed slot.
     static let hot = Color(hex: 0xE5484D)
 
     // MARK: The Stage (always dark)
 
-    static let stage = Color(hex: 0x121015)
-    static let stageRaised = Color(hex: 0x1B191F)
-    static let stageLine = Color(hex: 0x2D2A33)
-    static let stageInk = Color(hex: 0xF5F0E6)
-    static let stageInkMuted = Color(hex: 0xB8B2A7)
-    static let nsStage = NSColor(srgbRed: 0x12 / 255, green: 0x10 / 255, blue: 0x15 / 255, alpha: 1)
+    /// Night: a blue-black, not black, so the Stage has depth.
+    static let stage = Color(hex: 0x0B0D16)
+    static let stageRaised = Color(hex: 0x141829)
+    static let stageLine = Color(hex: 0x262B45)
+    static let stageInk = Color(hex: 0xEEF0FF)
+    static let stageInkMuted = Color(hex: 0xA9AFD6)
+    static let nsStage = NSColor(srgbRed: 0x0B / 255, green: 0x0D / 255, blue: 0x16 / 255, alpha: 1)
 
     /// The pool of lamp light the devices stand in. Drawn under the phones, over `stage`.
     static func stageLight(center: UnitPoint = .init(x: 0.5, y: 0.45)) -> RadialGradient {
         RadialGradient(
-            colors: [lamp.opacity(0.22), lamp.opacity(0.06), lamp.opacity(0)],
+            colors: [lamp.opacity(0.26), lamp.opacity(0.07), lamp.opacity(0)],
             center: center, startRadius: 0, endRadius: 520
         )
     }
 
     // MARK: Surfaces and ink (follow the system appearance)
 
-    static let surface = adaptive(0xF5F0E6, 0x121015)
-    static let surfaceRaised = adaptive(0xFFFFFF, 0x1B191F)
-    static let surfaceSunken = adaptive(0xECE6D9, 0x0C0B0E)
-    static let ink = adaptive(0x121015, 0xF5F0E6)
-    static let inkMuted = adaptive(0x5C5763, 0xB8B2A7)
-    static let inkFaint = adaptive(0x8E889A, 0x6A6472)
-    static let line = adaptive(0xD9D2C4, 0x2D2A33)
+    static let surface = adaptive(0xF5F0E6, 0x0B0D16)
+    static let surfaceRaised = adaptive(0xFFFFFF, 0x141829)
+    static let surfaceSunken = adaptive(0xECE6D9, 0x06070C)
+    static let ink = adaptive(0x10121C, 0xEEF0FF)
+    static let inkMuted = adaptive(0x5A5B6E, 0xA9AFD6)
+    static let inkFaint = adaptive(0x8E8FA3, 0x6F77A8)
+    static let line = adaptive(0xD9D2C4, 0x262B45)
     /// Lamp as text or a link on a surface (lamp itself fails contrast on cream).
     static let lampText = adaptive(0x8A5A00, 0xFFD27A)
     /// A tint of lamp for a selected row or chip.
     static let lampWash = adaptive(0xFFF1D6, 0x3A2A0C)
     static let gelText = adaptive(0xB3215A, 0xFF8DB4)
+    /// Signal as text or a link on a surface.
+    static let signalText = adaptive(0x0A7F94, 0x27E0FF)
     static let hotText = adaptive(0xB52A2F, 0xFF8A8E)
     /// The dot for a slot that is waiting, disconnected or stopped.
-    static let standby = adaptive(0x8E889A, 0x6A6472)
+    static let standby = adaptive(0x8E8FA3, 0x4A5078)
 
-    static var nsSurface: NSColor { nsAdaptive(0xF5F0E6, 0x121015) }
+    static var nsSurface: NSColor { nsAdaptive(0xF5F0E6, 0x0B0D16) }
+
+    /// A soft glow in a state's own color; live and recording glow, nothing else does.
+    static func glow(_ color: Color, on: Bool = true, radius: CGFloat = 5) -> some ViewModifier {
+        Glow(color: color, on: on, radius: radius)
+    }
+
+    private struct Glow: ViewModifier {
+        let color: Color
+        let on: Bool
+        let radius: CGFloat
+        func body(content: Content) -> some View {
+            content.shadow(color: on ? color.opacity(0.85) : .clear, radius: radius)
+        }
+    }
 
     /// A color that resolves on the window's appearance, so the Wall and Settings follow the system.
     static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
@@ -75,10 +96,21 @@ enum Brand {
     static func dot(for state: Slot.State) -> Color {
         switch state {
         case .live: return gel
-        case .connecting, .paused: return lamp
+        case .connecting: return signal
+        case .paused: return lamp
         case .waiting, .stopped: return standby
         case .disconnected, .failed: return hot
         }
+    }
+
+    /// Whether a state's dot glows: only the ones that mean "something is happening right now".
+    static func glows(_ state: Slot.State) -> Bool {
+        state == .live || state == .connecting
+    }
+
+    /// Monospaced, for addresses, ports and codes.
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
     }
 
     // MARK: Type
@@ -175,6 +207,67 @@ extension NSColor {
             blue: CGFloat(hex & 0xFF) / 255,
             alpha: 1
         )
+    }
+}
+
+/// The Stage's backdrop: night, a violet haze in the top-left and a faint magenta one bottom-right,
+/// a cyan perspective floor that fades toward the horizon, and the pool of lamp light with its
+/// magenta rim where the devices stand. The customer sees this behind the phones, so every part
+/// of it is quiet: no motion, nothing brighter than the live dot.
+struct StageBackdrop: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack {
+                Brand.stage
+                RadialGradient(colors: [Brand.haze.opacity(0.28), Brand.haze.opacity(0)], center: .init(x: 0.08, y: 0.05), startRadius: 0, endRadius: size.width * 0.42)
+                RadialGradient(colors: [Brand.gel.opacity(0.14), Brand.gel.opacity(0)], center: .init(x: 1.0, y: 1.0), startRadius: 0, endRadius: size.width * 0.4)
+                StageFloor()
+                    .frame(height: size.height * 0.3)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                Brand.stageLight()
+                Circle()
+                    .strokeBorder(Brand.gel.opacity(0.5), lineWidth: 1)
+                    .frame(width: size.height * 0.62, height: size.height * 0.62)
+                    .shadow(color: Brand.gel.opacity(0.35), radius: 14)
+                    .position(x: size.width * 0.5, y: size.height * 0.45)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The cyan perspective grid under the devices: horizontals that bunch toward the horizon and
+/// lines that fan out from a vanishing point, fading in from the top edge.
+struct StageFloor: View {
+    var body: some View {
+        Canvas { context, size in
+            let horizon = CGPoint(x: size.width / 2, y: size.height * 0.2)
+            var grid = Path()
+            // Horizontals, closer together near the horizon.
+            for step in 0..<7 {
+                let t = pow(Double(step) / 6, 1.7)
+                let y = horizon.y + (size.height - horizon.y) * t
+                grid.move(to: CGPoint(x: 0, y: y))
+                grid.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            // Fan lines from the vanishing point to the bottom edge.
+            for k in -5...5 {
+                let x = size.width / 2 + CGFloat(k) * size.width * 0.22
+                grid.move(to: horizon)
+                grid.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            let shading = GraphicsContext.Shading.linearGradient(
+                Gradient(stops: [
+                    .init(color: Brand.signal.opacity(0), location: 0),
+                    .init(color: Brand.signal.opacity(0.26), location: 0.4),
+                    .init(color: Brand.signal.opacity(0.05), location: 1),
+                ]),
+                startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: size.height)
+            )
+            context.stroke(grid, with: shading, lineWidth: 1)
+        }
     }
 }
 

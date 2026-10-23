@@ -53,5 +53,14 @@ final class VisualReviewTests: XCTestCase {
             .environmentObject(store).padding(24).background(Brand.surface)
             .foregroundStyle(Brand.ink)
         try save(tile, width: 360, height: 660, name: "wall")
+        // The Stage's backdrop on its own, with the wordmark, to check the light, haze and floor.
+        let backdrop = ZStack {
+            StageBackdrop()
+            VStack(spacing: 12) {
+                Text("Demo starting shortly").font(Brand.display(30, .medium)).foregroundStyle(Brand.stageInk)
+                Wordmark(height: 20)
+            }
+        }
+        try save(backdrop, width: 1100, height: 620, name: "stage-backdrop")
     }
 }
