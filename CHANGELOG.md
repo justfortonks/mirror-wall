@@ -5,12 +5,8 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
-## October 19, 2026: Themes and a friendlier Stage
+## October 23, 2026: A friendlier Stage
 
-- Settings › General › Theme chooses the app's look. Standard is the look you know;
-  Branded gives the wall and the Stage Brand Blue, brand status colors, the Barlow font
-  and the hex pattern, plus a "Live demo" caption bar along the Stage's bottom (with the
-  Branded logo when it's been added to the app). Thanks to Cody for the Branded design.
 - The Stage has a control bar that fades in when you move the mouse over it, with a chip
   for each phone (its menu has that phone's options), Add Slot, Layout, Bezels, Record All and
   more. Before any phone connects, it shows a "Ready for phones" screen with how to connect to
@@ -22,6 +18,13 @@ if it hasn't been released yet.
 - "Show Mirror Wall Window" is now "Show Wall", and View › Show Stage is ⌘1 on the Mac and
   Ctrl+1 on Windows. On Windows with "Open to the Stage" on, clicking the notification area icon
   brings back the Stage.
+
+## October 19, 2026: Dimmed iPhones no longer stuck on "Screen off"
+
+- An iPhone left on with its brightness at zero pauses its stream the way a locked iPhone does,
+  so its tile said "Screen off" for as long as it stayed dimmed. Now a paused iPhone that's still
+  connected 75 seconds later shows as Live again, since iOS ends mirroring about a minute after a
+  screen really goes off. Mac and Windows.
 
 ## October 16, 2026: OBS feed follows slot renames, and a list of test builds
 

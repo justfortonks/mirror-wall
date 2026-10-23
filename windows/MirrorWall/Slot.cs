@@ -143,6 +143,10 @@ internal sealed class Slot : Observable
     private string? uxplayPath;
     private DispatcherTimer? watchdog;
     private static readonly TimeSpan SilenceLimit = TimeSpan.FromSeconds(10);
+    /// <summary>iOS ends Screen Mirroring about a minute after its screen really goes off. A phone
+    /// that paused its stream but is still checking in well after that has its screen on, just
+    /// dimmed or showing a still picture (iPhones at zero brightness pause the stream too).</summary>
+    private static readonly TimeSpan StillScreenLimit = TimeSpan.FromSeconds(75);
     /// <summary>Bumped on every start and stop, so callbacks from an old uxplay process are ignored.</summary>
     private int generation;
     /// <summary>When the receiver last started, to tell a crash after running a while (start a
@@ -783,6 +787,13 @@ internal sealed class Slot : Observable
 
     private void CheckForSilence()
     {
+        if (State == SlotState.Paused && pausedAt is DateTime paused && lastSignOfLifeAt is DateTime heard
+            && DateTime.Now - paused > StillScreenLimit && DateTime.Now - heard <= SilenceLimit)
+        {
+            Append($"Still connected {StillScreenLimit.TotalSeconds:0} seconds after the phone paused its stream, so its screen is on; showing it as live");
+            State = SlotState.Live;
+            return;
+        }
         if (lastSignOfLifeAt is not DateTime last || State is not (SlotState.Live or SlotState.Paused or SlotState.Connecting)
             || DateTime.Now - last <= SilenceLimit) return;
         Append($"No check-in or video from the phone for {SilenceLimit.TotalSeconds:0} seconds; treating it as disconnected");
