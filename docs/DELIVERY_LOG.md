@@ -3,6 +3,18 @@
 What has shipped, summarized from the Git history and [CHANGELOG.md](../CHANGELOG.md). Newest
 first. The changelog has the user-facing detail; this is the project view.
 
+## October 22, 2026: Own branding, system appearance, QR connect
+
+- Stripped the previous company's branding (palette, Barlow, logo, hex pattern) from the Mac and
+  Android apps and docs. New identity from the Mirror Wall Design System (stagecraft direction):
+  lamp/gel/hot on house black and scrim cream, Fraunces + Inter, a new icon and menu bar glyph.
+- `Brand` now resolves surfaces and ink on the current appearance; the Wall and Settings follow
+  the system, the Stage stays dark. Android got `values-night` colors and a DayNight theme.
+- Connect with QR Code (Mac: `ConnectLink`, `LocalAddresses`, `ConnectCodePanel`; Android:
+  `ConnectLink.kt`, zxing scanner, `mirrorwall://` intent filter, first-address-that-answers).
+- Android app ID returned to upstream's `com.justfortonks.mirrorwall.cast` (ADR 0006).
+- `docs/relay-design.md`: the AirDroid Cast teardown and the relay options.
+
 ## October 16-17, 2026: Upstream photo frames and Android rotation (fork)
 
 - Merged upstream's photo frames for Zebra HC50, Honeywell CT37 and Spectralink Versity 95/96 and

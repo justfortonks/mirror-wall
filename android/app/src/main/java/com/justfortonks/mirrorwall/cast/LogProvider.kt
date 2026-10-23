@@ -14,7 +14,7 @@ import android.provider.OpenableColumns
  */
 class LogProvider : ContentProvider() {
     companion object {
-        const val AUTHORITY = "com.imprivata.mirrorwallcast.log"
+        const val AUTHORITY = "com.justfortonks.mirrorwall.cast.log"
         val URI: Uri = Uri.parse("content://$AUTHORITY/MirrorWallCast-log.txt")
     }
 

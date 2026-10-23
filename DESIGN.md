@@ -2,9 +2,11 @@
 
 Register: product
 
-How Mirror Wall looks and behaves, for anyone changing the UI. Colors, type and pattern follow the
-Imprivata 2026 Brand Style Guide. All of it lives in `Sources/MirrorWall/Brand.swift` (Mac) and
-`android/.../cast/Brand.kt` (Android), so it can be changed in one place.
+How Mirror Wall looks and behaves, for anyone changing the UI. Colors, type and marks are Mirror
+Wall's own (the "stagecraft" direction: the product is a followspot, the phone is the performer,
+the customer is the audience) and are recorded in the Mirror Wall Design System. In code they
+live in `Sources/MirrorWall/Brand.swift` (Mac) and `android/.../cast/Brand.kt` plus
+`res/values{,-night}/colors.xml` (Android), so a value changes in one place per platform.
 
 ## Scene
 
@@ -14,15 +16,24 @@ caption competes with the demo.
 
 ## Visual posture
 
-- **Stage:** Imprivata Blue `#2C3F57` to `#4698CB` diagonal gradient, the hex pattern as a
-  top-right corner accent (white, sky, teal, upright, never rotated), Barlow throughout.
-- **Wall:** the dark operator view. Shades of Imprivata Blue (`#24344A` deep, `#33495F` raised,
-  `#7C8DA3` muted), white and Ice `#D2E4F9` text.
-- **Accents:** Red `#CC0033` for recording and the main action, Teal `#2CD5C4` for live status.
-- **Android app:** light page `#F4F5F7`, Imprivata Blue text, red pill buttons, the same hex
-  accent.
-- **Logo:** the official white logo, only in the Stage caption, at the right with clear space
-  around it. It's never committed; without the file the caption shows no logo.
+- **The Stage is a theater.** House black `#121015` in both system appearances, with a pool of
+  lamp light under the devices (`Brand.stageLight`). Control bar, caption and pills on
+  `stageRaised` `#1B191F`. It never follows the system appearance, because the customer is
+  looking at it. Use `Brand.stage*` colors for anything drawn on it.
+- **Everything else follows the system.** The Wall, Settings, the QR panel and the Android app
+  use `Brand.surface` / `surfaceRaised` / `surfaceSunken` and `ink` / `inkMuted` / `line`, which
+  resolve to scrim cream and house black on the current appearance. Never a fixed hex outside
+  the Stage.
+- **Lamp `#FFB030`** means attention: primary buttons, the live device's light, focus, the dot for
+  a device on its way. Ink goes on lamp, never white; as text on a surface use `lampText`.
+- **Gel `#FF4F8B`** is for live and recording states only, so it keeps its meaning. **Hot
+  `#E5484D`** is for alerts and destructive actions. **Standby** gray for waiting and stopped.
+- **Type:** Fraunces (display) for the wordmark and "Demo starting shortly"; Inter for everything
+  people operate; the system mono for addresses and codes. Both bundled, OFL.
+- **Marks:** the app icon (a phone in a disc of light, its reflection below) and the menu bar
+  glyph (a disc with the phone punched out; filled when a device is live). The caption bar shows
+  the glyph with the wordmark at the right, with clear space. No hex pattern, no gradients
+  beyond the lamp pool, no previous company's marks anywhere.
 
 ## Layout rules
 
@@ -87,7 +98,8 @@ interrupting the audience.
 
 ## Component rules
 
-- Use `Brand.font(size, weight)` rather than system fonts; it falls back if Barlow isn't loaded.
+- Use `Brand.font(size, weight)` (Inter) and `Brand.display(size, weight)` (Fraunces) rather than
+  system fonts; both fall back if the files aren't loaded.
 - Use `Brand` colors, not literal hex values in views.
 - Keep Mac and Android brand files in step when a color changes.
 - Frame geometry lives in MirrorCore so it can be unit-tested; drawing lives in MirrorWall.

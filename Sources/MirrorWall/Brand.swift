@@ -2,71 +2,136 @@ import AppKit
 import CoreText
 import SwiftUI
 
-/// Imprivata brand styling (2026 Brand Style Guide): colors, Barlow, the logo and the hex pattern.
-/// Kept in one place so the look can be changed, or made switchable, without touching every view.
+/// Mirror Wall's own look (the design system's "stagecraft" direction): colors with a light and a
+/// dark value, Fraunces for display and Inter for UI, and the mark. Kept in one place so every
+/// view reads the same names.
+///
+/// Two rules the colors encode:
+/// - The Stage is a theater. `stage*` colors are the same in both appearances, because the
+///   customer is looking at it. Use them for anything drawn on the Stage, pop-out windows and the
+///   OBS feed.
+/// - Everything else follows the system appearance. `surface*` and `ink*` resolve on the current
+///   appearance; never put a fixed hex on a window that isn't the Stage.
 enum Brand {
-    // Primary
-    static let blue = Color(hex: 0x2C3F57)
-    static let red = Color(hex: 0xCC0033)
-    // Secondary
-    static let teal = Color(hex: 0x2CD5C4)
-    static let midBlue = Color(hex: 0x426DA9)
-    static let sky = Color(hex: 0x4698CB)
-    static let ice = Color(hex: 0xD2E4F9)
-    // Shades of Imprivata Blue for the dark wall
-    static let blueDeep = Color(hex: 0x24344A)
-    static let blueRaised = Color(hex: 0x33495F)
-    static let blueMuted = Color(hex: 0x7C8DA3)
-    static let operatorSurface = blue
-    static let onOperatorSurface = Color.white
-    static let secondaryOnOperatorSurface = ice
+    // MARK: Identity (the same in both appearances)
 
-    static let nsBlue = NSColor(srgbRed: 0x2C / 255, green: 0x3F / 255, blue: 0x57 / 255, alpha: 1)
+    /// The spotlight: primary actions, the live device's pool of light, focus. Ink goes on it, never white.
+    static let lamp = Color(hex: 0xFFB030)
+    /// The lighting gel: live and recording states only.
+    static let gel = Color(hex: 0xFF4F8B)
+    /// Alerts and destructive actions: lost connection, failed slot.
+    static let hot = Color(hex: 0xE5484D)
 
-    /// The guide's Imprivata Blue → #4698CB gradient, for the stage.
-    static let stageGradient = LinearGradient(
-        colors: [blue, sky],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    // MARK: The Stage (always dark)
+
+    static let stage = Color(hex: 0x121015)
+    static let stageRaised = Color(hex: 0x1B191F)
+    static let stageLine = Color(hex: 0x2D2A33)
+    static let stageInk = Color(hex: 0xF5F0E6)
+    static let stageInkMuted = Color(hex: 0xB8B2A7)
+    static let nsStage = NSColor(srgbRed: 0x12 / 255, green: 0x10 / 255, blue: 0x15 / 255, alpha: 1)
+
+    /// The pool of lamp light the devices stand in. Drawn under the phones, over `stage`.
+    static func stageLight(center: UnitPoint = .init(x: 0.5, y: 0.45)) -> RadialGradient {
+        RadialGradient(
+            colors: [lamp.opacity(0.22), lamp.opacity(0.06), lamp.opacity(0)],
+            center: center, startRadius: 0, endRadius: 520
+        )
+    }
+
+    // MARK: Surfaces and ink (follow the system appearance)
+
+    static let surface = adaptive(0xF5F0E6, 0x121015)
+    static let surfaceRaised = adaptive(0xFFFFFF, 0x1B191F)
+    static let surfaceSunken = adaptive(0xECE6D9, 0x0C0B0E)
+    static let ink = adaptive(0x121015, 0xF5F0E6)
+    static let inkMuted = adaptive(0x5C5763, 0xB8B2A7)
+    static let inkFaint = adaptive(0x8E889A, 0x6A6472)
+    static let line = adaptive(0xD9D2C4, 0x2D2A33)
+    /// Lamp as text or a link on a surface (lamp itself fails contrast on cream).
+    static let lampText = adaptive(0x8A5A00, 0xFFD27A)
+    /// A tint of lamp for a selected row or chip.
+    static let lampWash = adaptive(0xFFF1D6, 0x3A2A0C)
+    static let gelText = adaptive(0xB3215A, 0xFF8DB4)
+    static let hotText = adaptive(0xB52A2F, 0xFF8A8E)
+    /// The dot for a slot that is waiting, disconnected or stopped.
+    static let standby = adaptive(0x8E889A, 0x6A6472)
+
+    static var nsSurface: NSColor { nsAdaptive(0xF5F0E6, 0x121015) }
+
+    /// A color that resolves on the window's appearance, so the Wall and Settings follow the system.
+    static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(nsColor: nsAdaptive(light, dark))
+    }
+
+    static func nsAdaptive(_ light: UInt32, _ dark: UInt32) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light)
+        }
+    }
+
+    /// Dot color for a slot's state, shared by the Stage, the Wall and the menu bar.
+    static func dot(for state: Slot.State) -> Color {
+        switch state {
+        case .live: return gel
+        case .connecting, .paused: return lamp
+        case .waiting, .stopped: return standby
+        case .disconnected, .failed: return hot
+        }
+    }
 
     // MARK: Type
 
-    /// Barlow at a weight, falling back to the system font if Barlow isn't installed.
+    /// Inter at a weight, for everything people operate. Falls back to the system font.
     static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         registerFonts()
         let name: String
         switch weight {
-        case .bold, .heavy, .black: name = "Barlow-Bold"
-        case .semibold, .medium: name = "Barlow-SemiBold"
-        default: name = "Barlow-Regular"
+        case .bold, .heavy, .black: name = "Inter-Bold"
+        case .semibold, .medium: name = "Inter-SemiBold"
+        default: name = "Inter-Regular"
         }
-        return available ? .custom(name, size: size) : .system(size: size, weight: weight)
+        return interAvailable ? .custom(name, size: size) : .system(size: size, weight: weight)
+    }
+
+    /// Fraunces, for the wordmark and headlines the audience reads ("Demo starting shortly").
+    static func display(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
+        registerFonts()
+        let name = weight == .bold || weight == .heavy || weight == .black ? "Fraunces-Bold" : "Fraunces-Medium"
+        return frauncesAvailable ? .custom(name, size: size) : .system(size: size, weight: weight, design: .serif)
     }
 
     private static var registered = false
-    private static var available = false
+    private static var interAvailable = false
+    private static var frauncesAvailable = false
 
-    /// Registers the bundled Barlow files for this process, once.
+    /// Registers the bundled font files for this process, once.
     static func registerFonts() {
         guard !registered else { return }
         registered = true
-        for name in ["Barlow-Regular", "Barlow-SemiBold", "Barlow-Bold"] {
-            guard let url = asset(name, "ttf") else { continue }
-            var error: Unmanaged<CFError>?
-            if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
-                available = true
-            } else if NSFont(name: name, size: 12) != nil {
-                available = true // already installed on this Mac
-            }
-        }
+        for name in ["Inter-Regular", "Inter-SemiBold", "Inter-Bold"] where register(name) { interAvailable = true }
+        for name in ["Fraunces-Medium", "Fraunces-Bold"] where register(name) { frauncesAvailable = true }
     }
 
-    // MARK: Logo
+    private static func register(_ name: String) -> Bool {
+        guard let url = asset(name, "ttf") else { return NSFont(name: name, size: 12) != nil }
+        var error: Unmanaged<CFError>?
+        if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) { return true }
+        return NSFont(name: name, size: 12) != nil // already installed on this Mac
+    }
 
-    /// The official white logo, if it's been put in Resources/Brand. It's kept out of git
-    /// (see .gitignore), so builds without it simply don't show one.
-    static let whiteLogo: NSImage? = asset("imprivata-logo-white", "png").flatMap(NSImage.init(contentsOf:))
+    // MARK: Marks
+
+    /// The menu bar glyph as a template image, so macOS tints it for the bar: an outlined disc
+    /// while idle, filled with the phone punched out while a device is live or recording.
+    static func menuBarImage(inUse: Bool) -> NSImage? {
+        guard let url = asset(inUse ? "menubar-live" : "menubar-idle", "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = true
+        image.size = NSSize(width: 16, height: 16)
+        return image
+    }
 
     // MARK: Files
 
@@ -102,80 +167,57 @@ extension Color {
     }
 }
 
-/// The brand's hex pattern as a corner accent: full hexagons, turning into chevrons toward the
-/// bottom, upright as the guide shows them (never rotated). At most three colors.
-struct HexPattern: View {
-    var colors: [Color] = [Brand.blueRaised, Brand.midBlue, Brand.sky]
-    /// Hexagon radius in points.
-    var radius: CGFloat = 16
-    var columns = 5
-    var rows = 6
-    var density = 0.7
-    var seed: UInt64 = 7
-    var opacity = 1.0
-
-    var body: some View {
-        Canvas { context, size in
-            let r = radius
-            let w = sqrt(3) * r
-            var random = SeededRandom(seed: seed)
-            for row in 0..<rows {
-                for column in 0..<columns {
-                    // Denser toward the top right, so it reads as a corner accent.
-                    let fade = density * (1 - Double(row) / (Double(rows) * 1.4)) * (0.55 + Double(column) / Double(columns) * 0.6)
-                    let keep = random.next() <= fade
-                    let colorPick = random.next()
-                    let chevronPick = random.next()
-                    guard keep else { continue }
-                    // Laid out from the right edge.
-                    let cx = size.width - (CGFloat(columns - 1 - column) * w + (row % 2 == 1 ? w / 2 : 0) + w / 2)
-                    let cy = CGFloat(row) * 1.5 * r + r
-                    let chevron = Double(row) >= Double(rows) * 0.45 && chevronPick > 0.35
-                    let path = chevron ? Self.chevron(cx, cy, r * 0.96) : Self.hexagon(cx, cy, r * 0.96)
-                    let color = colors[min(colors.count - 1, Int(colorPick * Double(colors.count)))]
-                    context.fill(path, with: .color(color.opacity(opacity)))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private static func hexagon(_ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) -> Path {
-        Path { path in
-            for k in 0..<6 {
-                let angle = CGFloat.pi / 180 * CGFloat(60 * k - 90)
-                let point = CGPoint(x: cx + r * cos(angle), y: cy + r * sin(angle))
-                if k == 0 { path.move(to: point) } else { path.addLine(to: point) }
-            }
-            path.closeSubpath()
-        }
-    }
-
-    /// A hexagon with a V notch in its top: the guide's chevron.
-    private static func chevron(_ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) -> Path {
-        let w = sqrt(3) / 2 * r
-        return Path { path in
-            path.move(to: CGPoint(x: cx - w, y: cy - r / 2))
-            path.addLine(to: CGPoint(x: cx, y: cy))
-            path.addLine(to: CGPoint(x: cx + w, y: cy - r / 2))
-            path.addLine(to: CGPoint(x: cx + w, y: cy + r / 2))
-            path.addLine(to: CGPoint(x: cx, y: cy + r))
-            path.addLine(to: CGPoint(x: cx - w, y: cy + r / 2))
-            path.closeSubpath()
-        }
+extension NSColor {
+    convenience init(hex: UInt32) {
+        self.init(
+            srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
     }
 }
 
-/// Same pattern every time for the same seed, so the hexes don't jump around on redraw.
-private struct SeededRandom {
-    private var state: UInt64
+/// The mark, drawn: a phone standing in a disc of light. `disc` is lamp when something is live,
+/// gel when recording, otherwise the current ink. Reads at 12 points and at 120.
+struct BrandGlyph: View {
+    var size: CGFloat = 16
+    var disc: Color = .primary
+    /// The phone's fill; nil punches it out of the disc, which is how the menu bar draws it.
+    var phone: Color? = nil
 
-    init(seed: UInt64) { state = seed &* 0x9E3779B97F4A7C15 | 1 }
+    var body: some View {
+        ZStack(alignment: .top) {
+            Circle()
+                .fill(disc)
+                .frame(width: size * 0.82, height: size * 0.82)
+                .offset(y: size * 0.03)
+            RoundedRectangle(cornerRadius: size * 0.09, style: .continuous)
+                .fill(phone ?? .black)
+                .frame(width: size * 0.31, height: size * 0.56)
+                .offset(y: size * 0.375)
+                .blendMode(phone == nil ? .destinationOut : .normal)
+        }
+        .frame(width: size, height: size)
+        .compositingGroup()
+        .accessibilityHidden(true)
+    }
+}
 
-    mutating func next() -> Double {
-        state ^= state << 13
-        state ^= state >> 7
-        state ^= state << 17
-        return Double(state % 10_000) / 10_000
+/// The glyph beside "Mirror Wall" in Fraunces, for the caption bar and About.
+struct Wordmark: View {
+    var height: CGFloat = 20
+    var color: Color = Brand.stageInk
+    var disc: Color? = nil
+
+    var body: some View {
+        HStack(spacing: height * 0.4) {
+            BrandGlyph(size: height * 0.95, disc: disc ?? color)
+            Text("Mirror Wall")
+                .font(Brand.display(height * 0.85, .bold))
+                .tracking(-0.3)
+        }
+        .foregroundStyle(color)
+        .accessibilityLabel("Mirror Wall")
     }
 }

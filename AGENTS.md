@@ -4,15 +4,15 @@ Instructions for coding agents (and people using them) working in this repositor
 
 ## Project context
 
-This is the Imprivata SE fork of justfortonks/mirror-wall. Work happens on **`cody-changes`**.
+This is a fork of justfortonks/mirror-wall, developed with its author. Work happens on **`cody-changes`**.
 `main` mirrors upstream and must not be committed to. Read [PRODUCT.md](PRODUCT.md) and
 [DESIGN.md](DESIGN.md) before UI work, and [docs/CURRENT_FOCUS.md](docs/CURRENT_FOCUS.md) before
 starting anything new.
 
 - Mac app: Swift 5.9+, SwiftUI/AppKit, Swift Package (`Package.swift`), macOS 14 minimum in the
   package.
-- Android app: Kotlin, `android/`, app ID `com.imprivata.mirrorwallcast`. The Kotlin package
-  name is still `com.justfortonks.mirrorwall.cast`; leave it, it keeps upstream merges clean.
+- Android app: Kotlin, `android/`, app ID `com.justfortonks.mirrorwall.cast` (upstream's: one
+  Mirror Wall Cast on every device, whichever repo built it).
 - Windows app: C#/WPF in `windows/`, upstream only.
 
 ## Repository structure
@@ -66,8 +66,8 @@ open ~/Applications/"Mirror Wall.app"
 ## Do not break
 
 - Release URLs in `Sources/MirrorCore/LatestRelease.swift` point at `yurtbeer/mirror-wall`.
-- Android `applicationId` is `com.imprivata.mirrorwallcast`.
-- `Sources/MirrorWall/Resources/Brand/imprivata-logo*` stays git-ignored.
+- Android `applicationId` is `com.justfortonks.mirrorwall.cast`.
+- No company branding or marks: the look is Mirror Wall's own (DESIGN.md, the design system).
 - `Package.swift` resources: `AppIcon.png`, `Brand`, `Bezels`. `scripts/build-app.sh` copies Brand
   and Bezels into the app; keep both in step.
 - Presenter intent (hidden, frozen) must survive reconnects.

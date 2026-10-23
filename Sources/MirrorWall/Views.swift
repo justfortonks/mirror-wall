@@ -18,13 +18,10 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 480, minHeight: 420)
-        .background(Brand.operatorSurface)
-        .environment(\.colorScheme, .dark)
-        .foregroundStyle(Brand.onOperatorSurface)
-        // Imprivata Blue wall: dark appearance for this window only, so text and controls read
-        // on it without changing Settings or alerts.
-        .background(DarkWindowAppearance())
-        .toolbarBackground(Brand.blueDeep, for: .windowToolbar)
+        // The Wall follows the system appearance; only the Stage stays dark.
+        .background(Brand.surface)
+        .foregroundStyle(Brand.ink)
+        .toolbarBackground(Brand.surfaceSunken, for: .windowToolbar)
         .toolbarBackground(.visible, for: .windowToolbar)
         .onAppear {
             // Lets Show Wall reopen this window from anywhere once it's been closed.
@@ -183,9 +180,9 @@ struct SlotTile: View {
         }
     }
 
-    /// Black behind a phone's picture; deep Imprivata Blue while the slot waits for one.
+    /// Black behind a phone's picture; a sunken well while the slot waits for one.
     private var pictureBackground: Color {
-        showsPicture || hasStandbyImage ? .black : Brand.blueDeep
+        showsPicture || hasStandbyImage ? .black : Brand.surfaceSunken
     }
 
     private var pictureShape: CGSize {
@@ -236,17 +233,16 @@ struct SlotTile: View {
 
     private var placeholder: some View {
         ZStack(alignment: .topTrailing) {
-            HexPattern(radius: 13, columns: 5, rows: 5, density: 0.75, seed: UInt64(slot.id) + 7)
-                .frame(height: 120)
-                .frame(maxHeight: .infinity, alignment: .top)
+            BrandGlyph(size: 40, disc: Brand.line)
+                .padding(14)
             VStack(spacing: 10) {
                 Image(systemName: placeholderIcon)
                     .font(.system(size: 28))
-                    .foregroundStyle(placeholderIsProblem ? Brand.red : Brand.teal)
+                    .foregroundStyle(placeholderIsProblem ? Brand.hotText : Brand.lampText)
                 Text(placeholderText)
                     .font(Brand.font(13))
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(Brand.inkMuted)
             }
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -297,7 +293,7 @@ struct SlotTile: View {
                     if slot.recordingSince == nil { slot.startRecording() } else { slot.stopRecording() }
                 } label: {
                     Image(systemName: slot.recordingSince == nil ? "record.circle" : "stop.circle.fill")
-                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Brand.red)
+                        .foregroundStyle(slot.recordingSince == nil ? Color.secondary : Brand.gel)
                 }
                 .buttonStyle(.borderless)
                 .help(slot.recordingSince == nil
@@ -334,12 +330,12 @@ struct SlotTile: View {
                         }
                         if let error = slot.recordingError {
                             Label("Recording failed", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.white).help(error)
+                                .foregroundStyle(Brand.hotText).help(error)
                         } else if slot.isSavingRecording {
                             Text("Saving recording…")
                         } else if let since = slot.recordingSince {
                             Text(slot.recordingHasFrames ? "● REC \(Self.format(context.date.timeIntervalSince(since)))" : "Recording armed")
-                                .foregroundStyle(Brand.red)
+                                .foregroundStyle(Brand.gelText)
                                 .help(slot.recordingError ?? "Recording to \(SaveFolders.recordings.path)")
                         }
                         Text(statusText(now: context.date))
@@ -431,15 +427,9 @@ struct SlotTile: View {
         Toggle(title, isOn: Binding(get: { choice == current }, set: { _ in action() }))
     }
 
-    /// Brand palette: teal live, blues in between, red only for trouble (and recording).
+    /// Gel live, lamp on the way, standby waiting, hot for trouble.
     private var statusColor: Color {
-        switch slot.state {
-        case .live: return Brand.teal
-        case .connecting, .paused: return Brand.sky
-        case .waiting: return Brand.blueMuted
-        case .disconnected, .failed: return Brand.red
-        case .stopped: return .gray
-        }
+        Brand.dot(for: slot.state)
     }
 
     private func statusText(now: Date) -> String {

@@ -5,6 +5,23 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 22, 2026: Mirror Wall's own look, light and dark, and Connect with QR Code
+
+- Mirror Wall has its own look now: a dark Stage with the devices standing in a pool of light,
+  Fraunces for the wordmark, Inter for the controls, a new app icon and menu bar glyph. The
+  previous company branding, fonts and logo are gone from both apps.
+- The Wall, Settings and the Android app follow the system's light or dark appearance. The Stage
+  stays dark in both, because the customer is looking at it.
+- File › Connect with QR Code… (⌘K, also in the Stage's Devices and ⋯ menus and the menu bar icon)
+  shows a code with every address this Mac has (Wi-Fi first, then Tailscale, then other VPNs) and
+  a slot's port. The Cast app's new Scan QR Code button, or the phone's own camera, reads it and
+  shares to the first address that answers. For guest Wi-Fi that keeps devices apart, or a VPN
+  both ends share, where the slot list stays empty.
+- Mirror Wall Cast's app ID is back to upstream's `com.justfortonks.mirrorwall.cast`. One
+  uninstall and reinstall on each phone, then updates install over the top as before.
+- A design note for a self-hosted relay (`docs/relay-design.md`) for networks with no shared
+  route at all; not built yet.
+
 ## October 16, 2026: Upstream photo frames and Android rotation merged in
 
 - Brought in the upstream changes below. Photo frames (Zebra HC50, Honeywell CT37, Spectralink

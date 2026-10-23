@@ -20,6 +20,8 @@ struct MirrorWallApp: App {
             CommandGroup(after: .newItem) {
                 Button("Add Slot") { appDelegate.store.addSlot() }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("Connect with QR Code…") { ConnectCodePanel.show(store: appDelegate.store) }
+                    .keyboardShortcut("k")
                 Button("Choose uxplay…") { appDelegate.store.chooseUxPlay() }
                 Divider()
                 Button("Record All Slots") { appDelegate.store.startAllRecordings() }
@@ -60,8 +62,11 @@ struct MenuBarLabel: View {
     @ObservedObject var store: SlotStore
 
     var body: some View {
-        Image(systemName: store.anySlotInUse ? "rectangle.grid.2x2.fill" : "rectangle.grid.2x2")
-            .accessibilityLabel("Mirror Wall")
+        if let glyph = Brand.menuBarImage(inUse: store.anySlotInUse) {
+            Image(nsImage: glyph).accessibilityLabel("Mirror Wall")
+        } else {
+            Image(systemName: store.anySlotInUse ? "circle.fill" : "circle").accessibilityLabel("Mirror Wall")
+        }
     }
 }
 
@@ -78,6 +83,7 @@ struct MenuBarMenu: View {
             MenuBarSlotItem(slot: slot, store: store)
         }
         Divider()
+        Button("Connect with QR Code…") { ConnectCodePanel.show(store: store) }
         Button("Show Stage") { store.showStage() }
         Button("Show Wall") {
             MainWindow.open = openWindow

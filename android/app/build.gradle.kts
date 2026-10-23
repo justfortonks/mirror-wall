@@ -19,7 +19,7 @@ android {
     defaultConfig {
         // The ID devices and MDM know the app by. (The code keeps its original package name in
         // `namespace`; only this changed.)
-        applicationId = "com.imprivata.mirrorwallcast"
+        applicationId = "com.justfortonks.mirrorwall.cast"
         minSdk = 29
         targetSdk = 35
         versionCode = buildNumber
@@ -62,6 +62,9 @@ android {
 }
 
 dependencies {
+    // Scan QR Code: ZXing's camera scanner. No Google Play services needed, so it works on
+    // AOSP handhelds too.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
     // Android's own org.json is only a stub in unit tests.
     testImplementation("org.json:json:20240303")

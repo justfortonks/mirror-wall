@@ -1,26 +1,33 @@
-# Mirror Wall (Imprivata SE edition)
+# Mirror Wall
 
 Share iPhone, iPad and Android demo devices in a Teams or Zoom meeting from a Mac. Phones mirror
-wirelessly into one branded **Stage** window that you share like any other app window, at their
-true relative sizes, in a phone frame that matches the real device.
+wirelessly into one **Stage** window that you share like any other app window, at their true
+relative sizes, in a phone frame that matches the real device. No cables, no cloud: everything
+runs on your own Mac.
 
-This is the Imprivata Solutions Engineering fork of
-[justfortonks/mirror-wall](https://github.com/justfortonks/mirror-wall). The working branch is
-**`cody-changes`**; `main` tracks the upstream project and is left alone. Built for SE demos run
-from home offices and at events.
+This repository is developed alongside
+[justfortonks/mirror-wall](https://github.com/justfortonks/mirror-wall); the two share the Cast
+protocol and exchange changes by pull request. The working branch here is **`cody-changes`**;
+`main` tracks upstream and is left alone. The look is Mirror Wall's own: see
+[DESIGN.md](DESIGN.md).
 
 ---
 
 ## What it does
 
-- **Stage-first window** - the app opens straight to the Stage: a single Imprivata-branded window
-  (Blue gradient, hex pattern, "Live demo" caption bar) showing every mirroring phone. Share that
+- **Stage-first window** - the app opens straight to the Stage: a single dark window (the devices
+  stand in a pool of light, "Live demo" caption bar) showing every mirroring phone. Share that
   one window in the meeting. Phones are added to the Stage automatically as they connect.
 - **iPhone and iPad over AirPlay** - nothing to install. Control Center › Screen Mirroring › pick
   a Mirror Wall slot.
-- **Android over Mirror Wall Cast** - a small companion app (`com.imprivata.mirrorwallcast`) that
-  finds the Mac's slots on the network and streams the screen. Works on any Android 10+ device,
-  including the Zebra, Honeywell and Spectralink devices we demo on.
+- **Android over Mirror Wall Cast** - a small companion app (`com.justfortonks.mirrorwall.cast`)
+  that finds the Mac's slots on the network and streams the screen. Works on any Android 10+
+  device, including Zebra, Honeywell and Spectralink handhelds.
+- **Connect with QR Code** (⌘K) - when the network blocks discovery (guest Wi-Fi, a VPN on each
+  device), the Mac shows a code with every address it has; the Cast app scans it and shares to
+  the first address that answers. Works over Tailscale.
+- **Light and dark** - the Wall, Settings and the Android app follow the system appearance. The
+  Stage stays dark in both, because the customer is looking at it.
 - **Up to eight devices at once** - iPhones and Android phones mix freely, one device per slot.
 - **Device frames** - every device can wear a frame on the Stage, in its own window and in the OBS
   feed:
@@ -57,7 +64,7 @@ from home offices and at events.
   Open it from **Show Wall** in the Stage's More menu or the menu bar icon.
 - **Updates from this fork** - Check for Update looks at
   [yurtbeer/mirror-wall releases](https://github.com/yurtbeer/mirror-wall/releases), never
-  upstream, so an upstream release can't overwrite the SE changes.
+  upstream, so an upstream release can't overwrite this fork's changes.
 
 Not included: controlling the phone from the Mac, audio, or USB mirroring. DRM-protected video
 (Netflix and similar) shows black.
@@ -102,10 +109,10 @@ mirror-wall/
 │       ├── CastServer.swift         # Android Cast receiver
 │       ├── PhoneBezelDrawing.swift / PhoneBezelView.swift / BezelModelPicker.swift
 │       ├── SyphonFeed.swift         # OBS output
-│       ├── Brand.swift              # Imprivata colors, Barlow, hex pattern, logo lookup
+│       ├── Brand.swift              # colors (light/dark), Inter and Fraunces, the mark
 │       └── Resources/               # App icon, Brand (fonts; logo kept out of git), Bezels (photo frames)
 ├── Tests/                   # MirrorCoreTests and MirrorWallTests (swift test)
-├── android/                 # Mirror Wall Cast (Kotlin), app ID com.imprivata.mirrorwallcast
+├── android/                 # Mirror Wall Cast (Kotlin), app ID com.justfortonks.mirrorwall.cast
 ├── windows/                 # Upstream Windows app (C#/WPF); not updated for the SE changes
 ├── patches/                 # UxPlay patches the receiver needs (idle/wake and others)
 ├── scripts/                 # build-uxplay, build-syphon, build-app, make-dmg, compatibility checks
@@ -129,9 +136,9 @@ may need System Settings › Privacy & Security › **Open Anyway**. Allow local
 asked.
 
 **Android:** install the APK or push it through MDM (Intune, Workspace ONE, SOTI). The app ID is
-`com.imprivata.mirrorwallcast`, which is different from the upstream app and the old DemoCast
-pilot, so MDM assignments need to target this ID. Builds use the repository's public test key
-until a team key is set up; each build installs over the last as long as the key doesn't change.
+`com.justfortonks.mirrorwall.cast`, the same as upstream's, so there is one Mirror Wall Cast on a
+device whichever repo built it. Builds use the repository's public test key until a team key is
+set up; each build installs over the last as long as the key doesn't change.
 
 ### Connecting devices
 
@@ -157,10 +164,9 @@ scripts/build-app.sh         # builds MirrorWall.app
 scripts/make-dmg.sh          # optional disk image
 ```
 
-The Imprivata white logo is deliberately not in git. Put the approved file at
-`Sources/MirrorWall/Resources/Brand/imprivata-logo-white.png` before building to show it in the
-Stage caption; without it the caption simply has no logo. Barlow fonts and their license are
-included.
+Inter and Fraunces (both OFL, licenses alongside) and the menu bar glyphs live in
+`Sources/MirrorWall/Resources/Brand`; `scripts/build-app.sh` copies the folder into the app. The
+app icon is `Sources/MirrorWall/Resources/AppIcon.png`, rendered from the design system's mark.
 
 Android (Java 17, Android SDK 35):
 
@@ -245,7 +251,7 @@ from it.
 - [Current focus](docs/CURRENT_FOCUS.md) is what's being worked on now and what's parked.
 - [Delivery log](docs/DELIVERY_LOG.md) summarizes what has shipped, fork and upstream.
 - [Product context](PRODUCT.md) covers who it's for, the demo workflows, principles and anti-goals.
-- [Design context](DESIGN.md) covers the Imprivata branding, Stage layout and presenter-control
+- [Design context](DESIGN.md) covers the look, Stage layout and presenter-control
   rules.
 - [Agent guidance](AGENTS.md) gives instructions for coding agents and contributors.
 - [Mirror Wall in detail](docs/details.md) covers how each Mac feature behaves.
@@ -256,15 +262,15 @@ from it.
 
 - **Updates point at this fork.** The release URLs in `Sources/MirrorCore/LatestRelease.swift`
   must stay on `yurtbeer/mirror-wall`. Watch for this on every upstream merge.
-- **Android app ID stays `com.imprivata.mirrorwallcast`.** Changing it makes every device install a
-  second app.
-- **The logo stays out of git.** `Sources/MirrorWall/Resources/Brand/imprivata-logo-white.png` is
-  ignored on purpose.
+- **Android app ID stays `com.justfortonks.mirrorwall.cast`.** Changing it makes every device
+  install a second app.
+- **The look is Mirror Wall's own.** No company marks, fonts or colors in either app; changes go
+  through `Brand.swift`, `Brand.kt` and the design system together.
 - **Don't commit to `main`.** It mirrors upstream. Bring upstream changes into `cody-changes` on a
   separate branch first, build and test on a Mac, then merge.
 
 ## License
 
 GNU GPL v3, same as upstream ([LICENSE](LICENSE)). See [Third-party notices](THIRD_PARTY_NOTICES.md)
-for UxPlay, GStreamer, Syphon and Barlow. Not affiliated with Apple; AirPlay and iPhone are Apple
-trademarks. Imprivata branding is used by Imprivata.
+for UxPlay, GStreamer, Syphon, Inter and Fraunces. Not affiliated with Apple; AirPlay and iPhone
+are Apple trademarks.

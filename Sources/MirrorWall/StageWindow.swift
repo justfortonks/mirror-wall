@@ -30,7 +30,7 @@ final class StageWindow: NSObject, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
-        window.backgroundColor = Brand.nsBlue
+        window.backgroundColor = Brand.nsStage
         window.minSize = NSSize(width: 320, height: 180)
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.contentView = NSHostingView(rootView: StageView(model: StageModel(store: store), store: store, onClose: { [weak self] in self?.close() }))
@@ -233,17 +233,9 @@ struct StageView: View {
                 : proxy.size.height - barHeight - 10
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .topTrailing) {
-                    Brand.stageGradient
-                    HexPattern(
-                        colors: [.white, Brand.sky, Brand.teal],
-                        radius: max(16, proxy.size.height * 0.04),
-                        columns: 6,
-                        rows: 7,
-                        density: 0.75,
-                        seed: 21,
-                        opacity: 0.16
-                    )
-                    .frame(width: proxy.size.width * 0.42, height: proxy.size.height * 0.7)
+                    Brand.stage
+                    // The pool of light the devices stand in.
+                    Brand.stageLight()
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 if phones.isEmpty {
@@ -327,15 +319,9 @@ struct StageView: View {
     }
 }
 
-/// A slot's status dot on the Stage: teal live, blues in between, red for trouble.
+/// A slot's status dot on the Stage: gel live, lamp on the way, standby waiting, hot for trouble.
 private func stageDotColor(_ state: Slot.State) -> Color {
-    switch state {
-    case .live: return Brand.teal
-    case .connecting, .paused: return Brand.sky
-    case .waiting: return Brand.blueMuted
-    case .disconnected, .failed: return Brand.red
-    case .stopped: return .gray
-    }
+    Brand.dot(for: state)
 }
 
 private func stageStatus(_ state: Slot.State) -> String {
@@ -378,6 +364,7 @@ struct StageControls: View {
                     }
                     if phones.isEmpty { Text("No connected devices") }
                     Divider()
+                    Button("Connect with QR Code…") { ConnectCodePanel.show(store: store) }
                     Button("Add Device Space") { store.addSlot() }.disabled(!store.canAddSlot)
                 } label: { HUDLabel(title: "Devices", systemImage: "iphone") }
                 freezeButton
@@ -388,7 +375,7 @@ struct StageControls: View {
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .padding(5)
-        .background(Color(hex: 0x141E2D).opacity(0.96), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(Brand.stageRaised.opacity(0.96), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(.white.opacity(0.12)))
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
@@ -406,12 +393,13 @@ struct StageControls: View {
 
     private var recordButton: some View {
         Button { recording ? store.stopAllRecordings() : store.startAllRecordings() } label: {
-            HUDLabel(title: recording ? "Stop Recording" : "Record", systemImage: recording ? "stop.fill" : "record.circle", fill: recording ? Brand.red : nil)
+            HUDLabel(title: recording ? "Stop Recording" : "Record", systemImage: recording ? "stop.fill" : "record.circle", fill: recording ? Brand.gel : nil)
         }
     }
 
     private var moreMenu: some View {
         Menu {
+            Button("Connect with QR Code…") { ConnectCodePanel.show(store: store) }
             Button("Add Device Space") { store.addSlot() }.disabled(!store.canAddSlot)
             Menu("Layout") {
                 StageLayoutItems(store: store)
@@ -447,7 +435,7 @@ private struct HUDLabel: View {
             if let title { Text(title) }
         }
         .font(Brand.font(12, .semibold))
-        .foregroundStyle(fill != nil || isOn ? Color.white : Brand.ice)
+        .foregroundStyle(fill != nil || isOn ? Brand.stageInk : Brand.stageInkMuted)
         .padding(.horizontal, 9)
         .frame(height: 28)
         .background(
@@ -489,11 +477,11 @@ private struct StageSlotChip: View {
                         .font(Brand.font(10, .bold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(Brand.red))
+                        .background(Capsule().fill(Brand.gel))
                 }
             }
             .font(Brand.font(12, .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Brand.stageInk)
             .padding(.horizontal, 10)
             .frame(height: 28)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.white.opacity(0.1)))
@@ -558,18 +546,18 @@ private struct WaitingPills: View {
                         Text(slot.name).font(Brand.font(12, .semibold))
                         Text(stageStatus(slot.state)).font(Brand.font(11)).opacity(0.7)
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Brand.stageInk)
                     .padding(.horizontal, 11)
                     .frame(height: 26)
-                    .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.85)))
+                    .background(Capsule().fill(Brand.stageRaised.opacity(0.85)))
                 }
                 if let pin, !slots.isEmpty {
                     Text("PIN \(pin)")
                         .font(Brand.font(12, .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Brand.stageInk)
                         .padding(.horizontal, 11)
                         .frame(height: 26)
-                        .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.85)))
+                        .background(Capsule().fill(Brand.stageRaised.opacity(0.85)))
                 }
             }
         }
@@ -587,7 +575,7 @@ private struct StageEmptyState: View {
         VStack(spacing: 18) {
             VStack(spacing: 6) {
                 Text("Demo starting shortly")
-                    .font(Brand.font(30, .bold))
+                    .font(Brand.display(30, .medium))
                 Text(showsSteps ? "Connect a phone and it appears here." : "Press C or hold Control for controls")
                     .font(Brand.font(14))
                     .opacity(showsSteps ? 0.7 : 0.35)
@@ -599,7 +587,7 @@ private struct StageEmptyState: View {
                             Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(slot.name).font(Brand.font(14, .semibold))
-                                Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast")
+                                Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast, or scan the QR code (⌘K)")
                                     .font(Brand.font(12))
                                     .opacity(0.65)
                             }
@@ -612,10 +600,10 @@ private struct StageEmptyState: View {
                     }
                 }
                 .padding(16)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(hex: 0x141E2D).opacity(0.55)))
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Brand.stageRaised.opacity(0.55)))
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Brand.stageInk)
         .padding()
     }
 }
@@ -632,9 +620,9 @@ private struct StageCaption: View {
         HStack(spacing: height * 0.3) {
             // Only once something is live, so the waiting screen doesn't claim to be live.
             if !phones.isEmpty {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Brand.teal)
-                    .frame(width: 4, height: height * 0.5)
+                Circle()
+                    .fill(Brand.gel)
+                    .frame(width: height * 0.16, height: height * 0.16)
                 Text(phones.contains(where: { $0.isFrozen || $0.state != .live || $0.isQuiet }) ? "Demo" : "Live demo")
                     .font(Brand.font(height * 0.36, .bold))
                 Text("· \(names)")
@@ -644,15 +632,11 @@ private struct StageCaption: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: height)
-            if showsLogo, let logo = Brand.whiteLogo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(height: height * 0.6)
+            if showsLogo {
+                Wordmark(height: height * 0.42)
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Brand.stageInk)
         .padding(.horizontal, height * 0.5)
         .frame(maxHeight: .infinity)
         .background(.black.opacity(0.18))
@@ -698,14 +682,14 @@ private struct StagePhone: View {
                 VideoLayerView(renderer: slot.renderer, isShowing: slot.showsPicture || reconnecting)
             }
             if reconnecting || slot.isQuiet {
-                Color(hex: 0x141E2D).opacity(0.6)
+                Brand.stageRaised.opacity(0.6)
                 VStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(.white)
+                        .tint(Brand.stageInk)
                     Text("Reconnecting…")
                         .font(Brand.font(14, .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Brand.stageInk)
                 }
             } else if slot.isFrozen {
                 VStack {
@@ -714,10 +698,10 @@ private struct StagePhone: View {
                         Text("Other outputs stay live").font(Brand.font(10))
                     }
                         .font(Brand.font(12, .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Brand.stageInk)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(Color(hex: 0x141E2D).opacity(0.8)))
+                        .background(Capsule().fill(Brand.stageRaised.opacity(0.8)))
                         .padding(.top, 10)
                     Spacer()
                 }

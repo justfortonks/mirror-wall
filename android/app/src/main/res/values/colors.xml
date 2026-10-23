@@ -1,7 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Imprivata 2026 brand palette -->
-    <color name="brand_blue">#2C3F57</color>
-    <color name="brand_red">#CC0033</color>
-    <color name="brand_teal">#2CD5C4</color>
+    <!-- Mirror Wall palette, light appearance. The dark values are in values-night/colors.xml;
+         keep both in step with the design system's tokens.json. -->
+    <color name="lamp">#FFB030</color>
+    <color name="gel">#FF4F8B</color>
+    <color name="hot">#E5484D</color>
+    <color name="surface">#F5F0E6</color>
+    <color name="surface_raised">#FFFFFF</color>
+    <color name="surface_sunken">#ECE6D9</color>
+    <color name="ink">#121015</color>
+    <color name="ink_muted">#5C5763</color>
+    <color name="ink_faint">#8E889A</color>
+    <color name="line">#D9D2C4</color>
+    <color name="lamp_text">#8A5A00</color>
+    <color name="standby">#8E889A</color>
+    <!-- The launcher icon's background: house black, both appearances. -->
+    <color name="icon_background">#121015</color>
 </resources>

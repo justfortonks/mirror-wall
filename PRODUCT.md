@@ -2,20 +2,20 @@
 
 Register: product
 
-Mirror Wall (Imprivata SE edition) is a Mac app that puts real iOS and Android demo devices into
-a video meeting. Phones mirror wirelessly into one branded Stage window that the presenter shares
-in Teams or Zoom, so customers see the actual device, in a frame that looks like it, while the SE
-works on the phone in their hand.
+Mirror Wall is a Mac app that puts real iOS and Android demo devices into a video meeting.
+Phones mirror wirelessly into one Stage window that the presenter shares in Teams or Zoom, so
+the audience sees the actual device, in a frame that looks like it, while the presenter works
+on the phone in their hand. Nothing leaves the presenter's Mac: no cables, no cloud vendor.
 
-It replaces AirDroid and the earlier DemoCast prototype for this job.
+It replaces AirDroid-style tools for this job.
 
 ## Primary users
 
-- Imprivata Solutions Engineers running remote demos from home offices.
-- SEs running in-person demos at events and conferences, where the Stage may be on a big screen
-  and the network is shared.
-- Anyone on the SE team who needs to show MAM, Mobile Access, Locker or Face Auth workflows on
-  the managed devices customers actually buy (Zebra, Honeywell, Spectralink, iPhone, iPad).
+- Solutions engineers and sales engineers running remote demos from home offices.
+- The same people at events and customer sites, where the Stage may be on a big screen and the
+  network is shared, isolated or hostile.
+- Trainers and product people who show mobile apps on the devices customers actually buy
+  (Zebra, Honeywell, Spectralink handhelds, iPhone, iPad).
 
 ## Core jobs
 
@@ -44,7 +44,7 @@ It replaces AirDroid and the earlier DemoCast prototype for this job.
 5. **Wrong or unknown frame:** right-click the device › Bezel Model › choose the right one.
 6. **Something's wrong:** Show Wall › the slot's ⋯ › Troubleshooting › Show Log or Restart
    Receiver.
-7. **Roll out the Android app:** deploy `com.imprivata.mirrorwallcast` from MDM; updates install
+7. **Roll out the Android app:** deploy `com.justfortonks.mirrorwall.cast` from MDM; updates install
    over the top while the signing key stays the same.
 
 ## Product principles
@@ -56,7 +56,7 @@ It replaces AirDroid and the earlier DemoCast prototype for this job.
 - **Presenter intent sticks.** A hidden device stays hidden and a frozen Stage stays frozen
   through reconnects; nothing reappears on its own in front of a customer.
 - **Hold, don't jump.** A dropped phone keeps its place and last picture while it may come back.
-- **Works on any keyboard.** Plain keys (C, P, Esc) and Control as well as Option, because SEs
+- **Works on any keyboard.** Plain keys (C, P, Esc) and Control as well as Option, because presenters
   plug into external keyboards without an Option key.
 - **Defaults fit the home office.** No PIN by default; security options are there for events.
 - **True to the device.** Real relative sizes, real frames, never stretched or cropped video.
@@ -82,14 +82,14 @@ It replaces AirDroid and the earlier DemoCast prototype for this job.
 - **Syphon feeds**: per-device OBS sources, framed or not.
 - **Menu bar icon**: slot list and status, Show Stage, Show Wall, Quit.
 - **Settings**: PIN, allow-list, bezels, standby picture, save folders, OBS, wake, updates.
-- **Mirror Wall Cast** (Android): Imprivata-branded slot picker, share, stop, log.
-- **Windows app**: inherited from upstream, not updated for SE use.
+- **Mirror Wall Cast** (Android): slot picker, Scan QR Code, connect by address, share, stop, log.
+- **Windows app**: inherited from upstream; the Stage-first window and branding haven't reached it yet.
 
 ## Anti-goals
 
 - Remote control of the phone from the Mac. The presenter uses the phone in their hand.
 - Audio.
 - Replacing MDM or remote-support tools.
-- Supporting non-Imprivata branding or white-labeling in this fork.
+- White-labeling: Mirror Wall has one look (DESIGN.md), not a per-customer one.
 - Diverging from upstream for its own sake: shared improvements flow back in through
-  `merge-upstream` style branches; SE-specific changes stay in `cody-changes`.
+  `merge-upstream` style branches and pull requests.

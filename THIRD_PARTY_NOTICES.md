@@ -25,11 +25,19 @@ product names are their trademarks.
 
 ## What the app includes
 
-### Barlow typeface (SIL Open Font License 1.1)
+### Inter typeface (SIL Open Font License 1.1)
 
-The Barlow font files in `Contents/Resources/Brand` are Copyright 2017 The Barlow Project
-Authors (<https://github.com/jpt/barlow>), licensed under the SIL Open Font License 1.1; the full
-licence is `Contents/Resources/Brand/OFL.txt`.
+The Inter font files in `Contents/Resources/Brand` (and the Android app's `res/font`) are
+Copyright 2016 The Inter Project Authors (<https://github.com/rsms/inter>), licensed under the
+SIL Open Font License 1.1; the full licence is `Contents/Resources/Brand/Inter-OFL.txt`.
+
+### Fraunces typeface (SIL Open Font License 1.1)
+
+The Fraunces font files in `Contents/Resources/Brand` (and the Android app's `res/font`) are
+Copyright 2018 The Fraunces Project Authors (<https://github.com/undercasetype/Fraunces>),
+licensed under the SIL Open Font License 1.1; the full licence is
+`Contents/Resources/Brand/Fraunces-OFL.txt`. They are static instances made from the variable
+font (weights 500 and 700 at optical size 72).
 
 ### UxPlay (GNU GPL v3)
 

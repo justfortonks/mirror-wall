@@ -28,10 +28,16 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import com.journeyapps.barcodescanner.ScanIntentResult
+import com.journeyapps.barcodescanner.ScanOptions
+import java.net.InetSocketAddress
+import java.net.Socket
+import kotlin.concurrent.thread
 
 /**
  * Lists the Mirror Wall slots on the network; tapping one shares the screen to it. A slot can
- * also be reached by address, for networks that block discovery.
+ * also be reached by address, or by scanning the QR code Mirror Wall shows (Connect with QR
+ * Code…), for networks that block discovery.
  */
 class MainActivity : Activity() {
     private data class Slot(val name: String, val host: String, val port: Int)
@@ -55,6 +61,8 @@ class MainActivity : Activity() {
     private var pending: Slot? = null
     /** Asked this time the app opened to run in the background, so it isn't asked at every share. */
     private var askedBackground = false
+    /** A scanned link being tried address by address; a newer one replaces it. */
+    private var reaching: ConnectLink? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +77,14 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2)
         }
+        // Opened by the camera app scanning Mirror Wall's code (first open only; a rotation keeps pending).
+        if (savedInstanceState == null) intent?.dataString?.let { openLink(it) }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent?.dataString?.let { openLink(it) }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -135,6 +151,11 @@ class MainActivity : Activity() {
             if (pending != null) askToCapture()
             return
         }
+        if (requestCode == 4) {
+            val scanned = ScanIntentResult.parseActivityResult(resultCode, data).contents
+            if (scanned != null) openLink(scanned) else AppLog.write("QR scan cancelled")
+            return
+        }
         if (requestCode != 1) return
         val slot = pending ?: run {
             CastStatus.set(false, "Choose a receiver and tap Share again.")
@@ -167,6 +188,65 @@ class MainActivity : Activity() {
         val host = text.substringBefore(':')
         val port = text.substringAfter(':', "7350").toIntOrNull() ?: 7350
         share(Slot(text, host, port))
+    }
+
+    // MARK: QR code and links
+
+    private fun scanCode() {
+        if (CastStatus.sharing) return
+        AppLog.write("Scanning a QR code")
+        val options = ScanOptions()
+            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            .setPrompt("Point the camera at the code in Mirror Wall")
+            .setBeepEnabled(false)
+            .setOrientationLocked(false)
+        @Suppress("DEPRECATION")
+        startActivityForResult(options.createScanIntent(this), 4)
+    }
+
+    /** Text from a scan or a mirrorwall:// link: share to the slot it names. */
+    private fun openLink(text: String) {
+        val link = ConnectLink.parse(text)
+        if (link == null) {
+            AppLog.write("Not a Mirror Wall code: ${text.take(80)}")
+            CastStatus.set(false, "That isn't a Mirror Wall code.")
+            return
+        }
+        AppLog.write("Code for ${link.name}: ${link.hosts.joinToString()} port ${link.port}")
+        if (CastStatus.sharing) {
+            CastStatus.set(true, "Stop sharing first, then scan again.")
+            return
+        }
+        if (link.hosts.size == 1) {
+            share(Slot(link.name, link.hosts[0], link.port))
+            return
+        }
+        // The computer listed every address it has; use the first that answers. A guest
+        // network usually blocks the Wi-Fi one and lets the VPN one through, or the other way.
+        reaching = link
+        CastStatus.set(false, "Reaching ${link.name}…")
+        thread(name = "reach") {
+            val host = link.hosts.firstOrNull { reaching === link && answers(it, link.port) }
+            runOnUiThread {
+                if (reaching !== link) return@runOnUiThread
+                reaching = null
+                if (host != null) {
+                    AppLog.write("${link.name} answered at $host")
+                    share(Slot(link.name, host, link.port))
+                } else {
+                    AppLog.write("${link.name} didn't answer at any address")
+                    CastStatus.set(false, "Couldn't reach ${link.name}. Is this phone on the same Wi-Fi or VPN as the computer?")
+                }
+            }
+        }
+    }
+
+    /** A quick knock on the slot's port; Mirror Wall drops a connection that never says hello. */
+    private fun answers(host: String, port: Int): Boolean = try {
+        Socket().use { it.connect(InetSocketAddress(host, port), 2000) }
+        true
+    } catch (_: Exception) {
+        false
     }
 
     // MARK: Finding slots
@@ -305,7 +385,7 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Brand.pressable(Brand.rounded(Color.WHITE, radius, Brand.line, Brand.dp(this@MainActivity, 1f)), radius)
+            background = Brand.pressable(Brand.card(this@MainActivity, radius), radius)
             setPadding(pad, pad, pad, pad)
             isClickable = true
             isEnabled = !CastStatus.sharing
@@ -313,7 +393,7 @@ class MainActivity : Activity() {
             addView(View(this@MainActivity).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(Brand.teal)
+                    setColor(Brand.lamp)
                 }
             }, LinearLayout.LayoutParams(Brand.dp(this@MainActivity, 10f), Brand.dp(this@MainActivity, 10f)).apply {
                 marginEnd = Brand.dp(this@MainActivity, 14f)
@@ -321,9 +401,9 @@ class MainActivity : Activity() {
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(Brand.body(this@MainActivity, slot.name, 16f).apply { typeface = Brand.semibold(this@MainActivity) })
-                addView(Brand.body(this@MainActivity, "Tap to share this screen", 13f, Brand.muted))
+                addView(Brand.body(this@MainActivity, "Tap to share this screen", 13f, Brand.inkMuted(this@MainActivity)))
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-            addView(Brand.body(this@MainActivity, "›", 24f, Brand.red))
+            addView(Brand.body(this@MainActivity, "›", 24f, Brand.lampText(this@MainActivity)))
         }
     }
 
@@ -331,10 +411,10 @@ class MainActivity : Activity() {
         hint = hintText
         typeface = Brand.regular(this@MainActivity)
         textSize = 16f
-        setTextColor(Brand.blue)
-        setHintTextColor(Brand.muted)
+        setTextColor(Brand.ink(this@MainActivity))
+        setHintTextColor(Brand.inkFaint(this@MainActivity))
         val radius = Brand.dp(this@MainActivity, 12f).toFloat()
-        background = Brand.rounded(Color.WHITE, radius, Brand.line, Brand.dp(this@MainActivity, 1f))
+        background = Brand.rounded(Brand.surfaceRaised(this@MainActivity), radius, Brand.line(this@MainActivity), Brand.dp(this@MainActivity, 1f))
         val pad = Brand.dp(this@MainActivity, 14f)
         setPadding(pad, pad, pad, pad)
         setSingleLine()
@@ -343,36 +423,31 @@ class MainActivity : Activity() {
     private fun buildViews() {
         val pad = Brand.dp(this, 16f)
 
-        // Header: Imprivata Blue, a teal eyebrow, the hex pattern in the corner.
-        val header = FrameLayout(this).apply { setBackgroundColor(Brand.blue) }
-        header.addView(
-            HexPatternView(this, intArrayOf(Brand.blueRaised, Brand.midBlue, Brand.teal), 210),
-            FrameLayout.LayoutParams(Brand.dp(this, 170f), Brand.dp(this, 140f), Gravity.TOP or Gravity.END),
-        )
+        // Header: the lamp, with ink on it; the wordmark in Fraunces as the eyebrow.
+        val header = FrameLayout(this).apply { setBackgroundColor(Brand.lamp) }
         val headerColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad + pad / 4, pad, pad + pad / 4, pad + pad / 2)
         }
         headerColumn.addView(TextView(this).apply {
-            text = "MIRROR WALL CAST"
-            typeface = Brand.bold(this@MainActivity)
-            textSize = 12f
-            letterSpacing = 0.08f
-            setTextColor(Brand.teal)
+            text = "Mirror Wall Cast"
+            typeface = Brand.display(this@MainActivity)
+            textSize = 15f
+            setTextColor(Brand.onLamp)
         })
         headline = TextView(this).apply {
             typeface = Brand.bold(this@MainActivity)
             textSize = 28f
-            setTextColor(Color.WHITE)
+            setTextColor(Brand.onLamp)
             setPadding(0, pad / 4, 0, 0)
         }
         headerColumn.addView(headline)
-        status = Brand.body(this, "", 15f, Brand.ice)
+        status = Brand.body(this, "", 15f, Color.argb(200, 18, 16, 21))
         headerColumn.addView(status)
         stopButton = Button(this).apply {
             text = "Stop sharing"
             setOnClickListener { stopSharing() }
-            Brand.pill(this)
+            Brand.pill(this, Brand.onLamp, Brand.lamp)
         }
         headerColumn.addView(stopButton, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = pad })
         header.addView(headerColumn, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -385,7 +460,7 @@ class MainActivity : Activity() {
         backgroundRow = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val radius = Brand.dp(this@MainActivity, 14f).toFloat()
-            background = Brand.rounded(Color.WHITE, radius, Brand.line, Brand.dp(this@MainActivity, 1f))
+            background = Brand.card(this@MainActivity, radius)
             setPadding(pad, pad, pad, pad)
             addView(Brand.body(this@MainActivity, "Battery saving can stop sharing while the phone is idle.", 14f))
             addView(Button(this@MainActivity).apply {
@@ -400,10 +475,20 @@ class MainActivity : Activity() {
         column.addView(backgroundRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = pad })
 
         column.addView(Brand.label(this, "Slots on this network"))
-        emptyHint = Brand.body(this, "Looking… Mirror Wall must be open on a Mac or PC on the same Wi-Fi.", 14f, Brand.muted)
+        emptyHint = Brand.body(this, "Looking… Mirror Wall must be open on a Mac or PC on the same Wi-Fi.", 14f, Brand.inkMuted(this))
         column.addView(emptyHint)
         slotList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(slotList)
+
+        column.addView(Brand.label(this, "Or scan the code in Mirror Wall"))
+        column.addView(Button(this).apply {
+            text = "Scan QR Code"
+            Brand.pill(this)
+            setOnClickListener { scanCode() }
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        column.addView(Brand.body(this, "Mirror Wall › Connect with QR Code… shows it. Works where this list stays empty: guest Wi-Fi, or a VPN both share.", 13f, Brand.inkMuted(this)).apply {
+            setPadding(0, pad / 2, 0, 0)
+        })
 
         column.addView(Brand.label(this, "Or connect by address"))
         val addressRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -428,10 +513,10 @@ class MainActivity : Activity() {
             text = "Keep the screen on while sharing"
             typeface = Brand.regular(this@MainActivity)
             textSize = 15f
-            setTextColor(Brand.blue)
+            setTextColor(Brand.ink(this@MainActivity))
             val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
-            thumbTintList = ColorStateList(states, intArrayOf(Brand.teal, Color.WHITE))
-            trackTintList = ColorStateList(states, intArrayOf(Color.argb(110, 44, 213, 196), Brand.line))
+            thumbTintList = ColorStateList(states, intArrayOf(Brand.lamp, Brand.surfaceRaised(this@MainActivity)))
+            trackTintList = ColorStateList(states, intArrayOf(Color.argb(110, 255, 176, 48), Brand.line(this@MainActivity)))
             isChecked = Phone.keepsScreenOn(this@MainActivity)
             setPadding(0, pad, 0, 0)
             setOnCheckedChangeListener { _, on -> Phone.setKeepsScreenOn(this@MainActivity, on) }
@@ -451,21 +536,21 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = pad / 2 })
         column.addView(logRow)
 
-        column.addView(Brand.body(this, "Version ${packageManager.getPackageInfo(packageName, 0).versionName}", 12f, Brand.muted).apply {
+        column.addView(Brand.body(this, "Version ${packageManager.getPackageInfo(packageName, 0).versionName}", 12f, Brand.inkMuted(this)).apply {
             setPadding(0, pad, 0, 0)
         })
 
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(Brand.page)
+            setBackgroundColor(Brand.surface(this@MainActivity))
             addView(column)
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Brand.page)
+            setBackgroundColor(Brand.surface(this@MainActivity))
             addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(scroll, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
         }
-        // Edge to edge: the Blue header runs up behind the status bar; the list clears the
+        // Edge to edge: the lamp header runs up behind the status bar; the list clears the
         // navigation bar and the keyboard.
         val headerTop = headerColumn.paddingTop
         val columnBottom = column.paddingBottom
@@ -487,16 +572,18 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         @Suppress("DEPRECATION")
-        window.statusBarColor = Brand.blue
+        window.statusBarColor = Brand.lamp
         if (Build.VERSION.SDK_INT >= 30) {
-            // Light status bar icons on the Blue header, dark navigation icons on the light page.
+            // Dark status bar icons on the lamp header; navigation icons follow the page's appearance.
+            val light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                (if (Brand.isDark(this)) 0 else WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
             window.insetsController?.setSystemBarsAppearance(
-                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                light,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
             )
         } else {
             @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = window.decorView.systemUiVisibility and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            window.decorView.systemUiVisibility = window.decorView.systemUiVisibility or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
         showSlots()
     }

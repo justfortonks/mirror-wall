@@ -89,3 +89,25 @@ these optional, backward-compatible additions.
 This transport still uses plain TCP and self-reported IDs. Deploy on a dedicated/trusted SE demo
 network; the AirPlay PIN does not protect Android connections. Authenticated encrypted pairing
 is a separate future change, not implied by the stop-sharing extension.
+
+## Connecting by QR code (connect link)
+
+Discovery needs multicast on a shared network, which a customer's guest Wi-Fi (client
+isolation) or a VPN on each device doesn't give. Mirror Wall › Connect with QR Code… (⌘K) shows
+a code holding a link the app understands:
+
+```
+mirrorwall://connect?name=Mirror%20Wall%201&port=7350&host=192.168.1.20&host=100.101.102.103
+```
+
+- `name`: the slot's name, for the app's status line. Optional; the first host stands in.
+- `port`: the slot's cast port. Optional; missing means 7350 (slot 1).
+- `host`: one or more, in the computer's order of preference: Wi-Fi and Ethernet addresses
+  first, then a Tailscale address (100.64.0.0/10), then other VPNs. Duplicates collapse.
+
+The app (Scan QR Code, or the phone's camera app opening the link) knocks on each host's port
+with a 2-second timeout and shares to the first that answers; with one host it shares straight
+away. Unknown query items are ignored, so either side can add some later (`relay=` and `code=`
+are reserved for the relay in `relay-design.md`). The link format is a compatibility surface like
+the messages above: `ConnectLinkTests` (Mac) and `ConnectLinkTest` (Android) hold the same link
+and must keep agreeing.

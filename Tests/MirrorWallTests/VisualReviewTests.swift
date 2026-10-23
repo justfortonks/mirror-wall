@@ -40,7 +40,7 @@ final class VisualReviewTests: XCTestCase {
                         }
                     }.frame(width: 210, height: 470)
                 }
-            }.padding(20).background(Brand.blue)
+            }.padding(20).background(Brand.stage)
             try save(row, width: 1190, height: 510, name: landscape ? "bezels-landscape" : "bezels-portrait")
         }
         let store = SlotStore()
@@ -50,8 +50,8 @@ final class VisualReviewTests: XCTestCase {
         let demo = phones[0]
         demo.apply(.clientConnecting(name: "Zebra nurse workflow", model: "HC50", deviceID: "preview"))
         let tile = SlotTile(slot: demo, isFocused: false, maxVideoHeight: 540, toggleFocus: {})
-            .environmentObject(store).padding(24).background(Brand.operatorSurface)
-            .environment(\.colorScheme, .dark).foregroundStyle(Brand.onOperatorSurface)
+            .environmentObject(store).padding(24).background(Brand.surface)
+            .foregroundStyle(Brand.ink)
         try save(tile, width: 360, height: 660, name: "wall")
     }
 }

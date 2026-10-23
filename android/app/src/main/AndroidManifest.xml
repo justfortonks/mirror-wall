@@ -8,13 +8,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Scan QR Code; the scanner library asks for CAMERA itself. Phones without one still share by address. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".CastApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:theme="@android:style/Theme.DeviceDefault.DayNight.NoActionBar">
 
         <activity
             android:name=".MainActivity"
@@ -23,6 +25,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The link in Mirror Wall's QR code, when the phone's own camera app scans it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mirrorwall" android:host="connect" />
             </intent-filter>
         </activity>
 
@@ -34,7 +43,7 @@
 
         <provider
             android:name=".LogProvider"
-            android:authorities="com.imprivata.mirrorwallcast.log"
+            android:authorities="com.justfortonks.mirrorwall.cast.log"
             android:exported="false"
             android:grantUriPermissions="true" />
     </application>
