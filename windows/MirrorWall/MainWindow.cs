@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using MirrorWall.Core;
 
@@ -60,7 +61,21 @@ internal sealed class MainWindow : Window
         };
         settingsButton.Click += (_, _) => SettingsWindow.Show(this, store);
 
+        var stageLabel = new StackPanel { Orientation = Orientation.Horizontal };
+        stageLabel.Children.Add(new TextBlock { FontFamily = (FontFamily)Application.Current.Resources["Icons"], Text = Glyphs.Layout, VerticalAlignment = VerticalAlignment.Center });
+        stageLabel.Children.Add(new TextBlock { Text = "Stage", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        var stageButton = new Button
+        {
+            Content = stageLabel,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Open the Stage: every phone on it in one window, for sharing in Teams, Zoom or OBS (Ctrl+1)",
+        };
+        stageButton.Click += (_, _) => store.ShowStage();
+
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+        buttons.Children.Add(stageButton);
         buttons.Children.Add(addButton);
         buttons.Children.Add(settingsButton);
         var bar = new DockPanel();
@@ -76,12 +91,15 @@ internal sealed class MainWindow : Window
         scroller.ContextMenu = Menus.Context(() => new object[]
         {
             Menus.Item("Add Slot", store.AddSlot, enabled: store.CanAddSlot),
+            Menus.Item("Show Stage", store.ShowStage),
         });
         var root = new DockPanel();
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);
         root.Children.Add(body);
         Content = root;
+        // View › Show Stage, as ⌘1 is on the Mac.
+        InputBindings.Add(new KeyBinding(new RelayCommand(store.ShowStage), Key.D1, ModifierKeys.Control));
 
         foreach (var slot in store.Slots) AddTile(slot);
         store.Slots.CollectionChanged += SlotsChanged;
@@ -132,7 +150,7 @@ internal sealed class MainWindow : Window
             new Separator(),
             Menus.Submenu("Pop-out Window Size", Menus.PopOutSizeItems(store)),
             new Separator(),
-            Menus.Item("Show Stage", store.ShowStage),
+            Menus.Item("Show Stage", store.ShowStage, shortcut: "Ctrl+1"),
             Menus.Submenu("Stage Layout", Menus.StageLayoutItems(store)),
             Menus.Submenu("Phones on Stage", Menus.StageSlotItems(store)),
         }));
@@ -319,4 +337,12 @@ internal static class AboutWindow
             $"Mirror Wall {Version}\n\nShows iPhones (AirPlay) and Android phones (Mirror Wall Cast) mirrored over Wi-Fi, a tile per phone, with windows and Spout feeds for OBS.\n\nThe receiver is UxPlay (GPL-3.0), with GStreamer and FFmpeg (LGPL). Spout2 is BSD-licensed.",
             "About Mirror Wall", MessageBoxButton.OK, MessageBoxImage.Information);
     }
+}
+
+/// <summary>Runs an action, for a keyboard shortcut.</summary>
+internal sealed class RelayCommand(Action action) : ICommand
+{
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
+    public bool CanExecute(object? parameter) => true;
+    public void Execute(object? parameter) => action();
 }

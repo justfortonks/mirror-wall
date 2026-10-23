@@ -378,12 +378,13 @@ internal sealed class Slot : Observable
         spoutFeed.BezelTurns = PhoneTurns;
     }
 
-    /// <summary>Whether the phone appears in the Stage window while it's mirroring.</summary>
-    public bool ShowsOnStage => Config.OnStage ?? true;
+    /// <summary>Whether the phone appears in the Stage window while it's mirroring. Off until it's
+    /// put on the Stage (see <see cref="StagePhones"/>).</summary>
+    public bool ShowsOnStage => Config.OnStage ?? false;
 
     public void SetShowsOnStage(bool on)
     {
-        Config.OnStage = on ? null : false;
+        Config.OnStage = on ? true : null;
         Changed(nameof(ShowsOnStage));
     }
 

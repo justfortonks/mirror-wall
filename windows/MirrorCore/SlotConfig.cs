@@ -32,7 +32,7 @@ public sealed record SlotConfig
     /// see-through corners; null (off) by default.</summary>
     public bool? FeedBezel { get; set; }
     /// <summary>Whether the slot's phone appears in the Stage window while it's mirroring; null
-    /// (on) by default.</summary>
+    /// (off) by default, and cleared at launch unless the Stage remembers its phones.</summary>
     public bool? OnStage { get; set; }
 
     [JsonConstructor]

@@ -70,7 +70,8 @@ internal sealed class PopOutWindow : Window
         };
         ContextMenu = Menus.Context(() => new object[]
         {
-            Menus.Item("Show Mirror Wall Window", MainWindow.ShowMain),
+            Menus.Item("Show Stage", store.ShowStage),
+            Menus.Item("Show Wall", MainWindow.ShowMain),
             Menus.Dynamic("Window Size", () => Menus.PopOutSizeItems(store)),
             Menus.Item("Close This Window", Close),
         });
