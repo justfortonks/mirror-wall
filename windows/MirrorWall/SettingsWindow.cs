@@ -50,7 +50,7 @@ internal sealed class SettingsWindow : Window
             or nameof(SlotStore.AllowedDeviceIds) or nameof(SlotStore.DefaultStandby) or nameof(SlotStore.FlashOnDisconnect)
             or nameof(SlotStore.ObsFeedForAllSlots) or nameof(SlotStore.ReopensOwnWindows)
             or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.KeepsAwake) or nameof(SlotStore.ShowsTrayIcon)
-            or nameof(SlotStore.Theme) or nameof(SlotStore.OpensToStage) or nameof(SlotStore.StagePhones))
+            or nameof(SlotStore.OpensToStage) or nameof(SlotStore.StagePhones))
         {
             Build();
         }
@@ -71,19 +71,6 @@ internal sealed class SettingsWindow : Window
         tray.Click += (_, _) => store.SetShowsTrayIcon(tray.IsChecked == true);
         content.Children.Add(tray);
         Note("Awake also covers recording, and ends once no phone is mirroring. Choosing Sleep or closing a laptop's lid still works. With the icon, closing the wall's window leaves Mirror Wall running, so phones keep mirroring to their own windows and OBS; exit from the icon's menu or File › Exit.");
-
-        Header("Look");
-        var theme = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
-        foreach (var choice in Enum.GetValues<Theme>()) theme.Items.Add(choice.ToString());
-        theme.SelectedIndex = (int)store.Theme;
-        theme.SelectionChanged += (_, _) =>
-        {
-            var chosen = (Theme)theme.SelectedIndex;
-            // After the list has closed; the store's change rebuilds this window.
-            Dispatcher.BeginInvoke(() => store.SetTheme(chosen));
-        };
-        content.Children.Add(theme);
-        Note("Changes the colors and type of the wall and the Stage. Branded uses the Brand Blue wall in dark mode, brand status colors, Barlow and the hex pattern, and turns on the Stage's \"Live demo\" caption bar, with the Branded logo if it's been added to the app. Phones' pictures, recordings and the OBS feed look the same in every theme.");
 
         Header("Save to");
         content.Children.Add(FolderRow("Recordings", Settings.Current.RecordingsFolder, SaveFolders.DefaultRecordings, path => Settings.Current.RecordingsFolder = path));

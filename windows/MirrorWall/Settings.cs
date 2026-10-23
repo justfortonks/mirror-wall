@@ -64,16 +64,12 @@ internal sealed class Settings
     public bool CheckedObsSpoutPlugin { get; set; }
     /// <summary>Check for Update also offers test builds (the Beta channel). Off by default.</summary>
     public bool BetaUpdates { get; set; }
-    /// <summary>The app's look (Settings › General › Theme): colors, type and decoration only.</summary>
-    public Theme Theme { get; set; } = Theme.Standard;
     /// <summary>Open the Stage instead of the wall when Mirror Wall starts. Off by default.</summary>
     public bool OpenToStage { get; set; }
     /// <summary>Which phones the Stage shows (Settings › Wall › Stage). None at launch by default.</summary>
     public StagePhones StagePhones { get; set; } = StagePhones.None;
-    /// <summary>Whether the Stage shows its "Live demo" caption bar, remembered per theme: off for
-    /// Standard and on for Branded until changed.</summary>
+    /// <summary>Whether the Stage shows its "Live demo" caption bar. Off until changed.</summary>
     public bool StageCaptionStandard { get; set; }
-    public bool StageCaptionBranded { get; set; } = true;
     /// <summary>The main window's place: left, top, width, height.</summary>
     public double[]? MainWindowBounds { get; set; }
 

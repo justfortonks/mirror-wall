@@ -11,7 +11,6 @@ struct SettingsView: View {
     @AppStorage(SaveFolders.Kind.recordings.key) private var recordingsPath = ""
     @AppStorage(SaveFolders.Kind.screenshots.key) private var screenshotsPath = ""
     @AppStorage(Updater.channelKey) private var updateChannel = UpdateChannel.stable.rawValue
-    @AppStorage(Theme.key) private var theme = Theme.standard.rawValue
     @AppStorage(SlotStore.opensToStageKey) private var opensToStage = false
     @AppStorage(SlotStore.stagePhonesKey) private var stagePhones = SlotStore.StagePhones.none.rawValue
 
@@ -28,20 +27,6 @@ struct SettingsView: View {
                     Text("While mirroring")
                 } footer: {
                     Text("Awake also covers recording, and ends once no phone is mirroring. Closing the lid or choosing Sleep still works. With the menu bar icon, closing the wall's window leaves Mirror Wall running, so phones keep mirroring to their own windows and OBS; quit from the icon's menu or with ⌘Q.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
-                    Picker("Theme", selection: $theme) {
-                        ForEach(Theme.allCases) { theme in
-                            Text(theme.title).tag(theme.rawValue)
-                        }
-                    }
-                } header: {
-                    Text("Look")
-                } footer: {
-                    Text("Changes the colors and type of the wall and the Stage. Branded uses the Brand Blue wall, brand status colors, Barlow and the hex pattern, and turns on the Stage's \"Live demo\" caption bar, with the Branded logo if it's been added to the app. Phones' pictures, recordings and the OBS feed look the same in every theme.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -21,10 +21,6 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-# Branded branding: Barlow (OFL) and, if it's been added locally, the logo. Brand.swift looks
-# for these in Contents/Resources/Brand.
-cp -R Sources/MirrorWall/Resources/Brand "$APP/Contents/Resources/Brand"
-
 # Version: the number of commits, so every build from newer code has a higher one (0.61, 0.62…),
 # plus the commit itself and the build date, shown in Mirror Wall › About Mirror Wall.
 BUILD=$(git rev-list --count HEAD)

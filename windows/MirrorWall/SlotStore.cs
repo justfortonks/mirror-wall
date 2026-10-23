@@ -75,14 +75,12 @@ internal sealed class SlotStore : Observable
     /// <summary>Shows Mirror Wall's icon in the notification area, and keeps the app running (and
     /// mirroring) when the wall's window is closed. On by default.</summary>
     public bool ShowsTrayIcon => settings.TrayIcon;
-    /// <summary>The app's look. Windows follow <see cref="Theme"/> changes as they happen.</summary>
-    public Theme Theme => settings.Theme;
     /// <summary>Open to the Stage at launch, with the wall tucked away. Off by default.</summary>
     public bool OpensToStage => settings.OpenToStage;
     /// <summary>Which phones the Stage shows. None at launch by default.</summary>
     public StagePhones StagePhones => settings.StagePhones;
-    /// <summary>The Stage's caption bar, for the current theme.</summary>
-    public bool ShowsStageCaption => settings.Theme == Theme.Branded ? settings.StageCaptionBranded : settings.StageCaptionStandard;
+    /// <summary>The Stage's "Live demo" caption bar. Off by default.</summary>
+    public bool ShowsStageCaption => settings.StageCaptionStandard;
     /// <summary>Slots with a phone connected, so a phone only goes on the Stage when it first
     /// connects, and taking it off mid-demo sticks until it reconnects.</summary>
     private readonly HashSet<int> connectedSlotIds = new();
@@ -654,16 +652,6 @@ internal sealed class SlotStore : Observable
         Changed(nameof(ShowsTrayIcon));
     }
 
-    public void SetTheme(Theme theme)
-    {
-        if (theme == settings.Theme) return;
-        settings.Theme = theme;
-        settings.Save();
-        Themes.Apply(theme);
-        Changed(nameof(Theme));
-        Changed(nameof(ShowsStageCaption));
-    }
-
     public void SetOpensToStage(bool on)
     {
         if (on == settings.OpenToStage) return;
@@ -682,7 +670,7 @@ internal sealed class SlotStore : Observable
 
     public void SetShowsStageCaption(bool on)
     {
-        if (settings.Theme == Theme.Branded) settings.StageCaptionBranded = on; else settings.StageCaptionStandard = on;
+        settings.StageCaptionStandard = on;
         settings.Save();
         Changed(nameof(ShowsStageCaption));
     }
