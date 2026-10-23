@@ -12,7 +12,6 @@ final class StageWindow: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     var onClose: (() -> Void)?
-    private var themeWatcher: AnyCancellable?
 
     init(store: SlotStore) {
         window = NSWindow(
@@ -36,11 +35,6 @@ final class StageWindow: NSObject, NSWindowDelegate {
         window.delegate = self
         window.center()
         window.setFrameAutosaveName("MacMirror stage")
-        themeWatcher = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.window.backgroundColor = Theme.current.stageWindowColor }
-            }
     }
 
     func show() {
@@ -91,7 +85,7 @@ struct StageView: View {
     @ObservedObject var store: SlotStore
     let onClose: () -> Void
     @CurrentTheme private var theme
-    /// The "Live demo" strip along the bottom, with the theme's logo when it's installed.
+    /// The "Live demo" strip along the bottom.
     @StageCaptionSetting private var showsCaption
     /// Stage-first: the controls fade in while the mouse moves over the Stage and fade out again
     /// a couple of seconds after it stops, so the shared picture stays clean.
@@ -110,22 +104,8 @@ struct StageView: View {
                 areaHeight: proxy.size.height - captionHeight
             )
             ZStack(alignment: .topLeading) {
-                ZStack(alignment: .topTrailing) {
-                    theme.stageBackground
-                    if theme.showsHexPattern {
-                        HexPattern(
-                            colors: [.white, Brand.sky, Brand.teal],
-                            radius: max(16, proxy.size.height * 0.04),
-                            columns: 6,
-                            rows: 7,
-                            density: 0.75,
-                            seed: 21,
-                            opacity: 0.16
-                        )
-                        .frame(width: proxy.size.width * 0.42, height: proxy.size.height * 0.7)
-                    }
-                }
-                .frame(width: proxy.size.width, height: proxy.size.height)
+                theme.stageBackground
+                    .frame(width: proxy.size.width, height: proxy.size.height)
                 if phones.isEmpty {
                     StageEmptyState(slots: store.slots)
                         .frame(width: proxy.size.width, height: proxy.size.height - captionHeight)
@@ -421,8 +401,7 @@ private struct StageEmptyState: View {
     }
 }
 
-/// The strip along the stage's bottom: "Live demo · Tom's iPhone & Zebra TC58", and the theme's
-/// logo on its own at the right (the Imprivata brand guide wants clear space around it).
+/// The strip along the stage's bottom: "Live demo · Tom's iPhone & Zebra TC58".
 private struct StageCaption: View {
     @CurrentTheme private var theme
     let phones: [Slot]
@@ -443,13 +422,6 @@ private struct StageCaption: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: height)
-            if let logo = theme.logo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(height: height * 0.46)
-            }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, height * 0.5)

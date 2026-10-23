@@ -30,7 +30,6 @@ public partial class App : Application
         // least leaves a note of why.
         AppDomain.CurrentDomain.UnhandledException += (_, args) => WriteCrashLog(args.ExceptionObject);
         Native.RunAtFullSpeed();
-        Themes.Apply(Settings.Current.Theme);
         Store = new SlotStore();
         Tray = new TrayIcon(Store);
         var window = new MainWindow(Store);

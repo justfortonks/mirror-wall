@@ -13,6 +13,3 @@ windows/**/obj/
 windows/dist/
 android/.gradle/
 android/local.properties
-
-# Imprivata logo files: added locally, never pushed to this public repo
-Sources/MirrorWall/Resources/Brand/imprivata-logo*

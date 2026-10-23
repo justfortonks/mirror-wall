@@ -100,7 +100,6 @@ internal sealed class MainWindow : Window
         Content = root;
         // View › Show Stage, as ⌘1 is on the Mac.
         InputBindings.Add(new KeyBinding(new RelayCommand(store.ShowStage), Key.D1, ModifierKeys.Control));
-        ApplyTheme();
 
         foreach (var slot in store.Slots) AddTile(slot);
         store.Slots.CollectionChanged += SlotsChanged;
@@ -194,16 +193,6 @@ internal sealed class MainWindow : Window
     private void StoreChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SlotStore.UxPlayPath) or nameof(SlotStore.CanAddSlot)) Update();
-        if (e.PropertyName is nameof(SlotStore.Theme)) ApplyTheme();
-    }
-
-    /// <summary>The wall's color and type: Imprivata Blue and Barlow, or Windows' own.</summary>
-    private void ApplyTheme()
-    {
-        var theme = store.Theme;
-        if (Themes.WallBackground(theme) is { } background) Background = background;
-        else ClearValue(BackgroundProperty);
-        Themes.UseFont(this, theme);
     }
 
     private void AddTile(Slot slot) => tiles[slot.Id] = new SlotTile(slot, store, ToggleFocus);

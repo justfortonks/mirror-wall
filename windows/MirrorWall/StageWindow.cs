@@ -27,7 +27,6 @@ internal sealed class StageWindow : Window
 
     private readonly SlotStore store;
     private readonly Rectangle background = new();
-    private readonly Grid patternCorner = new() { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
     private readonly Canvas canvas = new() { Background = Brushes.Transparent, ClipToBounds = true };
     /// <summary>Before any phone is on stage: "Ready for phones" and how to connect to each slot.</summary>
     private readonly ContentControl empty = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Focusable = false };
@@ -86,10 +85,8 @@ internal sealed class StageWindow : Window
         root.RowDefinitions.Add(new RowDefinition());
         root.RowDefinitions.Add(captionRow);
         Grid.SetRowSpan(background, 2);
-        Grid.SetRowSpan(patternCorner, 2);
         Grid.SetRow(caption, 1);
         root.Children.Add(background);
-        root.Children.Add(patternCorner);
         root.Children.Add(canvas);
         root.Children.Add(empty);
         root.Children.Add(caption);
@@ -130,7 +127,7 @@ internal sealed class StageWindow : Window
         root.SizeChanged += (_, _) => SizeCaption();
         store.Slots.CollectionChanged += SlotsChanged;
         store.PropertyChanged += StoreChanged;
-        ApplyTheme();
+        background.Fill = Themes.StageBackground();
         Watch();
         Closed += (_, _) =>
         {
@@ -150,9 +147,8 @@ internal sealed class StageWindow : Window
     private void StoreChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(SlotStore.StageLayout)) Layout();
-        if (e.PropertyName is nameof(SlotStore.Theme)) ApplyTheme();
-        if (e.PropertyName is nameof(SlotStore.Theme) or nameof(SlotStore.ShowsStageCaption)) SizeCaption();
-        if (e.PropertyName is nameof(SlotStore.Theme) or nameof(SlotStore.ShowsStageCaption) or nameof(SlotStore.CanAddSlot)
+        if (e.PropertyName is nameof(SlotStore.ShowsStageCaption)) SizeCaption();
+        if (e.PropertyName is nameof(SlotStore.ShowsStageCaption) or nameof(SlotStore.CanAddSlot)
             or nameof(SlotStore.BezelsForAllSlots) or nameof(SlotStore.IsPoppedOut))
         {
             builtFrom = "";
@@ -221,44 +217,13 @@ internal sealed class StageWindow : Window
         for (int i = 0; i < onStage.Count; i++) phones[onStage[i]].Place(frames[i]);
     }
 
-    // MARK: Theme
-
-    /// <summary>The background, hex pattern and type for the current theme.</summary>
-    private void ApplyTheme()
-    {
-        var theme = store.Theme;
-        background.Fill = Themes.StageBackground(theme);
-        Themes.UseFont(this, theme);
-        patternCorner.Children.Clear();
-        if (theme == Theme.Imprivata)
-        {
-            patternCorner.Children.Add(new HexPattern
-            {
-                Colors = new[] { Colors.White, Themes.Sky, Themes.Teal },
-                Columns = 6,
-                Rows = 7,
-                Density = 0.75,
-                Seed = 21,
-                PatternOpacity = 0.16,
-            });
-        }
-        SizeCaption();
-    }
-
-    /// <summary>Sizes the caption bar and the hex pattern to the window.</summary>
+    /// <summary>Sizes the caption bar to the window.</summary>
     private void SizeCaption()
     {
-        double width = ((FrameworkElement)Content).ActualWidth, height = ((FrameworkElement)Content).ActualHeight;
+        double height = ((FrameworkElement)Content).ActualHeight;
         double captionHeight = store.ShowsStageCaption ? Math.Min(64, Math.Max(34, height * 0.085)) : 0;
         captionRow.Height = new GridLength(captionHeight);
         caption.Visibility = captionHeight > 0 ? Visibility.Visible : Visibility.Collapsed;
-        patternCorner.Width = width * 0.42;
-        patternCorner.Height = height * 0.7;
-        if (patternCorner.Children.Count > 0 && patternCorner.Children[0] is HexPattern pattern)
-        {
-            pattern.Radius = Math.Max(16, height * 0.04);
-            pattern.InvalidateVisual();
-        }
         if (captionHeight > 0) caption.Child = Caption(captionHeight);
     }
 
@@ -290,7 +255,7 @@ internal sealed class StageWindow : Window
     {
         string state = string.Join("|", store.Slots.Select(slot =>
             $"{slot.Id},{slot.Name},{slot.PhoneName},{slot.State},{slot.ShowsPicture},{slot.ShowsOnStage},{slot.ShowsBezel},{slot.RecordingSince != null}"))
-            + $"|{store.Theme}|{store.CanAddSlot}|{store.BezelsForAllSlots}|{store.IsAnyRecording}|{store.ShowsStageCaption}";
+            + $"|{store.CanAddSlot}|{store.BezelsForAllSlots}|{store.IsAnyRecording}|{store.ShowsStageCaption}";
         if (state == builtFrom) return;
         builtFrom = state;
         controls.Child = ControlBar();
@@ -304,7 +269,6 @@ internal sealed class StageWindow : Window
     /// bezels, record and more.</summary>
     private UIElement ControlBar()
     {
-        var theme = store.Theme;
         var row = new StackPanel { Orientation = Orientation.Horizontal };
         var connected = store.Slots.Where(slot => slot.ShowsPicture).ToList();
         foreach (var slot in connected) row.Children.Add(SlotChip(slot));
@@ -322,7 +286,7 @@ internal sealed class StageWindow : Window
         row.Children.Add(bezels);
         bool recording = store.IsAnyRecording;
         var record = HudButton(recording ? "Stop" : "Record", recording ? Glyphs.Stop : Glyphs.Record,
-            () => { if (store.IsAnyRecording) store.StopAllRecordings(); else store.StartAllRecordings(); }, fill: Themes.RedBrush(theme));
+            () => { if (store.IsAnyRecording) store.StopAllRecordings(); else store.StartAllRecordings(); }, fill: Themes.RedBrush());
         record.ToolTip = recording ? "Stop all recordings" : "Record every phone";
         row.Children.Add(record);
         row.Children.Add(HudMenuButton(null, Glyphs.Settings, () => new object[]
@@ -333,7 +297,7 @@ internal sealed class StageWindow : Window
             Menus.Item("Show Wall", MainWindow.ShowMain),
             Menus.Item("Settings…", () => SettingsWindow.Show(this, store)),
         }));
-        var panel = Themes.Panel(theme);
+        var panel = Themes.Panel();
         controls.Background = new SolidColorBrush(Color.FromArgb(217, panel.R, panel.G, panel.B));
         controls.CornerRadius = new CornerRadius(13);
         controls.BorderBrush = new SolidColorBrush(Color.FromArgb(15, 255, 255, 255));
@@ -346,13 +310,12 @@ internal sealed class StageWindow : Window
     /// <summary>A connected phone in the control bar; its menu has what the wall tile's ⋯ menu had.</summary>
     private UIElement SlotChip(Slot slot)
     {
-        var theme = store.Theme;
         var label = new StackPanel { Orientation = Orientation.Horizontal };
-        label.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = Themes.StatusBrush(theme, slot.State), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
+        label.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = Themes.StatusBrush(slot.State), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
         label.Children.Add(new TextBlock { Text = slot.PhoneName ?? slot.Name, FontWeight = FontWeights.SemiBold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
         if (slot.RecordingSince != null)
         {
-            label.Children.Add(new TextBlock { Text = "REC", Foreground = Themes.RedBrush(theme), FontWeight = FontWeights.SemiBold, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            label.Children.Add(new TextBlock { Text = "REC", Foreground = Themes.RedBrush(), FontWeight = FontWeights.SemiBold, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         }
         var chip = new Button
         {
@@ -384,7 +347,6 @@ internal sealed class StageWindow : Window
     /// <summary>One item in the control bar.</summary>
     private Button HudButton(string? title, string glyph, Action action, bool isOn = false, Brush? fill = null)
     {
-        var theme = store.Theme;
         var label = new StackPanel { Orientation = Orientation.Horizontal };
         label.Children.Add(new TextBlock { FontFamily = (FontFamily)Application.Current.Resources["Icons"], Text = glyph, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
         if (title != null)
@@ -394,7 +356,7 @@ internal sealed class StageWindow : Window
         var button = new Button
         {
             Content = label,
-            Foreground = fill != null || isOn ? Brushes.White : Themes.ControlText(theme),
+            Foreground = fill != null || isOn ? Brushes.White : Themes.ControlText(),
             Background = fill ?? (isOn ? new SolidColorBrush(Color.FromArgb(36, 255, 255, 255)) : Brushes.Transparent),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(9, 0, 9, 0),
@@ -423,10 +385,9 @@ internal sealed class StageWindow : Window
 
     private UIElement WaitingPill(Slot slot)
     {
-        var theme = store.Theme;
-        var panel = Themes.Panel(theme);
+        var panel = Themes.Panel();
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Themes.StatusBrush(theme, slot.State), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Themes.StatusBrush(slot.State), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(new TextBlock { Text = slot.Name, FontWeight = FontWeights.SemiBold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(new TextBlock { Text = Status(slot.State), FontSize = 11, Opacity = 0.7, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         return new Border
@@ -455,7 +416,6 @@ internal sealed class StageWindow : Window
     /// may see this, so it reads as a friendly "about to start" screen.</summary>
     private UIElement EmptyState()
     {
-        var theme = store.Theme;
         var stack = new StackPanel { Margin = new Thickness(16) };
         stack.Children.Add(new TextBlock { Text = "Ready for phones", FontSize = 28, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
         stack.Children.Add(new TextBlock { Text = "Each phone appears here as it connects.", FontSize = 15, Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
@@ -463,7 +423,7 @@ internal sealed class StageWindow : Window
         foreach (var slot in store.Slots)
         {
             var row = new DockPanel { Margin = new Thickness(0, list.Children.Count == 0 ? 0 : 10, 0, 0) };
-            var dot = new Ellipse { Width = 8, Height = 8, Fill = Themes.StatusBrush(theme, slot.State), Margin = new Thickness(0, 6, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+            var dot = new Ellipse { Width = 8, Height = 8, Fill = Themes.StatusBrush(slot.State), Margin = new Thickness(0, 6, 10, 0), VerticalAlignment = VerticalAlignment.Top };
             DockPanel.SetDock(dot, Dock.Left);
             row.Children.Add(dot);
             var text = new StackPanel();
@@ -478,7 +438,7 @@ internal sealed class StageWindow : Window
             row.Children.Add(text);
             list.Children.Add(row);
         }
-        var panel = Themes.Panel(theme);
+        var panel = Themes.Panel();
         stack.Children.Add(new Border
         {
             Child = list,
@@ -490,20 +450,11 @@ internal sealed class StageWindow : Window
         return stack;
     }
 
-    /// <summary>"Live demo · Tom's iPhone and Zebra HC50", and the theme's logo on its own at the
-    /// right (the Imprivata brand guide wants clear space around it).</summary>
+    /// <summary>"Live demo · Tom's iPhone and Zebra HC50".</summary>
     private UIElement Caption(double height)
     {
-        var theme = store.Theme;
         var row = new DockPanel { Margin = new Thickness(height * 0.5, 0, height * 0.5, 0), VerticalAlignment = VerticalAlignment.Center };
-        if (Themes.Logo(theme) is { } logo)
-        {
-            var image = new Image { Source = logo, Height = height * 0.46, Margin = new Thickness(height, 0, 0, 0), Stretch = Stretch.Uniform };
-            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
-            DockPanel.SetDock(image, Dock.Right);
-            row.Children.Add(image);
-        }
-        var bar = new Rectangle { Width = 4, Height = height * 0.5, RadiusX = 2, RadiusY = 2, Fill = Themes.RedBrush(theme), Margin = new Thickness(0, 0, height * 0.3, 0) };
+        var bar = new Rectangle { Width = 4, Height = height * 0.5, RadiusX = 2, RadiusY = 2, Fill = Themes.RedBrush(), Margin = new Thickness(0, 0, height * 0.3, 0) };
         DockPanel.SetDock(bar, Dock.Left);
         row.Children.Add(bar);
         var title = new TextBlock { Text = "Live demo", FontWeight = FontWeights.Bold, FontSize = height * 0.36, VerticalAlignment = VerticalAlignment.Center };
