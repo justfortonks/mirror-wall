@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Follows the system appearance: this parent for light, values-night's for dark. -->
+    <style name="Theme.MirrorWallCast" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:colorAccent">@color/lamp</item>
+    </style>
+</resources>
