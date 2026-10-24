@@ -5,6 +5,16 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 24, 2026: Mirror Wall Cast for iPhone
+
+- A Mirror Wall Cast app for iPhone and iPad (`ios/`): pick a slot on the network, scan the
+  Mac's QR code, type an address or open a `mirrorwall://` link from the Camera app, and iOS's
+  Start Broadcast sheet comes straight up. The whole screen streams to the slot over the same
+  protocol as the Android app, so iPhones get the QR code, Tailscale and the relay too, and turn
+  sideways properly. AirPlay keeps working for iPhones without the app.
+- The Wall has a Connect with QR Code button, and every empty slot a Show QR Code button and
+  the ways a phone can join it.
+
 ## October 24, 2026: Scan QR Code fixed on every phone
 
 - Scan QR Code no longer crashes as it opens (a missing library in the build), asks for the camera

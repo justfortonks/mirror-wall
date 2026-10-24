@@ -3,6 +3,16 @@
 What has shipped, summarized from the Git history and [CHANGELOG.md](../CHANGELOG.md). Newest
 first. The changelog has the user-facing detail; this is the project view.
 
+## October 24, 2026: Mirror Wall Cast for iPhone, end to end
+
+- `ios/`: SwiftUI app + ReplayKit broadcast upload extension (XcodeGen), linking MirrorCore for
+  the Cast protocol and ConnectLink. Tested on an iPhone 16 Pro Max: slot from the list, QR
+  scan, sideways (picture upright, frame turned), and through the relay with the phone on
+  cellular and the Mac on wired Ethernet.
+- Android scanner fixed on every phone (AndroidX was off in the build) and on the Zebra HC50
+  (the scanner's landscape exit cancelled the sharing prompt); verified over adb.
+- The Wall offers the QR code (toolbar and every empty slot).
+
 ## October 24, 2026: The relay, end to end
 
 - `relay/`: a Go byte pump on Fly.io (mirror-wall-relay.fly.dev, TLS at the edge, dedicated IPv4

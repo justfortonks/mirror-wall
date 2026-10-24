@@ -23,7 +23,7 @@ protocol and exchange changes by pull request. The working branch here is **`cod
 - **Android over Mirror Wall Cast** - a small companion app (`com.justfortonks.mirrorwall.cast`)
   that finds the Mac's slots on the network and streams the screen. Works on any Android 10+
   device, including Zebra, Honeywell and Spectralink handhelds.
-- **iPhone and iPad with the Mirror Wall Cast app** (`ios/`, in progress): a broadcast upload
+- **iPhone and iPad with the Mirror Wall Cast app** (`ios/`): a broadcast upload
   extension that speaks the same Mirror Wall Cast protocol as the Android app, so iPhones get the
   QR code, Tailscale and the relay too. AirPlay keeps working for iPhones without the app.
 - **Connect with QR Code** (⌘K) - when the network blocks discovery (guest Wi-Fi, a VPN on each
