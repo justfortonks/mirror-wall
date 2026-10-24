@@ -30,6 +30,13 @@ go test ./...                       # pairs a fake Mac and phone through the rel
 RELAY_TOKEN=dev go run .            # listens on :7000, plain TCP, for local testing
 ```
 
+## The live relay
+
+`mirror-wall-relay.fly.dev:443` (TLS), in Fly's `ord` region, on Cody's personal Fly account.
+The team token is in the Mac mini's keychain under "Mirror Wall Relay token"
+(`security find-generic-password -a mirrorwall -s "Mirror Wall Relay token" -w`). Deployed
+October 24, 2026; verified end to end with a fake Mac and phone.
+
 ## Deploy to Fly.io
 
 ```sh

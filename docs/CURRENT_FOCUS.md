@@ -38,8 +38,10 @@ test key) has been built and handed out.
   the Android app in CI and reinstall it on one handheld (new app ID: uninstall the old one first).
 - **Decide the vocabulary with the upstream author:** grid view "Ensemble", slots "Marks", relay
   "Catwalk" (proposals in the design system). Nothing in the UI changes until that's agreed.
-- **Run the next customer demos on Tailscale + the QR code;** if reachability is still a problem,
-  build the relay in `docs/relay-design.md`.
+- **Wire the apps to the relay** (`relay/` is deployed at mirror-wall-relay.fly.dev): Settings ›
+  Relay on the Mac, `RelayClient` per slot, the code under the QR, `relay=`/`code=` in the
+  connect link; Mirror Wall Cast dials the relay when the direct addresses don't answer.
+- **Then the iPhone companion app** (Xcode and the Apple account are ready on the Mac mini).
 - **Publish the first fork release** (Actions › Release › Publish) so the README download links
   and Check for Update work for the rest of the SE team.
 

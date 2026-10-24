@@ -1,7 +1,8 @@
 # Relay design: sharing when the network keeps devices apart
 
-_Status: proposal, October 22, 2026. Not built. The QR code (Connect with QR Code…) is the first
-step and ships on its own; this is what comes after if Tailscale isn't enough._
+_Status: the relay itself is built and running (`relay/`, on Fly.io, October 24, 2026); the Mac
+and Android sides are next. The QR code shipped October 22. The design below is as proposed;
+`relay/README.md` has the wire protocol as built (one waiting connection per slot, no tickets)._
 
 ## The problem
 
