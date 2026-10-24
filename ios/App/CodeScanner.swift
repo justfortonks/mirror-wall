@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import VisionKit
 
@@ -6,7 +7,18 @@ import VisionKit
 struct CodeScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
 
-    static var isAvailable: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
+    /// Whether this iPhone can scan at all (it needs an A12 or newer and a camera).
+    static var isSupported: Bool { DataScannerViewController.isSupported }
+
+    /// Asks for the camera first, so the scanner opens to a live picture: starting the scanner
+    /// while iOS's camera prompt is up fails, and doesn't recover once the person allows it.
+    static func requestCamera() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: return true
+        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .video)
+        default: return false
+        }
+    }
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let scanner = DataScannerViewController(
@@ -17,11 +29,18 @@ struct CodeScanner: UIViewControllerRepresentable {
             isHighlightingEnabled: true
         )
         scanner.delegate = context.coordinator
-        try? scanner.startScanning()
         return scanner
     }
 
-    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
+    /// Starts the camera once the scanner is on screen (starting it before that does nothing).
+    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {
+        guard !controller.isScanning else { return }
+        DispatchQueue.main.async {
+            do { try controller.startScanning() } catch {
+                Shared.log("Scanner didn't start: \(error.localizedDescription)", from: "app")
+            }
+        }
+    }
 
     static func dismantleUIViewController(_ controller: DataScannerViewController, coordinator: Coordinator) {
         controller.stopScanning()

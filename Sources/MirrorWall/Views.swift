@@ -35,6 +35,15 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button {
+                    ConnectCodePanel.show(store: store)
+                } label: {
+                    Label("Connect with QR Code", systemImage: "qrcode")
+                }
+                .disabled(store.uxplayURL == nil)
+                .help("Show a QR code a phone with Mirror Wall Cast can scan to share (⌘K)")
+            }
+            ToolbarItem {
+                Button {
                     store.addSlot()
                 } label: {
                     Label("Add Device Space", systemImage: "plus")
@@ -243,6 +252,17 @@ struct SlotTile: View {
                     .font(Brand.font(13))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Brand.inkMuted)
+                if slot.isFreeForAndroid {
+                    Button {
+                        ConnectCodePanel.show(store: store, slot: slot)
+                    } label: {
+                        Label("Show QR Code", systemImage: "qrcode")
+                            .font(Brand.font(13, .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Brand.lampText)
+                    .padding(.top, 2)
+                }
             }
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -265,7 +285,7 @@ struct SlotTile: View {
 
     private var placeholderText: String {
         switch slot.state {
-        case .waiting, .live, .paused: return "On your iPhone, open Control Center › Screen Mirroring and pick “\(slot.name)”."
+        case .waiting, .live, .paused: return "iPhone: Control Center › Screen Mirroring › “\(slot.name)”. Or, with Mirror Wall Cast on an iPhone or Android phone, pick this slot or scan its code."
         case .connecting: return "Connecting to \(slot.phoneName ?? "iPhone")…"
         case .disconnected:
             return "\(slot.phoneName ?? "The iPhone") stopped mirroring. To reconnect, pick “\(slot.name)” in Screen Mirroring on the phone."

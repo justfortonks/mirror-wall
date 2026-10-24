@@ -13,7 +13,23 @@ struct BroadcastPicker: UIViewRepresentable {
         picker.preferredExtension = Self.extensionID
         picker.showsMicrophoneButton = false
         picker.alpha = 0.02 // invisible, still tappable
+        Self.current = picker
         return picker
+    }
+
+    /// The picker on screen, so a scan or a tapped slot can open iOS's Start Broadcast sheet
+    /// straight away, as the Android app goes straight to its own sharing prompt.
+    private static weak var current: FillingPicker?
+
+    /// Opens iOS's Start Broadcast sheet, as a tap on the button would. Waits a moment for the
+    /// picker to be on screen when the ready card has only just appeared.
+    @MainActor static func open() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            guard let picker = current, picker.window != nil else { return }
+            for case let button as UIButton in picker.subviews {
+                button.sendActions(for: .touchUpInside)
+            }
+        }
     }
 
     func updateUIView(_ picker: FillingPicker, context: Context) {}

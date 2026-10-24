@@ -159,8 +159,16 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Brand.label("Or scan the code in Mirror Wall").padding(.top, 18)
             Button {
-                if CodeScanner.isAvailable { scanning = true } else {
-                    message = "This iPhone can't scan here (the camera may be off for the app in Settings). Point the Camera app at the code instead."
+                guard CodeScanner.isSupported else {
+                    message = "This iPhone can't scan in the app. Point the Camera app at the code instead."
+                    return
+                }
+                Task {
+                    if await CodeScanner.requestCamera() {
+                        scanning = true
+                    } else {
+                        message = "Scanning needs the camera. Allow it in Settings › Mirror Wall Cast, or point the Camera app at the code."
+                    }
                 }
             } label: {
                 Label("Scan QR Code", systemImage: "qrcode.viewfinder")
@@ -263,11 +271,15 @@ struct ContentView: View {
 
     // MARK: State
 
+    /// A slot was picked (from the list, a scan or a link): remember it and go straight to iOS's
+    /// Start Broadcast sheet, so picking a slot is the same one step as on Android.
     private func setTarget(_ new: Shared.Target) {
         Shared.target = new
         target = new
         message = nil
         Shared.log("Picked \(new.name): \(routeText(new))", from: "app")
+        guard !sharing else { return }
+        BroadcastPicker.open()
     }
 
     private func listenForStatus() {
