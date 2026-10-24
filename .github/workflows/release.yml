@@ -81,7 +81,8 @@ jobs:
       #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD  an Apple ID, its team ID and an
       #                             app-specific password, for notarytool
       - name: Import the signing certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        # A step's `if` can't read secrets directly; the env below is what it sees.
+        if: ${{ env.CERT_BASE64 != '' }}
         env:
           CERT_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
