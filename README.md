@@ -131,9 +131,10 @@ after the first one. Until then, build from source (next section) or get a build
 | macOS | [MirrorWall.dmg](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWall.dmg) | Apple Silicon; the minimum macOS is set from the bundled libraries (see `Contents/Info.plist`) |
 | Android | [MirrorWallCast.apk](https://github.com/yurtbeer/mirror-wall/releases/latest/download/MirrorWallCast.apk) | Android 10 or later |
 
-**Mac:** drag Mirror Wall to Applications. It's ad-hoc signed and not notarized, so the first open
-may need System Settings › Privacy & Security › **Open Anyway**. Allow local-network access when
-asked.
+**Mac:** drag Mirror Wall to Applications. Releases are signed with a Developer ID and notarized,
+so they open like any other app; a build you made yourself without a certificate is ad-hoc signed
+and the first open may need System Settings › Privacy & Security › **Open Anyway**. Allow
+local-network access when asked.
 
 **Android:** install the APK or push it through MDM (Intune, Workspace ONE, SOTI). The app ID is
 `com.justfortonks.mirrorwall.cast`, the same as upstream's, so there is one Mirror Wall Cast on a

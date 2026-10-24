@@ -5,6 +5,15 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 24, 2026: Signed and notarized Mac builds
+
+- Mac builds are signed with a Developer ID (hardened runtime, timestamped, every library inside
+  the receiver included) and, when notarization credentials are on the building Mac or in the
+  Release workflow's secrets, notarized and stapled. Downloaded builds open without the
+  right-click › Open step. A build without a certificate is ad-hoc signed as before.
+- Mirror Wall Cast's theme follows the system appearance again (the previous build's theme
+  didn't exist on Android and failed to build).
+
 ## October 22, 2026: Mirror Wall's own look, light and dark, and Connect with QR Code
 
 - Mirror Wall has its own look now: a dark Stage with the devices standing in a pool of light,

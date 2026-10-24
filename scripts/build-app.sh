@@ -1,6 +1,7 @@
 #!/bin/bash
-# Builds MirrorWall.app (release, ad-hoc signed) in the repository folder, with its own uxplay
-# and GStreamer inside so it can be copied to another Mac.
+# Builds MirrorWall.app (release) in the repository folder, with its own uxplay and GStreamer
+# inside so it can be copied to another Mac. Signed with the Developer ID certificate in the
+# keychain when there is one (scripts/sign-app.sh), else ad-hoc.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -73,15 +74,21 @@ PLIST
 # starting with the one scripts/build-uxplay.sh builds (what releases use).
 UXPLAY="${UXPLAY:-}"
 if [ -z "$UXPLAY" ]; then
-    for candidate in build/UxPlay/build/uxplay /opt/homebrew/bin/uxplay /usr/local/bin/uxplay ../UxPlay/build/uxplay "$HOME/Documents/Claude Code/casting app/UxPlay/build/uxplay"; do
+    for candidate in build/UxPlay/build/uxplay /opt/homebrew/bin/uxplay /usr/local/bin/uxplay ../UxPlay/build/uxplay; do
         if [ -x "$candidate" ]; then
             UXPLAY="$candidate"
             break
         fi
     done
 fi
+# On a Mac with no uxplay build, the receiver inside the installed Mirror Wall is reused (it was
+# packaged by a release build); set MIRRORWALL_RECEIVER to another app's receiver folder.
+RECEIVER_DIR="${MIRRORWALL_RECEIVER:-$HOME/Applications/Mirror Wall.app/Contents/Resources/receiver}"
 if [ -n "$UXPLAY" ]; then
     scripts/bundle-receiver.py "$UXPLAY" "$APP/Contents/Resources/receiver"
+elif [ -x "$RECEIVER_DIR/bin/uxplay" ]; then
+    echo "note: packaging the receiver from $RECEIVER_DIR" >&2
+    cp -R "$RECEIVER_DIR" "$APP/Contents/Resources/receiver"
 else
     echo "warning: no uxplay found to package (set UXPLAY=/path/to/uxplay)." >&2
     echo "         The app will look for a uxplay on the Mac it runs on instead." >&2
@@ -92,7 +99,6 @@ SYPHON=$(find Vendor/Syphon.xcframework -maxdepth 2 -name Syphon.framework -type
 if [ -n "$SYPHON" ]; then
     mkdir -p "$APP/Contents/Frameworks"
     cp -R "$SYPHON" "$APP/Contents/Frameworks/"
-    codesign --force --sign - "$APP/Contents/Frameworks/Syphon.framework"
 fi
 
 # Licences: Mirror Wall's own (GPLv3, as UxPlay's), and the notices of what it bundles.
@@ -108,6 +114,5 @@ fi
 
 python3 scripts/bundle-compatibility.py "$APP" --write-plist
 
-codesign --force --sign - "$APP"
-codesign --verify --strict "$APP"
+scripts/sign-app.sh "$APP"
 echo "Built $(pwd)/$APP"

@@ -72,12 +72,48 @@ jobs:
           bash scripts/tests/test-uxplay-idle.sh build/UxPlay
           python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
+      # Signing and notarization: with the four secrets below the DMG is signed with the team's
+      # Developer ID and notarized, so it opens on any Mac without a warning. Without them it is
+      # ad-hoc signed as before (right-click › Open on the first launch).
+      #   APPLE_CERTIFICATE_BASE64  the Developer ID Application certificate with its private key,
+      #                             exported from Keychain Access as a .p12 and base64-encoded
+      #   APPLE_CERTIFICATE_PASSWORD  the .p12's password
+      #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD  an Apple ID, its team ID and an
+      #                             app-specific password, for notarytool
+      - name: Import the signing certificate
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        env:
+          CERT_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          if [ -n "$APPLE_APP_PASSWORD" ]; then
+            xcrun notarytool store-credentials mirrorwall --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --keychain "$KEYCHAIN"
+            echo "MIRRORWALL_NOTARY_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          fi
+
       - name: Build the DMG
         run: |
           scripts/make-dmg.sh
           test -x MirrorWall.app/Contents/Resources/receiver/bin/uxplay
           test -d MirrorWall.app/Contents/Frameworks/Syphon.framework
           cat MirrorWall.app/Contents/Resources/receiver/licenses/README.txt
+          codesign -dvv MirrorWall.app 2>&1 | grep -E 'Authority=|flags='
+          if security find-identity -v -p codesigning 2>/dev/null | grep -q 'Developer ID Application'; then
+            spctl --assess --type execute --verbose=2 MirrorWall.app
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

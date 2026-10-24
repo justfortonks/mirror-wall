@@ -60,7 +60,7 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 ```sh
 swift test                 # core + Mac lifecycle, transport and recording tests
 swift run MirrorWall       # run straight from the checkout, using the uxplay on this Mac
-scripts/build-app.sh       # build MirrorWall.app (ad-hoc signed) with uxplay and GStreamer inside
+scripts/build-app.sh       # build MirrorWall.app, signed, with uxplay and GStreamer inside
 scripts/make-dmg.sh        # the same, packed into MirrorWall.dmg for another Mac
 ```
 
@@ -81,6 +81,29 @@ add an entry there with any change people will notice; it also starts each relea
 `scripts/make-dmg.sh` builds `MirrorWall.dmg`, a disk image holding the complete app: it carries
 its own uxplay and the parts of GStreamer uxplay needs, so the other Mac needs nothing installed
 (no Homebrew, no Xcode). Install it the same way as a downloaded release (see the README).
+
+## Signing and notarization
+
+`scripts/sign-app.sh` signs the app with the one **Developer ID Application** certificate in the
+keychain (or `MIRRORWALL_SIGNING_IDENTITY`), hardened runtime and timestamp included, after
+signing every library, plugin and executable inside the receiver; with no certificate it ad-hoc
+signs as before. `scripts/notarize.sh` sends a signed app or DMG to Apple and staples the ticket;
+it needs credentials stored once:
+
+```sh
+xcrun notarytool store-credentials mirrorwall --apple-id <Apple ID> --team-id <team ID>
+```
+
+(an app-specific password from account.apple.com, which needs two-factor on the Apple ID).
+`scripts/make-dmg.sh` runs both when they can. The Release workflow does the same from the
+`APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID` and
+`APPLE_APP_PASSWORD` secrets; without them it ships an ad-hoc build. Export the certificate for
+CI from Keychain Access (My Certificates › the Developer ID › Export as .p12) and
+`base64 -i cert.p12 | pbcopy`.
+
+The receiver's executables get two hardened-runtime entitlements: unsigned executable memory
+(GStreamer's ORC generates code at run time) and no library validation (its plugins are loaded by
+path). The app itself has none.
 
 The packaged app runs on the same kind of Mac and macOS version (or later) as the one that built
 it: the libraries inside come from that Mac's Homebrew. Built on an Apple Silicon Mac with
