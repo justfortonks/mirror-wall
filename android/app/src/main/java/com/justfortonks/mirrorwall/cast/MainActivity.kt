@@ -113,6 +113,18 @@ class MainActivity : Activity() {
         outState.putString("typedName", nameField.text.toString())
     }
 
+    /** A scanned code waiting for the app to be back on screen (see onActivityResult). */
+    private var pendingScan: String? = null
+
+    override fun onResume() {
+        super.onResume()
+        val scanned = pendingScan ?: return
+        pendingScan = null
+        window.decorView.postDelayed({
+            if (!isFinishing && !isDestroyed) openLink(scanned)
+        }, 400)
+    }
+
     override fun onStart() {
         super.onStart()
         CastStatus.listener = { showStatus() }
@@ -144,6 +156,7 @@ class MainActivity : Activity() {
     }
 
     private fun askToCapture() {
+        AppLog.write("Asking to share the screen")
         val manager = getSystemService(MediaProjectionManager::class.java)
         // Always the whole screen, not a single app: a wall of phones should show what each shows.
         val intent = if (Build.VERSION.SDK_INT >= 34) {
@@ -162,12 +175,19 @@ class MainActivity : Activity() {
         if (requestCode == 3) {
             AppLog.write("Run in the background: ${if (Background.isUnrestricted(this)) "allowed" else "not allowed"}")
             showBackground()
-            if (pending != null) askToCapture()
+            if (pending != null) window.decorView.postDelayed({ if (pending != null && !isFinishing) askToCapture() }, 400)
             return
         }
         if (requestCode == 4) {
             val scanned = ScanIntentResult.parseActivityResult(resultCode, data).contents
-            if (scanned != null) openLink(scanned) else AppLog.write("QR scan cancelled")
+            if (scanned == null) {
+                AppLog.write("QR scan cancelled")
+                return
+            }
+            // Not now: this runs before the app is back on screen, while the scanner is still
+            // closing. Android (seen on a Zebra HC50, Android 14) cancels a screen-sharing prompt
+            // shown then, so the code waits for onResume and the scanner's exit animation.
+            pendingScan = scanned
             return
         }
         if (requestCode != 1) return
@@ -177,7 +197,7 @@ class MainActivity : Activity() {
         }
         pending = null
         if (resultCode != RESULT_OK || data == null) {
-            AppLog.write("Screen sharing not allowed on the phone")
+            AppLog.write("Screen sharing not allowed on the phone (result $resultCode, ${if (data == null) "no data" else "data"})")
             CastStatus.set(false, "Sharing needs Android's permission each time.")
             return
         }
