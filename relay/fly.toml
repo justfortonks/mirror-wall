@@ -1,0 +1,36 @@
+# Mirror Wall Relay on Fly.io. Deploy from this folder with `fly deploy`; set the team token once
+# with `fly secrets set RELAY_TOKEN=...`. Fly terminates TLS on 443 and hands the relay plain TCP
+# on 7000, so the apps dial relay.<app>.fly.dev:443 (or a custom domain added with `fly certs`).
+app = "mirror-wall-relay"
+primary_region = "ord"
+
+[build]
+
+[env]
+  PORT = "7000"
+  CODE_TTL = "30m"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 7000
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 200
+    soft_limit = 100
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
