@@ -3,6 +3,15 @@
 What has shipped, summarized from the Git history and [CHANGELOG.md](../CHANGELOG.md). Newest
 first. The changelog has the user-facing detail; this is the project view.
 
+## October 24, 2026: Signed Mac builds; QR connect verified on a handheld
+
+- Mac builds signed with a Developer ID (hardened runtime; receiver libraries included); first
+  notarization submitted. Release workflow signs and notarizes from secrets when they are set.
+- Mirror Wall Cast 0.145 tested on a handheld: Scan QR Code connected to the slot the Mac's code
+  named, and picking an open slot from the list still works. Android app ID is upstream's again.
+- Mac mini set up as a build machine (Xcode 27.1, JDK 17 and the Android SDK via Homebrew); the
+  repo clone lives on the Sidehustle drive.
+
 ## October 22, 2026: Own branding, system appearance, QR connect
 
 - Stripped the previous company's branding (palette, Barlow, logo, hex pattern) from the Mac and
