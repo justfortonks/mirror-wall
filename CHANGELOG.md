@@ -5,6 +5,15 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 24, 2026: Scan QR Code fixed on every phone
+
+- Scan QR Code no longer crashes as it opens (a missing library in the build), asks for the camera
+  itself, and keeps the phone's orientation instead of forcing landscape.
+- Android's "start sharing?" prompt no longer cancels itself after a scan on Zebra handhelds: the
+  screen stays put while it's up, so turning the phone doesn't dismiss it.
+- A phone whose connection dropped (cellular, the relay) and came straight back takes its slot
+  back instead of being told the slot is showing another phone.
+
 ## October 24, 2026: The relay, for networks where phones can't reach the Mac
 
 - Settings › Phones › Relay takes the Mirror Wall Relay's address and team token. With it set,

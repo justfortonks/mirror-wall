@@ -3,6 +3,7 @@ package com.justfortonks.mirrorwall.cast
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -72,6 +73,7 @@ class MainActivity : Activity() {
             val host = state.getString("pendingHost")
             if (host != null) pending = Slot(state.getString("pendingName") ?: host, host, state.getInt("pendingPort"), state.getString("pendingRelayCode"))
             askedBackground = state.getBoolean("askedBackground")
+            pendingScan = state.getString("pendingScan")
             state.getString("typedAddress")?.let { addressField.setText(it) }
             state.getString("typedName")?.let { nameField.setText(it) }
         }
@@ -109,6 +111,7 @@ class MainActivity : Activity() {
             outState.putString("pendingRelayCode", it.relayCode)
         }
         outState.putBoolean("askedBackground", askedBackground)
+        outState.putString("pendingScan", pendingScan)
         outState.putString("typedAddress", addressField.text.toString())
         outState.putString("typedName", nameField.text.toString())
     }
@@ -157,6 +160,10 @@ class MainActivity : Activity() {
 
     private fun askToCapture() {
         AppLog.write("Asking to share the screen")
+        // Android's sharing prompt cancels itself if the screen rotates while it's up (it's
+        // restarted, and a restarted prompt answers "no"). It sits on top of this activity and
+        // takes its orientation, so hold the current one until the prompt is answered.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED
         val manager = getSystemService(MediaProjectionManager::class.java)
         // Always the whole screen, not a single app: a wall of phones should show what each shows.
         val intent = if (Build.VERSION.SDK_INT >= 34) {
@@ -191,6 +198,7 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != 1) return
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         val slot = pending ?: run {
             CastStatus.set(false, "Choose a receiver and tap Share again.")
             return

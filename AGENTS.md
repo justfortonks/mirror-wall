@@ -41,6 +41,11 @@ cd android && MIRROR_WALL_BUILD=$(git rev-list --count HEAD) ./gradlew --no-daem
 Android unit tests need `org.json` on the test classpath and may not resolve offline; build
 `assembleRelease` at minimum.
 
+Testing on a handheld over USB: adb 37.0.1 crashes on macOS 27 as soon as a phone is attached
+("libunwind: stepWithCompactEncoding"); platform-tools 36.0.0 works
+(`~/Library/Android/adb-older/platform-tools/adb` on the Mac mini). Zebra HC50s need USB
+debugging on and the USB mode set to File transfer.
+
 ## Installing a local build on the Mac
 
 `scripts/build-app.sh` without a built `Vendor/` receiver produces an app without its receiver.

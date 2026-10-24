@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -35,6 +36,17 @@
                 <data android:scheme="mirrorwall" android:host="connect" />
             </intent-filter>
         </activity>
+
+        <!-- The QR scanner: in whatever orientation the phone is held, not the library's forced
+             landscape. Rotating back to portrait as it closed restarted Android's screen-sharing
+             prompt, which then cancelled itself (seen on a Zebra HC50). -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullUser"
+            android:stateNotNeeded="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:windowSoftInputMode="stateAlwaysHidden"
+            tools:replace="android:screenOrientation" />
 
         <service
             android:name=".CastService"
