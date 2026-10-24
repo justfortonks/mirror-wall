@@ -88,6 +88,18 @@ class MainActivity : Activity() {
         intent?.dataString?.let { openLink(it) }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 5) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                scanCode()
+            } else {
+                AppLog.write("Camera not allowed")
+                CastStatus.set(false, "Scanning needs the camera. Allow it in Settings › Apps › Mirror Wall Cast, or type the address below.")
+            }
+        }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         pending?.let {
@@ -197,6 +209,13 @@ class MainActivity : Activity() {
 
     private fun scanCode() {
         if (CastStatus.sharing) return
+        // Ask for the camera ourselves: left to the scanner, the prompt is missed on some phones
+        // (Samsung), and the scanner opens to a black screen or not at all.
+        if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            AppLog.write("Asking for the camera")
+            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 5)
+            return
+        }
         AppLog.write("Scanning a QR code")
         val options = ScanOptions()
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
