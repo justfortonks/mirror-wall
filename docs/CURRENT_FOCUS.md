@@ -38,11 +38,8 @@ test key) has been built and handed out.
   the Android app in CI and reinstall it on one handheld (new app ID: uninstall the old one first).
 - **Decide the vocabulary with the upstream author:** grid view "Ensemble", slots "Marks", relay
   "Catwalk" (proposals in the design system). Nothing in the UI changes until that's agreed.
-- **Get Mirror Wall Cast for iPhone to the team**: an App Store Connect record and TestFlight
-  (internal testing), so it installs without a cable. Today it's installed from Xcode on Cody's
-  iPhone only.
-- **Android release key** before the SE team's handhelds get it through MDM (one uninstall when
-  the key changes; better now than later).
+- **Mirror Wall Cast for iPhone on TestFlight**: invite the team (internal testers, or an
+  external group with a public link after Beta App Review).
 - Relay follow-ups when they matter: the team token lives in UserDefaults (move it to the
   keychain), and the relay sees video in the clear (end-to-end encryption keyed from the code).
 - **Then the iPhone companion app** (Xcode and the Apple account are ready on the Mac mini).

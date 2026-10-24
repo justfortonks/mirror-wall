@@ -5,6 +5,15 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 24, 2026: TestFlight, a real Android key, and the relay token in the keychain
+
+- Mirror Wall Cast for iPhone is on TestFlight (`scripts/upload-ios.sh` archives and uploads it).
+- The Android app is signed with Mirror Wall Cast's own release key instead of the public test
+  key (`scripts/build-android-release.sh`; CI uses the same key from repository secrets). Phones
+  with an earlier build uninstall it once before installing this one.
+- The relay's team token is kept in the login keychain, not Mirror Wall's preferences file;
+  it moves there by itself the first time this version opens.
+
 ## October 24, 2026: Mirror Wall Cast for iPhone
 
 - A Mirror Wall Cast app for iPhone and iPad (`ios/`): pick a slot on the network, scan the

@@ -90,3 +90,14 @@ open ~/Applications/"Mirror Wall.app"
 - Record lasting decisions as ADRs in `docs/adr/`.
 - Keep commits narrow: branding, behavior, Android and docs in separate commits where possible.
 - Plain, user-facing wording in UI copy and docs (see DESIGN.md copy rules).
+
+## Release keys and uploads (Cody's Mac mini)
+
+- Android release key: `~/Library/Application Support/MirrorWall/keys/mirrorwallcast-release.jks`
+  (alias `mirrorwallcast`), password in the login keychain as "Mirror Wall Android key"; a copy of
+  the key is on the Sidehustle drive in `MirrorWall/keys/`. `scripts/build-android-release.sh`
+  builds a release APK with it. Never commit it; never print the password.
+- iPhone: `scripts/upload-ios.sh` archives and uploads to App Store Connect for TestFlight
+  (Xcode's signed-in account; build number = commit count).
+- The Mac app keeps the relay token in the keychain (service `com.justfortonks.mirrorwall`,
+  account `relayToken`), see `Sources/MirrorWall/Keychain.swift`.
