@@ -27,7 +27,8 @@ final class SlotStore: ObservableObject {
     @Published private(set) var allowListEnabled: Bool
     /// A 4-digit code iPhones must enter to mirror, for events and shared networks; nil when off.
     @Published private(set) var airplayPIN: String?
-    /// The Mirror Wall Relay (relay/): host and team token. Empty means off.
+    /// The Mirror Wall Relay (relay/): host and team token. Empty means off. The token is kept in
+    /// the login keychain, not preferences.
     @Published private(set) var relayHost: String = ""
     @Published private(set) var relayToken: String = ""
     var relaySettings: RelayClient.Settings? {
@@ -118,7 +119,13 @@ final class SlotStore: ObservableObject {
         allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
         airplayPIN = defaults.string(forKey: airplayPINKey)
         relayHost = defaults.string(forKey: relayHostKey) ?? ""
-        relayToken = defaults.string(forKey: relayTokenKey) ?? ""
+        // The token lives in the keychain. Builds before 0.160 kept it in preferences: move it.
+        if let legacy = defaults.string(forKey: relayTokenKey) {
+            if Keychain.set(legacy, for: relayTokenKey) { defaults.removeObject(forKey: relayTokenKey) }
+            relayToken = legacy
+        } else {
+            relayToken = Keychain.string(relayTokenKey) ?? ""
+        }
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
         defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         obsFeedForAllSlots = defaults.bool(forKey: obsFeedForAllSlotsKey)
@@ -227,7 +234,7 @@ final class SlotStore: ObservableObject {
         relayHost = host
         relayToken = token
         defaults.set(host, forKey: relayHostKey)
-        defaults.set(token, forKey: relayTokenKey)
+        Keychain.set(token, for: relayTokenKey)
         for slot in slots {
             slot.relay = relaySettings
             restart(slot)
