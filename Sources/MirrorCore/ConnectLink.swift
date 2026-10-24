@@ -15,12 +15,20 @@ public struct ConnectLink: Equatable {
     public var name: String
     public var port: UInt16
     public var hosts: [String]
+    /// The Mirror Wall Relay's host and this slot's code there, when the Mac is on a relay.
+    /// The app tries the direct hosts first and the relay when none answers.
+    public var relay: String?
+    public var code: String?
 
-    public init(name: String, port: UInt16, hosts: [String]) {
+    public init(name: String, port: UInt16, hosts: [String], relay: String? = nil, code: String? = nil) {
         self.name = name
         self.port = port
         self.hosts = hosts
+        self.relay = relay
+        self.code = code
     }
+
+    public var hasRelay: Bool { relay.map { !$0.isEmpty } == true && code.map { !$0.isEmpty } == true }
 
     /// The link as text, for the QR code and the clipboard.
     public var text: String {
@@ -29,6 +37,10 @@ public struct ConnectLink: Equatable {
         components.host = Self.action
         var items = [URLQueryItem(name: "name", value: name), URLQueryItem(name: "port", value: String(port))]
         items += hosts.map { URLQueryItem(name: "host", value: $0) }
+        if hasRelay, let relay, let code {
+            items.append(URLQueryItem(name: "relay", value: relay))
+            items.append(URLQueryItem(name: "code", value: code))
+        }
         components.queryItems = items
         return components.string ?? ""
     }
@@ -44,17 +56,22 @@ public struct ConnectLink: Equatable {
         var name = ""
         var port: UInt16 = 7350
         var hosts: [String] = []
+        var relay: String?
+        var code: String?
         for item in components.queryItems ?? [] {
             guard let value = item.value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { continue }
             switch item.name {
             case "name": name = value
             case "port": guard let number = UInt16(value) else { return nil }; port = number
             case "host": if !hosts.contains(value) { hosts.append(value) }
+            case "relay": relay = value
+            case "code": code = value.replacingOccurrences(of: " ", with: "")
             default: break
             }
         }
-        guard !hosts.isEmpty else { return nil }
-        if name.isEmpty { name = hosts[0] }
-        self.init(name: name, port: port, hosts: hosts)
+        let hasRelay = relay != nil && code != nil
+        guard !hosts.isEmpty || hasRelay else { return nil }
+        if name.isEmpty { name = hosts.first ?? relay ?? "" }
+        self.init(name: name, port: port, hosts: hosts, relay: hasRelay ? relay : nil, code: hasRelay ? code : nil)
     }
 }

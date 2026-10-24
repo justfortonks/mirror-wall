@@ -111,3 +111,13 @@ away. Unknown query items are ignored, so either side can add some later (`relay
 are reserved for the relay in `relay-design.md`). The link format is a compatibility surface like
 the messages above: `ConnectLinkTests` (Mac) and `ConnectLinkTest` (Android) hold the same link
 and must keep agreeing.
+
+## Through the relay
+
+When the link carries `relay=<host>` and `code=<six digits>` and no direct host answers (or there
+are none), the app connects to the relay instead: TLS to `<host>:443`, one line
+`{"type":"join","code":"482913"}`, and on `{"type":"joined"}` the rest of the connection is the
+slot, exactly as above (hello, welcome, video, pings). Any other answer closes the connection and
+its `reason` is shown. The Mac keeps a connection waiting on the relay for each slot; the relay
+pairs the phone with it and copies bytes verbatim, so this section is the whole difference. The
+relay's own protocol is in `relay/README.md`.

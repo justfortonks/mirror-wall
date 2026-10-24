@@ -33,4 +33,19 @@ class ConnectLinkTest {
         val link = ConnectLink.parse("mirrorwall://connect?host=10.0.0.5&host=10.0.0.5&host=10.0.0.6")
         assertEquals(listOf("10.0.0.5", "10.0.0.6"), link?.hosts)
     }
+
+    @Test
+    fun relayAndCodeComeAfterTheHosts() {
+        val link = ConnectLink.parse("mirrorwall://connect?name=Mirror%20Wall%201&port=7350&host=10.0.0.5&relay=mirror-wall-relay.fly.dev&code=694499")
+        assertEquals(ConnectLink("Mirror Wall 1", 7350, listOf("10.0.0.5"), "mirror-wall-relay.fly.dev", "694499"), link)
+        assertEquals(true, link?.hasRelay)
+    }
+
+    @Test
+    fun relayOnlyLinkIsValidAndCodeLosesItsSpaces() {
+        val link = ConnectLink.parse("mirrorwall://connect?name=Mirror%20Wall%202&port=7450&relay=mirror-wall-relay.fly.dev&code=694%20499")
+        assertEquals(emptyList<String>(), link?.hosts)
+        assertEquals("694499", link?.code)
+        assertNull(ConnectLink.parse("mirrorwall://connect?relay=x.example"))
+    }
 }

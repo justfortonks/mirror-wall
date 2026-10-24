@@ -59,6 +59,8 @@ class CastService : Service() {
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         const val EXTRA_SLOT = "slot"
+        /** Set when host:port is the Mirror Wall Relay: the slot's six-digit code there. */
+        const val EXTRA_RELAY_CODE = "relayCode"
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_RESULT_DATA = "resultData"
         const val ACTION_STOP = "com.justfortonks.mirrorwall.cast.STOP"
@@ -114,7 +116,8 @@ class CastService : Service() {
         host = intent.getStringExtra(EXTRA_HOST) ?: return START_NOT_STICKY
         port = intent.getIntExtra(EXTRA_PORT, 0)
         slotName = intent.getStringExtra(EXTRA_SLOT) ?: host
-        AppLog.write("Sharing to $slotName at $host:$port")
+        relayCode = intent.getStringExtra(EXTRA_RELAY_CODE)
+        AppLog.write(if (relayCode != null) "Sharing to $slotName through the relay $host:$port" else "Sharing to $slotName at $host:$port")
         // Android requires the notification before the capture starts.
         startForeground(NOTIFICATION_ID, notification("Connecting to $slotName…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
 
@@ -156,16 +159,18 @@ class CastService : Service() {
         AppLog.write("Android asked for memory back (level $level)")
     }
 
+    private var relayCode: String? = null
+
     private fun connect() {
         AppLog.write("Connecting to $host:$port")
-        link = Link(host, port).also { it.start() }
+        link = Link(host, port, relayCode).also { it.start() }
     }
 
     /**
      * One connection to the slot: hello, the answer, then a sender thread for queued messages and
      * a reader for pings until the connection ends. Reports back on the main thread.
      */
-    private inner class Link(private val host: String, private val port: Int) {
+    private inner class Link(private val host: String, private val port: Int, private val relayCode: String?) {
         val outbox = CastOutbox()
         @Volatile private var socket: Socket? = null
         @Volatile private var closed = false
@@ -191,12 +196,51 @@ class CastService : Service() {
         private fun run() {
             var gotWelcome = false
             try {
-                val socket = Socket()
-                this.socket = socket
-                if (closed) return
-                socket.tcpNoDelay = true
-                socket.sendBufferSize = 256 * 1024
-                socket.connect(InetSocketAddress(host, port), 5000)
+                val socket: Socket
+                if (relayCode == null) {
+                    socket = Socket()
+                    this.socket = socket
+                    if (closed) return
+                    socket.tcpNoDelay = true
+                    socket.sendBufferSize = 256 * 1024
+                    socket.connect(InetSocketAddress(host, port), 5000)
+                } else {
+                    // The relay: TLS, then one line to join with the code; "joined" means the rest
+                    // of this connection is the slot, exactly as if it were on the same Wi-Fi.
+                    val plain = Socket()
+                    this.socket = plain
+                    if (closed) return
+                    plain.tcpNoDelay = true
+                    plain.sendBufferSize = 256 * 1024
+                    plain.connect(InetSocketAddress(host, port), 8000)
+                    val tls = (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory)
+                        .createSocket(plain, host, port, true) as javax.net.ssl.SSLSocket
+                    this.socket = tls
+                    tls.soTimeout = 10_000
+                    tls.startHandshake()
+                    val joinOut = tls.getOutputStream()
+                    joinOut.write((JSONObject().put("type", "join").put("code", relayCode).toString() + "\n").toByteArray())
+                    joinOut.flush()
+                    val line = StringBuilder()
+                    val joinIn = tls.getInputStream()
+                    while (true) {
+                        val b = joinIn.read()
+                        if (b < 0) throw IOException("The relay hung up")
+                        if (b == '\n'.code) break
+                        line.append(b.toChar())
+                        if (line.length > 4096) throw IOException("The relay answered nonsense")
+                    }
+                    val answer = JSONObject(line.toString())
+                    if (answer.optString("type") != "joined") {
+                        val reason = answer.optString("reason", "The relay turned this phone away.")
+                        AppLog.write("Relay: $reason")
+                        main.post { turnedAway(this, reason) }
+                        closeSocket()
+                        return
+                    }
+                    AppLog.write("Joined $slotName through the relay")
+                    socket = tls
+                }
                 val output = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
                 val input = DataInputStream(socket.getInputStream())
                 val hello = JSONObject()

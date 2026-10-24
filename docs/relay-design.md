@@ -1,7 +1,8 @@
 # Relay design: sharing when the network keeps devices apart
 
-_Status: the relay itself is built and running (`relay/`, on Fly.io, October 24, 2026); the Mac
-and Android sides are next. The QR code shipped October 22. The design below is as proposed;
+_Status: built and running, October 24, 2026: `relay/` on Fly.io, Settings › Relay and a
+`RelayClient` per slot on the Mac, the fallback in Mirror Wall Cast; verified end to end through
+mirror-wall-relay.fly.dev with a test phone. The QR code shipped October 22. The design below is as proposed;
 `relay/README.md` has the wire protocol as built (one waiting connection per slot, no tickets)._
 
 ## The problem

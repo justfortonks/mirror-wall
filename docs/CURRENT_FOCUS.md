@@ -38,9 +38,10 @@ test key) has been built and handed out.
   the Android app in CI and reinstall it on one handheld (new app ID: uninstall the old one first).
 - **Decide the vocabulary with the upstream author:** grid view "Ensemble", slots "Marks", relay
   "Catwalk" (proposals in the design system). Nothing in the UI changes until that's agreed.
-- **Wire the apps to the relay** (`relay/` is deployed at mirror-wall-relay.fly.dev): Settings ›
-  Relay on the Mac, `RelayClient` per slot, the code under the QR, `relay=`/`code=` in the
-  connect link; Mirror Wall Cast dials the relay when the direct addresses don't answer.
+- **Try the relay from a real handheld on cellular** (Wi-Fi off), scanning the Mac's code: the
+  last test was a fake phone from the Mac mini itself.
+- Relay follow-ups when they matter: the team token lives in UserDefaults (move it to the
+  keychain), and the relay sees video in the clear (end-to-end encryption keyed from the code).
 - **Then the iPhone companion app** (Xcode and the Apple account are ready on the Mac mini).
 - **Publish the first fork release** (Actions › Release › Publish) so the README download links
   and Check for Update work for the rest of the SE team.

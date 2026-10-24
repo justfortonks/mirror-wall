@@ -3,6 +3,14 @@
 What has shipped, summarized from the Git history and [CHANGELOG.md](../CHANGELOG.md). Newest
 first. The changelog has the user-facing detail; this is the project view.
 
+## October 24, 2026: The relay, end to end
+
+- `relay/`: a Go byte pump on Fly.io (mirror-wall-relay.fly.dev, TLS at the edge, dedicated IPv4
+  and IPv6). Mac: `RelayClient` per slot, Settings › Phones › Relay, code under the QR and on the
+  Stage, `relay=`/`code=` in the connect link. Android: joins the relay when no direct host
+  answers. Verified through Fly with a test phone: hello, welcome, ping, bye.
+- Lesson recorded: a relayed `CastConnection` needs an owner, as `CastServer` owns LAN ones.
+
 ## October 24, 2026: Signed Mac builds; QR connect verified on a handheld
 
 - Mac builds signed with a Developer ID (hardened runtime; receiver libraries included); first

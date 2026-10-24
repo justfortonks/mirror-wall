@@ -108,6 +108,11 @@ final class Slot: ObservableObject, Identifiable {
     private var receiver: UDPReceiver?
     /// Listens for Android phones (Mirror Wall Cast) while the slot runs.
     private var castServer: CastServer?
+    private var relayClient: RelayClient?
+    /// Settings for the Mirror Wall Relay; nil when it's off. Set by the store before start.
+    var relay: RelayClient.Settings?
+    /// This slot's six-digit code on the relay, while it's reachable there.
+    @Published private(set) var relayCode: String?
     /// The Android phone that has the slot, if any. While one does, the slot's uxplay is stopped
     /// so iPhones don't list it.
     private var castPhone: CastConnection?
@@ -240,6 +245,9 @@ final class Slot: ObservableObject, Identifiable {
         let oldReceiver = receiver
         process = nil
         castServer = nil
+        relayClient?.stop()
+        relayClient = nil
+        relayCode = nil
         castPhone = nil
         castDeviceID = nil
         castShareID = nil
@@ -576,6 +584,21 @@ final class Slot: ObservableObject, Identifiable {
             castServer = server
         } catch {
             append("Android phones can't connect to this slot: couldn't listen on port \(config.castPort) (\(error))")
+        }
+        append("Cast: listening on port \(config.castPort); relay \(relay?.isUsable == true ? "on (\(relay!.host))" : "off")")
+        if let relay, relay.isUsable {
+            let client = RelayClient(settings: relay, slot: config.name, deviceID: config.deviceID, queue: server.queue, onCode: { [weak self] code in
+                DispatchQueue.main.async {
+                    guard let self, lifetime.isActive else { return }
+                    if self.relayCode != code { self.relayCode = code }
+                    if let code { self.append("Reachable through the relay with code \(code)") }
+                }
+            }, onConnection: { [weak self] phone in
+                self?.castPhoneConnected(phone, lifetime: lifetime)
+            })
+            client.log = { [weak self] line in DispatchQueue.main.async { guard lifetime.isActive else { return }; self?.append(line) } }
+            client.start()
+            relayClient = client
         }
     }
 

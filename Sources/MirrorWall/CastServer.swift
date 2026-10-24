@@ -11,7 +11,7 @@ final class CastServer {
 
     let port: UInt16
     private let name: String
-    private let queue: DispatchQueue
+    let queue: DispatchQueue
     private var listener: NWListener?
     private var connections: [CastConnection] = []
     private let onConnection: (CastConnection) -> Void
@@ -102,27 +102,44 @@ final class CastConnection {
     var onMessage: ((CastMessage) -> Void)?
     /// Once, when the connection ends for any reason.
     var onClose: (() -> Void)?
-    fileprivate var onEnded: (() -> Void)?
+    /// Once, after onClose, for whoever keeps this connection alive (the server or the relay client).
+    var onEnded: (() -> Void)?
 
-    /// The phone's address, for the log.
-    var remoteDescription: String { "\(connection.endpoint)" }
+    /// The phone's address, for the log; a relayed phone is "relay <host>".
+    var remoteDescription: String { via ?? "\(connection.endpoint)" }
+    private let via: String?
+    /// Bytes that arrived with the relay's handshake, ahead of the Cast stream.
+    private var initialData: Data
 
     /// Set (on the queue) once the slot has taken this phone; its video is ignored until then.
     private(set) var isAccepted = false
 
-    fileprivate init(_ connection: NWConnection, queue: DispatchQueue) {
+    /// `initialData` and `via` are for a connection the relay handed over, already started.
+    init(_ connection: NWConnection, queue: DispatchQueue, initialData: Data = Data(), via: String? = nil) {
         self.connection = connection
         self.queue = queue
+        self.initialData = initialData
+        self.via = via
     }
 
-    fileprivate func start() {
+    func start() {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed, .cancelled: self?.end()
             default: break
             }
         }
-        connection.start(queue: queue)
+        if connection.state == .setup { connection.start(queue: queue) }
+        if !initialData.isEmpty {
+            let data = initialData
+            initialData = Data()
+            do {
+                for message in try reader.push(Array(data)) { onMessage?(message) }
+            } catch {
+                close()
+                return
+            }
+        }
         queue.asyncAfter(deadline: .now() + 8) { [weak self] in
             guard let self, !self.isAccepted else { return }
             self.close()

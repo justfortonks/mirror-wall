@@ -40,7 +40,8 @@ import kotlin.concurrent.thread
  * Code…), for networks that block discovery.
  */
 class MainActivity : Activity() {
-    private data class Slot(val name: String, val host: String, val port: Int)
+    /** Where to share: a slot's address, or the relay's with the slot's code. */
+    private data class Slot(val name: String, val host: String, val port: Int, val relayCode: String? = null)
 
     private lateinit var headline: TextView
     private lateinit var status: TextView
@@ -69,7 +70,7 @@ class MainActivity : Activity() {
         buildViews()
         savedInstanceState?.let { state ->
             val host = state.getString("pendingHost")
-            if (host != null) pending = Slot(state.getString("pendingName") ?: host, host, state.getInt("pendingPort"))
+            if (host != null) pending = Slot(state.getString("pendingName") ?: host, host, state.getInt("pendingPort"), state.getString("pendingRelayCode"))
             askedBackground = state.getBoolean("askedBackground")
             state.getString("typedAddress")?.let { addressField.setText(it) }
             state.getString("typedName")?.let { nameField.setText(it) }
@@ -93,6 +94,7 @@ class MainActivity : Activity() {
             outState.putString("pendingHost", it.host)
             outState.putString("pendingName", it.name)
             outState.putInt("pendingPort", it.port)
+            outState.putString("pendingRelayCode", it.relayCode)
         }
         outState.putBoolean("askedBackground", askedBackground)
         outState.putString("typedAddress", addressField.text.toString())
@@ -172,6 +174,7 @@ class MainActivity : Activity() {
                 .putExtra(CastService.EXTRA_HOST, slot.host)
                 .putExtra(CastService.EXTRA_PORT, slot.port)
                 .putExtra(CastService.EXTRA_SLOT, slot.name)
+                .putExtra(CastService.EXTRA_RELAY_CODE, slot.relayCode)
                 .putExtra(CastService.EXTRA_RESULT_CODE, resultCode)
                 .putExtra(CastService.EXTRA_RESULT_DATA, data),
         )
@@ -217,7 +220,11 @@ class MainActivity : Activity() {
             CastStatus.set(true, "Stop sharing first, then scan again.")
             return
         }
-        if (link.hosts.size == 1) {
+        if (link.hosts.isEmpty()) {
+            shareThroughRelay(link)
+            return
+        }
+        if (link.hosts.size == 1 && !link.hasRelay) {
             share(Slot(link.name, link.hosts[0], link.port))
             return
         }
@@ -233,12 +240,24 @@ class MainActivity : Activity() {
                 if (host != null) {
                     AppLog.write("${link.name} answered at $host")
                     share(Slot(link.name, host, link.port))
+                } else if (link.hasRelay) {
+                    AppLog.write("${link.name} didn't answer at any address; using the relay")
+                    shareThroughRelay(link)
                 } else {
                     AppLog.write("${link.name} didn't answer at any address")
                     CastStatus.set(false, "Couldn't reach ${link.name}. Is this phone on the same Wi-Fi or VPN as the computer?")
                 }
             }
         }
+    }
+
+    /** The relay: both ends dial out to it, so it works where nothing else does. TLS on 443. */
+    private fun shareThroughRelay(link: ConnectLink) {
+        val relay = link.relay ?: return
+        val code = link.code ?: return
+        val host = relay.substringBefore(':')
+        val port = relay.substringAfter(':', "443").toIntOrNull() ?: 443
+        share(Slot(link.name, host, port, code))
     }
 
     /** A quick knock on the slot's port; Mirror Wall drops a connection that never says hello. */

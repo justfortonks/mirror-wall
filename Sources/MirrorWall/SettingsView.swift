@@ -187,6 +187,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                RelaySection(store: store)
             }
             .formStyle(.grouped)
             .tabItem { Label("Phones", systemImage: "iphone") }
@@ -217,5 +218,45 @@ struct SettingsView: View {
             }
             Button("Choose…") { DispatchQueue.main.async { SaveFolders.choose(kind) } }
         }
+    }
+}
+
+/// Settings › Phones › Relay: the Mirror Wall Relay's host and team token. Saved when the field
+/// loses focus or Return is pressed, which restarts the slots.
+private struct RelaySection: View {
+    @ObservedObject var store: SlotStore
+    @State private var host = ""
+    @State private var token = ""
+
+    var body: some View {
+        Section {
+            TextField("Relay", text: $host, prompt: Text("mirror-wall-relay.fly.dev"))
+                .onSubmit(save)
+            SecureField("Team token", text: $token)
+                .onSubmit(save)
+            HStack {
+                if store.relaySettings == nil {
+                    Text("Off").foregroundStyle(.secondary)
+                } else {
+                    let codes = store.slots.compactMap { slot in slot.relayCode.map { "\(slot.name): \($0)" } }
+                    Text(codes.isEmpty ? "Connecting to the relay…" : codes.joined(separator: "   "))
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+                Spacer()
+                Button("Save") { save() }.disabled(host == store.relayHost && token == store.relayToken)
+            }
+        } header: {
+            Text("Relay")
+        } footer: {
+            Text("For networks where phones can't reach this Mac at all: both sides dial out to the relay, and a phone joins a slot with the six-digit code shown under the QR code. Leave the relay empty to turn it off. Saving restarts the slots.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .onAppear { host = store.relayHost; token = store.relayToken }
+    }
+
+    private func save() {
+        store.setRelay(host: host.trimmingCharacters(in: .whitespaces), token: token.trimmingCharacters(in: .whitespaces))
     }
 }

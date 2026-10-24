@@ -13,7 +13,16 @@ import java.net.URLDecoder
  * Parsed by hand (not android.net.Uri) so it can be unit-tested; the Mac's `ConnectLink` is the
  * other half, and the two stay in step: unknown items are ignored, no port means slot 1.
  */
-data class ConnectLink(val name: String, val port: Int, val hosts: List<String>) {
+data class ConnectLink(
+    val name: String,
+    val port: Int,
+    val hosts: List<String>,
+    /** The Mirror Wall Relay's host and the slot's code there; tried when no host answers. */
+    val relay: String? = null,
+    val code: String? = null,
+) {
+    val hasRelay: Boolean get() = !relay.isNullOrEmpty() && !code.isNullOrEmpty()
+
     companion object {
         const val SCHEME = "mirrorwall"
         const val ACTION = "connect"
@@ -32,6 +41,8 @@ data class ConnectLink(val name: String, val port: Int, val hosts: List<String>)
             var name = ""
             var port = DEFAULT_PORT
             val hosts = ArrayList<String>()
+            var relay: String? = null
+            var code: String? = null
             for (pair in query.split('&')) {
                 if (pair.isEmpty()) continue
                 val key = pair.substringBefore('=')
@@ -41,10 +52,16 @@ data class ConnectLink(val name: String, val port: Int, val hosts: List<String>)
                     "name" -> name = value
                     "port" -> port = value.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
                     "host" -> if (value !in hosts) hosts.add(value)
+                    "relay" -> relay = value
+                    "code" -> code = value.replace(" ", "")
                 }
             }
-            if (hosts.isEmpty()) return null
-            return ConnectLink(name.ifEmpty { hosts[0] }, port, hosts)
+            val hasRelay = relay != null && code != null
+            if (hosts.isEmpty() && !hasRelay) return null
+            return ConnectLink(
+                name.ifEmpty { hosts.firstOrNull() ?: relay ?: "" }, port, hosts,
+                if (hasRelay) relay else null, if (hasRelay) code else null,
+            )
         }
 
         private fun decode(value: String): String = try {

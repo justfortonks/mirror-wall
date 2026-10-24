@@ -27,11 +27,20 @@ final class SlotStore: ObservableObject {
     @Published private(set) var allowListEnabled: Bool
     /// A 4-digit code iPhones must enter to mirror, for events and shared networks; nil when off.
     @Published private(set) var airplayPIN: String?
+    /// The Mirror Wall Relay (relay/): host and team token. Empty means off.
+    @Published private(set) var relayHost: String = ""
+    @Published private(set) var relayToken: String = ""
+    var relaySettings: RelayClient.Settings? {
+        let settings = RelayClient.Settings(host: relayHost.trimmingCharacters(in: .whitespaces), token: relayToken.trimmingCharacters(in: .whitespaces))
+        return settings.isUsable ? settings : nil
+    }
     /// Slots whose phone dropped mid-demo, and when. The Stage keeps them in place, showing
     /// "Reconnecting…", for `reconnectGrace` seconds before closing the gap.
     @Published private(set) var reconnectingSince: [Int: Date] = [:]
     static let reconnectGrace: TimeInterval = 45
     private let airplayPINKey = "airplayPIN"
+    private let relayHostKey = "relayHost"
+    private let relayTokenKey = "relayToken"
     @Published private(set) var allowedDeviceIDs: Set<String>
     /// What slots show while no phone is mirroring, unless a slot has its own.
     @Published private(set) var defaultStandby: StandbyPicture
@@ -108,6 +117,8 @@ final class SlotStore: ObservableObject {
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
         allowListEnabled = defaults.bool(forKey: allowListEnabledKey)
         airplayPIN = defaults.string(forKey: airplayPINKey)
+        relayHost = defaults.string(forKey: relayHostKey) ?? ""
+        relayToken = defaults.string(forKey: relayTokenKey) ?? ""
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
         defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         obsFeedForAllSlots = defaults.bool(forKey: obsFeedForAllSlotsKey)
@@ -134,6 +145,7 @@ final class SlotStore: ObservableObject {
         slot.sharpPicture = sharpPicture
         slot.allowedDevices = allowedDevices
         slot.airplayPIN = airplayPIN
+        slot.relay = relaySettings
         slot.showsBezel = slot.config.bezel ?? bezelsForAllSlots
         slot.onConfigChanged = { [weak self] in
             MainActor.assumeIsolated {
@@ -209,6 +221,19 @@ final class SlotStore: ObservableObject {
     /// by surprise.
     /// Turns the iPhone PIN on (with this code) or off (nil). Restarts the slots, so phones
     /// mirroring now will need to reconnect.
+    /// Settings › Relay. Restarts the slots so each one reconnects to the relay (or leaves it).
+    func setRelay(host: String, token: String) {
+        guard host != relayHost || token != relayToken else { return }
+        relayHost = host
+        relayToken = token
+        defaults.set(host, forKey: relayHostKey)
+        defaults.set(token, forKey: relayTokenKey)
+        for slot in slots {
+            slot.relay = relaySettings
+            restart(slot)
+        }
+    }
+
     func setAirplayPIN(_ pin: String?) {
         guard pin != airplayPIN else { return }
         airplayPIN = pin

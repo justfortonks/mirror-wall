@@ -586,7 +586,7 @@ private struct StageEmptyState: View {
                             Circle().fill(stageDotColor(slot.state)).frame(width: 8, height: 8).modifier(Brand.glow(stageDotColor(slot.state), on: Brand.glows(slot.state)))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(slot.name).font(Brand.font(14, .semibold))
-                                Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast, or scan the QR code (⌘K)")
+                                Text("iPhone: Control Center › Screen Mirroring › “\(slot.name)”   ·   Android: Mirror Wall Cast, or scan the QR code (⌘K)" + (slot.relayCode.map { "   ·   Relay code \($0.prefix(3)) \($0.suffix(3))" } ?? ""))
                                     .font(Brand.font(12))
                                     .opacity(0.65)
                             }

@@ -33,4 +33,19 @@ final class ConnectLinkTests: XCTestCase {
         let link = ConnectLink(text: "mirrorwall://connect?host=10.0.0.5&host=10.0.0.5&host=10.0.0.6")
         XCTAssertEqual(link?.hosts, ["10.0.0.5", "10.0.0.6"])
     }
+
+    func testRelayAndCodeTravelAfterTheHosts() {
+        let link = ConnectLink(name: "Mirror Wall 1", port: 7350, hosts: ["10.0.0.5"], relay: "mirror-wall-relay.fly.dev", code: "694499")
+        XCTAssertEqual(link.text, "mirrorwall://connect?name=Mirror%20Wall%201&port=7350&host=10.0.0.5&relay=mirror-wall-relay.fly.dev&code=694499")
+        XCTAssertEqual(ConnectLink(text: link.text), link)
+        XCTAssertTrue(link.hasRelay)
+    }
+
+    func testRelayOnlyLinkIsValidAndCodeLosesItsSpaces() {
+        let link = ConnectLink(text: "mirrorwall://connect?name=Mirror%20Wall%202&port=7450&relay=mirror-wall-relay.fly.dev&code=694%20499")
+        XCTAssertEqual(link?.hosts, [])
+        XCTAssertEqual(link?.code, "694499")
+        XCTAssertEqual(link?.relay, "mirror-wall-relay.fly.dev")
+        XCTAssertNil(ConnectLink(text: "mirrorwall://connect?relay=x.example"), "a relay without a code is no way in")
+    }
 }

@@ -26,6 +26,10 @@ protocol and exchange changes by pull request. The working branch here is **`cod
 - **Connect with QR Code** (⌘K) - when the network blocks discovery (guest Wi-Fi, a VPN on each
   device), the Mac shows a code with every address it has; the Cast app scans it and shares to
   the first address that answers. Works over Tailscale.
+- **Relay** - for networks where phones can't reach the Mac at all (guest Wi-Fi that isolates
+  devices, a phone on cellular): both sides dial out to the Mirror Wall Relay (`relay/`, on
+  Fly.io) and a phone joins a slot with the six-digit code under the QR code. Settings › Phones ›
+  Relay turns it on.
 - **Light and dark** - the Wall, Settings and the Android app follow the system appearance. The
   Stage stays dark in both, because the customer is looking at it.
 - **Up to eight devices at once** - iPhones and Android phones mix freely, one device per slot.

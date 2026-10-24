@@ -5,6 +5,15 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 24, 2026: The relay, for networks where phones can't reach the Mac
+
+- Settings › Phones › Relay takes the Mirror Wall Relay's address and team token. With it set,
+  each slot also waits on the relay and shows a six-digit code under the QR code (and in the
+  Stage's waiting screen). Mirror Wall Cast tries the Mac's own addresses first and, when none
+  answers, joins through the relay with the code: same protocol, same picture, one extra hop.
+  Both sides only dial out over TLS on port 443, so guest Wi-Fi that keeps devices apart, or two
+  different networks, no longer matter. The relay itself is in `relay/` and runs on Fly.io.
+
 ## October 24, 2026: Signed and notarized Mac builds
 
 - Mac builds are signed with a Developer ID (hardened runtime, timestamped, every library inside

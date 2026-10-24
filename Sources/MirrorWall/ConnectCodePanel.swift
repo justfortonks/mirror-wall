@@ -79,7 +79,10 @@ final class ConnectCodeModel: ObservableObject {
     func refresh() {
         let now = LocalAddress.current()
         if now != addresses { addresses = now }
+        let codes = store?.slots.map(\.relayCode) ?? []
+        if codes != lastCodes { lastCodes = codes; objectWillChange.send() }
     }
+    private var lastCodes: [String?] = []
 
     var slot: Slot? {
         guard let store else { return nil }
@@ -87,8 +90,11 @@ final class ConnectCodeModel: ObservableObject {
     }
 
     var link: ConnectLink? {
-        guard let slot, !addresses.isEmpty else { return nil }
-        return ConnectLink(name: slot.name, port: slot.config.castPort, hosts: addresses.map(\.address))
+        guard let slot else { return nil }
+        let relay = store?.relaySettings?.host
+        let code = slot.relayCode
+        guard !addresses.isEmpty || (relay != nil && code != nil) else { return nil }
+        return ConnectLink(name: slot.name, port: slot.config.castPort, hosts: addresses.map(\.address), relay: code == nil ? nil : relay, code: code)
     }
 
     func copyLink() {
@@ -132,6 +138,16 @@ struct ConnectCodeView: View {
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let code = link.code, let relay = link.relay {
+                    VStack(spacing: 2) {
+                        Text("Code \(code.prefix(3)) \(code.suffix(3))")
+                            .font(Brand.mono(22, .semibold))
+                            .foregroundStyle(Brand.lampText)
+                            .textSelection(.enabled)
+                        Text("through \(relay), for phones that can't reach this Mac")
+                            .font(Brand.font(11)).foregroundStyle(.secondary)
+                    }
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(model.addresses) { address in
                         HStack {
@@ -174,6 +190,7 @@ struct ConnectCodeView: View {
         alert.messageText = "Connect by address"
         alert.informativeText = "In Mirror Wall Cast, under “Or connect by address”, type one of these and tap Share:\n\n"
             + link.hosts.map { "\($0):\(link.port)" }.joined(separator: "\n")
+            + (link.hasRelay ? "\n\nOr the relay code: \(link.code ?? "")" : "")
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
