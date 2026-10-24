@@ -27,9 +27,11 @@ if hasSyphon {
 
 let package = Package(
     name: "MirrorWall",
-    platforms: [.macOS(.v14)],
+    // iOS for MirrorCore only: the iPhone app (ios/) links it for the Cast protocol and ConnectLink.
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .executable(name: "MirrorWall", targets: ["MirrorWall"]),
+        .library(name: "MirrorCore", targets: ["MirrorCore"]),
     ],
     targets: targets
 )

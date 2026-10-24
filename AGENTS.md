@@ -13,6 +13,11 @@ starting anything new.
   package.
 - Android app: Kotlin, `android/`, app ID `com.justfortonks.mirrorwall.cast` (upstream's: one
   Mirror Wall Cast on every device, whichever repo built it).
+- iPhone app: Swift, `ios/`. `cd ios && xcodegen generate` makes the Xcode project (not kept in
+  git) from `project.yml`: the app plus a ReplayKit broadcast upload extension, sharing an App
+  Group, both linking MirrorCore from the root package for the Cast protocol. Team T6K8527TV3.
+  Build: `xcodebuild -project MirrorWallCast.xcodeproj -scheme MirrorWallCast -destination 'generic/platform=iOS'`.
+  Broadcast extensions don't run in the simulator; test on a real iPhone.
 - Windows app: C#/WPF in `windows/`, upstream only.
 
 ## Repository structure
