@@ -197,12 +197,16 @@ class MainActivity : Activity() {
     }
 
     private fun shareToTypedAddress() {
-        val text = addressField.text.toString().trim()
+        // Keyboards add thousands separators and stray spaces ("7,450", "192.168.1.20 : 7450").
+        val text = addressField.text.toString().filterNot { it == ',' || it.isWhitespace() }
         if (text.isEmpty()) return
         // "192.168.1.20" means slot 1; "192.168.1.20:7450" names the slot's port.
         val host = text.substringBefore(':')
-        val port = text.substringAfter(':', "7350").toIntOrNull() ?: 7350
-        share(Slot(text, host, port))
+        val port = text.substringAfter(':', "7350").toIntOrNull()?.takeIf { it in 1..65535 } ?: run {
+            CastStatus.set(false, "That port isn't a number. Try 192.168.1.20:7450.")
+            return
+        }
+        share(Slot("$host:$port", host, port))
     }
 
     // MARK: QR code and links

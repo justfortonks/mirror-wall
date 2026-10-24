@@ -65,6 +65,8 @@ dependencies {
     // Scan QR Code: ZXing's camera scanner. No Google Play services needed, so it works on
     // AOSP handhelds too.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // The scanner calls AndroidX Core at run time; without it Scan QR Code crashes as it opens.
+    implementation("androidx.core:core:1.13.1")
     testImplementation("junit:junit:4.13.2")
     // Android's own org.json is only a stub in unit tests.
     testImplementation("org.json:json:20240303")

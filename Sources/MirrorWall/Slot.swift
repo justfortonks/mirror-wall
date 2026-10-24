@@ -651,6 +651,18 @@ final class Slot: ObservableObject, Identifiable {
     }
 
     private func castHello(_ hello: CastHello, from phone: CastConnection) {
+        // The same share coming back on a new connection (the network dropped, often on cellular
+        // or through the relay) before this Mac noticed the old one was dead: take the new one
+        // over instead of turning the phone away from its own slot.
+        if let stale = castPhone, stale !== phone, castServer != nil,
+           let shareID = hello.shareID, shareID == castShareID, hello.deviceID == castDeviceID {
+            append("\(hello.name) reconnected from \(phone.remoteDescription); dropping its old connection")
+            castPhone = phone
+            stale.refuse("Replaced by a newer connection from the same phone.")
+            lastSignOfLifeAt = Date()
+            phone.accept(CastWelcome(slot: name, maxFrameRate: maxFrameRate, sharpPicture: sharpPicture))
+            return
+        }
         guard castServer != nil, castPhone == nil else {
             phone.refuse("\(name) is showing another phone.")
             return

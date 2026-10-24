@@ -14,3 +14,4 @@ windows/dist/
 android/.gradle/
 android/local.properties
 
+android/.kotlin/
