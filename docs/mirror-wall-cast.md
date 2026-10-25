@@ -121,3 +121,13 @@ slot, exactly as above (hello, welcome, video, pings). Any other answer closes t
 its `reason` is shown. The Mac keeps a connection waiting on the relay for each slot; the relay
 pairs the phone with it and copies bytes verbatim, so this section is the whole difference. The
 relay's own protocol is in `relay/README.md`.
+
+## Troubleshooting: managed iPhones
+
+"Not available when AirPlay, restrictions, or screen mirroring is active" is iOS refusing the
+broadcast before Mirror Wall Cast starts. Either the phone is already mirroring over AirPlay
+(Control Center › Screen Mirroring › Stop Mirroring), or device management blocks screen capture.
+The app captures the screen the way the built-in screen recorder does, so the MDM restriction
+`allowScreenShot` must be true (Intune: "Block screenshots and screen recording" not configured;
+Jamf / Workspace ONE: "Allow screen capture"). AirPlay is a separate permission, which is why
+AirPlay to Mirror Wall still works on a phone with this restriction.
