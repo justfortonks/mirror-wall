@@ -37,6 +37,10 @@ BUILT=$(date "+%Y-%m-%d %H:%M")
 # number, so Check for Update can tell 0.112 beta 7 from beta 8 and from the 0.112 release.
 BETA="${MIRRORWALL_BETA:-}"
 VERSION="0.$BUILD${BETA:+ beta $BETA}"
+# A tester build (scripts/make-tester-dmg.sh) comes with a relay already set up: Mirror Wall uses
+# it until someone changes Settings › Phones › Relay. Ordinary builds leave these out.
+RELAY_HOST="${MIRRORWALL_BUNDLED_RELAY_HOST:-}"
+RELAY_TOKEN="${MIRRORWALL_BUNDLED_RELAY_TOKEN:-}"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,6 +58,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>MirrorWallCommitFull</key><string>$COMMIT_FULL</string>
     <key>MirrorWallBuilt</key><string>$BUILT</string>
 ${BETA:+    <key>MirrorWallBeta</key><string>$BETA</string>
+}${RELAY_TOKEN:+    <key>MirrorWallRelayHost</key><string>$RELAY_HOST</string>
+    <key>MirrorWallRelayToken</key><string>$RELAY_TOKEN</string>
 }    <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>

@@ -126,6 +126,13 @@ final class SlotStore: ObservableObject {
         } else {
             relayToken = Keychain.string(relayTokenKey) ?? ""
         }
+        // A tester build ships with a relay: used until the relay is set in Settings, even to off.
+        if defaults.object(forKey: relayHostKey) == nil,
+           let host = Bundle.main.object(forInfoDictionaryKey: "MirrorWallRelayHost") as? String,
+           let token = Bundle.main.object(forInfoDictionaryKey: "MirrorWallRelayToken") as? String {
+            relayHost = host
+            relayToken = token
+        }
         allowedDeviceIDs = Set(defaults.stringArray(forKey: allowedDevicesKey) ?? [])
         defaultStandby = defaults.data(forKey: defaultStandbyKey).flatMap { try? JSONDecoder().decode(StandbyPicture.self, from: $0) } ?? .message
         obsFeedForAllSlots = defaults.bool(forKey: obsFeedForAllSlotsKey)

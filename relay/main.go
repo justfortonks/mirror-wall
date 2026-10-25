@@ -57,7 +57,9 @@ type phone struct {
 }
 
 type relay struct {
-	token   string
+	// The team token first, then guest tokens (RELAY_GUEST_TOKENS): each one lets a Mac open
+	// slots, and a guest token can be withdrawn without changing the team's.
+	tokens  []string
 	codeTTL time.Duration
 
 	mu      sync.Mutex
@@ -68,7 +70,7 @@ type relay struct {
 
 func newRelay(token string, codeTTL time.Duration) *relay {
 	return &relay{
-		token:   token,
+		tokens:  []string{token},
 		codeTTL: codeTTL,
 		byCode:  map[string]*waiting{},
 		byKey:   map[string]*waiting{},
@@ -94,11 +96,16 @@ func main() {
 		ttl = d
 	}
 	r := newRelay(token, ttl)
+	for _, guest := range strings.Split(os.Getenv("RELAY_GUEST_TOKENS"), ",") {
+		if guest = strings.TrimSpace(guest); guest != "" {
+			r.tokens = append(r.tokens, guest)
+		}
+	}
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("relay listening on :%s (code ttl %s)", port, ttl)
+	log.Printf("relay listening on :%s (code ttl %s, %d guest tokens)", port, ttl, len(r.tokens)-1)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() { <-ctx.Done(); ln.Close() }()
@@ -145,7 +152,7 @@ func (r *relay) serve(c net.Conn) {
 
 // A Mac offering a slot. The connection stays open, idle, until a phone joins.
 func (r *relay) open(c net.Conn, reader *bufio.Reader, m message) {
-	if subtle.ConstantTimeCompare([]byte(m.Token), []byte(r.token)) != 1 {
+	if !r.allowed(m.Token) {
 		reply(c, message{Type: "error", Reason: "bad token"})
 		c.Close()
 		log.Printf("open refused from %s: bad token", c.RemoteAddr())
@@ -353,4 +360,14 @@ func (l *limiter) spend() {
 	defer l.mu.Unlock()
 	l.refill()
 	l.tokens--
+}
+
+// Whether a Mac's token is the team's or a guest's. Every token is compared, so the time taken
+// says nothing about which one nearly matched.
+func (r *relay) allowed(token string) bool {
+	ok := 0
+	for _, t := range r.tokens {
+		ok |= subtle.ConstantTimeCompare([]byte(token), []byte(t))
+	}
+	return ok == 1 && token != ""
 }

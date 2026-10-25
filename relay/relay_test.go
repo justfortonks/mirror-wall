@@ -124,3 +124,13 @@ func TestLimiterBurnsOutOnGuessing(t *testing.T) {
 		t.Fatalf("expected the limiter to kick in, got %+v", last)
 	}
 }
+
+func TestGuestTokens(t *testing.T) {
+	r := newRelay("team", time.Minute)
+	r.tokens = append(r.tokens, "guest")
+	for token, want := range map[string]bool{"team": true, "guest": true, "": false, "gues": false, "other": false} {
+		if got := r.allowed(token); got != want {
+			t.Errorf("allowed(%q) = %v, want %v", token, got, want)
+		}
+	}
+}
