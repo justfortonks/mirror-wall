@@ -122,8 +122,11 @@ final class PopOutWindow: NSObject, NSWindowDelegate {
             .store(in: &cancellables)
     }
 
+    /// Brings the window in front of every app's windows, not just Mirror Wall's: it may be
+    /// chosen from the menu bar icon while another app is in front.
     func show() {
-        window.orderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     func close() {
