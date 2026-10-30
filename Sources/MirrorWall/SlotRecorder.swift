@@ -13,6 +13,11 @@ import MirrorCore
 /// begins. Frames are timed from the stream's own timestamps where it has them
 /// (`RecordingClock`), not their bursty arrival.
 ///
+/// Files are written in fragments every couple of seconds, so a file cut short (the app quits
+/// unexpectedly, or the encoder fails) still plays up to its last fragment. If the writer fails
+/// or the encoder stops taking pictures, that file is closed and the next one starts a moment
+/// later, rather than the slot showing it's recording while nothing gets written.
+///
 /// Not thread-safe: the slot calls it under its own lock.
 final class SlotRecorder {
     private let folder: URL
@@ -25,6 +30,16 @@ final class SlotRecorder {
     private var part = 0
     private var startedAt = Date()
     private var clock = RecordingClock()
+    /// When the encoder began refusing pictures (`append`'s arrival), to notice one that has
+    /// stopped; nil while it's taking them.
+    private var refusingSince: Double?
+    /// After a failure, no new file starts before this arrival time, so a failure that repeats
+    /// doesn't make a file per picture.
+    private var retryAfter = 0.0
+
+    /// An encoder that has refused every picture for this long counts as stuck.
+    static let stallLimit = 5.0
+    static let retryDelay = 2.0
 
     /// Fine enough that frames a few milliseconds apart never share a time.
     static let timescale: CMTimeScale = 90_000
@@ -47,18 +62,45 @@ final class SlotRecorder {
         if let size, size.width != width || size.height != height {
             endFile(at: arrival)
         }
+        if let writer, writer.status != .writing {
+            // Failed between pictures (e.g. the encoder was lost while the Mac slept).
+            abandonFile(writer, at: arrival)
+        }
         if writer == nil {
+            guard arrival >= retryAfter else { return }
             clock = RecordingClock()
-            startFile(width: width, height: height)
+            startFile(width: width, height: height, at: arrival)
         }
-        guard let writer, let input, let adaptor, writer.status == .writing else { return }
-        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
+        guard let writer, let input, let adaptor else { return }
         guard input.isReadyForMoreMediaData else {
-            return // dropped; the encoder keeps up with a phone easily, so this is rare
+            // Dropped; the encoder keeps up with a phone easily, so this is rare. One that has
+            // refused every picture for seconds is stuck: close the file and start another.
+            let since = refusingSince ?? arrival
+            refusingSince = since
+            if arrival - since > Self.stallLimit {
+                onError?("the encoder stopped taking pictures; starting a new file")
+                endFile(at: arrival)
+                retryAfter = arrival + Self.retryDelay
+            }
+            return
         }
+        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
+        refusingSince = nil
         if !adaptor.append(image, withPresentationTime: time) {
-            fail(writer)
+            abandonFile(writer, at: arrival)
         }
+    }
+
+    /// Gives up on a file whose writer has failed: it can't be finished, but its fragments so far
+    /// still play. The next picture after a short pause starts a new file.
+    private func abandonFile(_ writer: AVAssetWriter, at arrival: Double) {
+        fail(writer)
+        self.writer = nil
+        input = nil
+        adaptor = nil
+        size = nil
+        currentURL = nil
+        retryAfter = arrival + Self.retryDelay
     }
 
     /// Finishes the current file but keeps recording: the next picture starts a new one.
@@ -86,7 +128,9 @@ final class SlotRecorder {
         if wait { _ = done.wait(timeout: .now() + 3) }
     }
 
-    private func startFile(width: Int, height: Int) {
+    private func startFile(width: Int, height: Int, at arrival: Double) {
+        // If this one can't start either, wait before trying again.
+        retryAfter = arrival + Self.retryDelay
         part += 1
         if part == 1 { startedAt = Date() }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -94,6 +138,7 @@ final class SlotRecorder {
         do {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
+            writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
             let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(width: width, height: height))
             input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
@@ -113,6 +158,7 @@ final class SlotRecorder {
             self.adaptor = adaptor
             size = (width, height)
             currentURL = url
+            refusingSince = nil
         } catch {
             onError?("couldn't create \(url.lastPathComponent): \(error.localizedDescription)")
         }
