@@ -12,10 +12,11 @@ namespace MirrorWall;
 /// mirroring starts, the screen wakes or it rotates. Re-compressing lets a recording start the
 /// moment it's asked for.
 ///
-/// The video is square, as wide as the phone's picture is long, so turning the phone doesn't
-/// start a new file: each picture is fitted in, upright with black bars at the sides, sideways
-/// with bars above and below. A new file starts when a new connection begins, or a phone with a
-/// different screen size connects. Frames are timed from the stream's own timestamps where it has them
+/// The video is a square, sized when the file starts to hold the phone's picture either way up,
+/// so turning the phone doesn't start a new file: each picture is scaled to fit it, upright with
+/// black bars at the sides, sideways with bars above and below. (Turning can change the picture's
+/// longer side, not just swap its width and height: an iPhone sends 498×1080 upright but
+/// 1920×884 sideways.) A new file starts when a new connection begins. Frames are timed from the stream's own timestamps where it has them
 /// (<see cref="RecordingClock"/>), not their bursty arrival. Encoding happens on a thread of its
 /// own, so the slot's stream never waits for it.
 /// </summary>
@@ -77,12 +78,10 @@ internal sealed class SlotRecorder
     {
         try
         {
-            int side = Mp4Writer.SideFor(picture.Width, picture.Height);
-            if (writer != null && writer.Side != side) Finish(arrival);
             if (writer == null)
             {
                 clock = new RecordingClock();
-                Start(side, picture.Width, picture.Height);
+                Start(Mp4Writer.SideFor(picture.Width, picture.Height));
             }
             if (writer == null) return;
             writer.Write(picture, clock.Time(rtp, arrival));
@@ -100,7 +99,7 @@ internal sealed class SlotRecorder
         }
     }
 
-    private void Start(int side, int pictureWidth, int pictureHeight)
+    private void Start(int side)
     {
         part++;
         if (part == 1) startedAt = DateTime.Now;
@@ -108,7 +107,7 @@ internal sealed class SlotRecorder
         try
         {
             Directory.CreateDirectory(folder);
-            writer = new Mp4Writer(path, side, pictureWidth, pictureHeight);
+            writer = new Mp4Writer(path, side);
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or DllNotFoundException or NotSupportedException)
         {
@@ -157,11 +156,8 @@ internal sealed unsafe class Mp4Writer : IDisposable
     /// card where it can), then the graphics makers' own, then software ones if present.</summary>
     private static readonly string[] Encoders = { "h264_mf", "h264_qsv", "h264_nvenc", "h264_amf", "libopenh264", "libx264" };
 
-    /// <summary>The square's side in pixels: the picture's longer side, made even, as H.264 in NV12 needs.</summary>
+    /// <summary>The square's side in pixels (see <see cref="SideFor"/>).</summary>
     public int Side { get; }
-    /// <summary>The first picture's size, for the bitrate.</summary>
-    private readonly int pictureWidth;
-    private readonly int pictureHeight;
     private AVFormatContext* format;
     private AVCodecContext* encoder;
     private AVStream* stream;
@@ -174,14 +170,22 @@ internal sealed unsafe class Mp4Writer : IDisposable
     private long lastPts = -1;
     private bool headerWritten;
 
-    public static int SideFor(int width, int height) => Math.Max(width, height) & ~1;
+    /// <summary>The square's side for a recording whose first picture is this size: long enough for
+    /// the phone turned the other way too. The stream fits a 16:9 box, so an upright picture's height
+    /// is the box's height and a sideways one may be up to 16/9 of that wide (1080 → 1920). Capped at
+    /// 2560, within what H.264 encoders take, so Sharper Picture's 3840-wide landscape is scaled down
+    /// a little. Even, as H.264 in NV12 needs.</summary>
+    public static int SideFor(int width, int height)
+    {
+        int longSide = Math.Max(width, height);
+        int roomy = height > width ? Math.Max(longSide, longSide * 16 / 9) : longSide;
+        return Math.Min(roomy, 2560) & ~1;
+    }
 
-    public Mp4Writer(string path, int side, int pictureWidth, int pictureHeight)
+    public Mp4Writer(string path, int side)
     {
         FFmpegLibraries.Load();
         Side = side;
-        this.pictureWidth = pictureWidth;
-        this.pictureHeight = pictureHeight;
         try
         {
             Open(path);
@@ -224,7 +228,8 @@ internal sealed unsafe class Mp4Writer : IDisposable
     {
         if (converter != null && converterFrom == (width, height)) return;
         if (converter != null) ffmpeg.sws_freeContext(converter);
-        double scale = Math.Min(1.0, Side / (double)Math.Max(width, height));
+        // Scaled to fill the square's side either way, as the Mac's letterboxing does.
+        double scale = Side / (double)Math.Max(width, height);
         int fitWidth = Math.Max(2, (int)(width * scale) & ~1);
         int fitHeight = Math.Max(2, (int)(height * scale) & ~1);
         placed = (((Side - fitWidth) / 2) & ~1, ((Side - fitHeight) / 2) & ~1, fitWidth, fitHeight);
@@ -260,10 +265,10 @@ internal sealed unsafe class Mp4Writer : IDisposable
             context->time_base = new AVRational { num = 1, den = Timescale };
             context->framerate = new AVRational { num = 60, den = 1 };
             context->pix_fmt = AVPixelFormat.AV_PIX_FMT_NV12;
-            // A generous bitrate for the phone's picture so the copy looks like what it sent (the
-            // black bars cost almost nothing): about 4 Mbps for a portrait phone, 12 Mbps for
-            // landscape 1920×884 (the Mac app's figures).
-            context->bit_rate = (long)Math.Max(4_000_000, pictureWidth * (double)pictureHeight * 60 * 0.12);
+            // A generous bitrate for a 16:9 picture as wide as the square, so the copy looks like
+            // what the phone sent (the black bars cost almost nothing): about 15 Mbps for a 1920
+            // square (the Mac app's figures).
+            context->bit_rate = (long)Math.Max(4_000_000, Side * (Side * 9 / 16) * 60 * 0.12);
             // A keyframe every 2 seconds so players can jump around the file, and no reordering.
             context->gop_size = 120;
             context->max_b_frames = 0;
