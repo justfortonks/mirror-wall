@@ -5,6 +5,11 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 29, 2026: Pop-outs come to the front
+
+- Choosing a phone from the menu bar icon (the notification area icon on Windows) now brings
+  its own window in front of other apps, instead of leaving it behind them.
+
 ## October 23, 2026: A friendlier Stage
 
 - The Stage has a control bar that fades in when you move the mouse over it, with a chip

@@ -450,7 +450,7 @@ internal sealed class SlotStore : Observable
     {
         if (popOutWindows.TryGetValue(slot.Id, out var existing))
         {
-            existing.Activate();
+            existing.BringForward();
             return;
         }
         string title = WindowTitles.GetValueOrDefault(slot.Id, $"MacMirror-{slot.Name}");
