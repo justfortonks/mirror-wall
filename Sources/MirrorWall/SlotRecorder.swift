@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import MirrorCore
+import VideoToolbox
 
 /// Writes one slot's pictures to movie files, compressing them with the Mac's video encoder.
 ///
@@ -9,8 +10,10 @@ import MirrorCore
 /// mirroring starts, the screen wakes or it rotates. Re-compressing lets a recording start the
 /// moment it's asked for.
 ///
-/// A new file starts when the picture changes size (the phone rotates) or a new connection
-/// begins. Frames are timed from the stream's own timestamps where it has them
+/// The video is square, as wide as the phone's picture is long, so turning the phone doesn't
+/// start a new file: each picture is fitted in, upright with black bars at the sides, sideways
+/// with bars above and below. A new file starts when a new connection begins, or a phone with a
+/// different screen size connects. Frames are timed from the stream's own timestamps where it has them
 /// (`RecordingClock`), not their bursty arrival.
 ///
 /// Files are written in fragments every couple of seconds, so a file cut short (the app quits
@@ -24,7 +27,11 @@ final class SlotRecorder {
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var size: (width: Int, height: Int)?
+    /// The square video's side, in pixels.
+    private var side: Int?
+    /// Fits each picture into the square, with black bars.
+    private var transfer: VTPixelTransferSession?
+    private var canvasPool: CVPixelBufferPool?
     /// Names later files, e.g. after the phone that's mirroring.
     var baseName: String
     private var part = 0
@@ -59,7 +66,8 @@ final class SlotRecorder {
     func append(image: CVImageBuffer, rtpTimestamp: UInt32?, arrival: Double) {
         let width = CVPixelBufferGetWidth(image)
         let height = CVPixelBufferGetHeight(image)
-        if let size, size.width != width || size.height != height {
+        let pictureSide = Self.side(width: width, height: height)
+        if let side, side != pictureSide {
             endFile(at: arrival)
         }
         if let writer, writer.status != .writing {
@@ -69,7 +77,7 @@ final class SlotRecorder {
         if writer == nil {
             guard arrival >= retryAfter else { return }
             clock = RecordingClock()
-            startFile(width: width, height: height, at: arrival)
+            startFile(side: pictureSide, format: CVPixelBufferGetPixelFormatType(image), pictureWidth: width, pictureHeight: height, at: arrival)
         }
         guard let writer, let input, let adaptor else { return }
         guard input.isReadyForMoreMediaData else {
@@ -84,9 +92,13 @@ final class SlotRecorder {
             }
             return
         }
-        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
         refusingSince = nil
-        if !adaptor.append(image, withPresentationTime: time) {
+        guard let squared = fitted(image) else {
+            onError?("couldn't fit a \(width)×\(height) picture into the recording")
+            return
+        }
+        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
+        if !adaptor.append(squared, withPresentationTime: time) {
             abandonFile(writer, at: arrival)
         }
     }
@@ -98,9 +110,23 @@ final class SlotRecorder {
         self.writer = nil
         input = nil
         adaptor = nil
-        size = nil
+        side = nil
         currentURL = nil
         retryAfter = arrival + Self.retryDelay
+    }
+
+    /// The square's side for a picture: its longer side, made even as H.264 needs.
+    static func side(width: Int, height: Int) -> Int {
+        max(width, height) & ~1
+    }
+
+    /// The picture centred in a square buffer, scaled to fit if needed, with black around it.
+    private func fitted(_ image: CVImageBuffer) -> CVPixelBuffer? {
+        guard let transfer, let canvasPool else { return nil }
+        var output: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, canvasPool, &output)
+        guard let output, VTPixelTransferSessionTransferImage(transfer, from: image, to: output) == noErr else { return nil }
+        return output
     }
 
     /// Finishes the current file but keeps recording: the next picture starts a new one.
@@ -113,7 +139,7 @@ final class SlotRecorder {
         self.writer = nil
         self.input = nil
         adaptor = nil
-        size = nil
+        side = nil
         currentURL = nil
         guard writer.status == .writing else { return }
         input.markAsFinished()
@@ -128,7 +154,7 @@ final class SlotRecorder {
         if wait { _ = done.wait(timeout: .now() + 3) }
     }
 
-    private func startFile(width: Int, height: Int, at arrival: Double) {
+    private func startFile(side: Int, format: OSType, pictureWidth: Int, pictureHeight: Int, at arrival: Double) {
         // If this one can't start either, wait before trying again.
         retryAfter = arrival + Self.retryDelay
         part += 1
@@ -139,11 +165,11 @@ final class SlotRecorder {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
             writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(width: width, height: height))
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(side: side, pictureWidth: pictureWidth, pictureHeight: pictureHeight))
             input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else {
-                onError?("couldn't record a \(width)×\(height) picture")
+                onError?("couldn't record a \(side)×\(side) video")
                 return
             }
             writer.add(input)
@@ -153,10 +179,24 @@ final class SlotRecorder {
                 return
             }
             writer.startSession(atSourceTime: .zero)
+            if transfer == nil {
+                VTPixelTransferSessionCreate(allocator: kCFAllocatorDefault, pixelTransferSessionOut: &transfer)
+                if let transfer {
+                    VTSessionSetProperty(transfer, key: kVTPixelTransferPropertyKey_ScalingMode, value: kVTScalingMode_Letterbox)
+                }
+            }
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: format,
+                kCVPixelBufferWidthKey: side,
+                kCVPixelBufferHeightKey: side,
+                kCVPixelBufferIOSurfacePropertiesKey: [CFString: Any](),
+            ]
+            canvasPool = nil
+            CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &canvasPool)
             self.writer = writer
             self.input = input
             self.adaptor = adaptor
-            size = (width, height)
+            self.side = side
             currentURL = url
             refusingSince = nil
             // Started: the next file (e.g. after the phone rotates) may start at once.
@@ -166,14 +206,15 @@ final class SlotRecorder {
         }
     }
 
-    /// H.264, which every player and editor reads, at a generous bitrate so the copy looks like
-    /// what the phone sent: about 4 Mbps for a portrait phone, 12 Mbps for landscape 1920×884.
-    static func videoSettings(width: Int, height: Int) -> [String: Any] {
-        let bitsPerSecond = max(4_000_000, Double(width * height) * 60 * 0.12)
+    /// H.264, which every player and editor reads, in a `side`-pixel square, at a generous
+    /// bitrate for the phone's picture so the copy looks like what it sent (the black bars cost
+    /// almost nothing): about 4 Mbps for a portrait phone, 12 Mbps for landscape 1920×884.
+    static func videoSettings(side: Int, pictureWidth: Int, pictureHeight: Int) -> [String: Any] {
+        let bitsPerSecond = max(4_000_000, Double(pictureWidth * pictureHeight) * 60 * 0.12)
         return [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
+            AVVideoWidthKey: side,
+            AVVideoHeightKey: side,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitsPerSecond,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,

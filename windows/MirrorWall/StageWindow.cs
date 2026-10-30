@@ -261,7 +261,21 @@ internal sealed class StageWindow : Window
         controls.Child = ControlBar();
         empty.Content = EmptyState();
         waitingPills.Children.Clear();
-        foreach (var slot in store.Slots.Where(slot => !slot.ShowsPicture)) waitingPills.Children.Add(WaitingPill(slot));
+        var waiting = store.Slots.Where(slot => !slot.ShowsPicture).ToList();
+        // Labelled, so a pill sitting under a phone isn't read as that phone's status.
+        if (waiting.Count > 0)
+        {
+            waitingPills.Children.Add(new TextBlock
+            {
+                Text = "Other slots",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromArgb(179, 255, 255, 255)),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 4, 0),
+            });
+        }
+        foreach (var slot in waiting) waitingPills.Children.Add(WaitingPill(slot));
         SizeCaption();
     }
 
