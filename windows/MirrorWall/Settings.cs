@@ -70,6 +70,21 @@ internal sealed class Settings
     public StagePhones StagePhones { get; set; } = StagePhones.None;
     /// <summary>Whether the Stage shows its "Live demo" caption bar. Off until changed.</summary>
     public bool StageCaptionStandard { get; set; }
+    /// <summary>A random number made once per PC that goes into every slot's AirPlay device ID (see
+    /// <see cref="SlotConfig.DeviceIdOn"/>), so slots on two computers on the same network never
+    /// claim the same identity. 0 until first needed.</summary>
+    public uint ReceiverTag { get; set; }
+
+    public uint ReceiverTagValue()
+    {
+        if (ReceiverTag == 0)
+        {
+            ReceiverTag = (uint)Random.Shared.NextInt64(1, uint.MaxValue);
+            Save();
+        }
+        return ReceiverTag;
+    }
+
     /// <summary>The main window's place: left, top, width, height.</summary>
     public double[]? MainWindowBounds { get; set; }
 

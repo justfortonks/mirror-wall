@@ -127,9 +127,17 @@ public sealed record SlotConfig
     [JsonIgnore]
     public int RtpPort => 5598 + Id * 2;
 
-    /// <summary>A locally administered MAC-style device ID, unique per slot.</summary>
+    /// <summary>A locally administered MAC-style device ID, unique per slot: "02:00:00:00:00:01" with no
+    /// computer tag (see <see cref="DeviceIdOn"/>).</summary>
     [JsonIgnore]
-    public string DeviceId => "02:00:00:00:00:" + Id.ToString("X2");
+    public string DeviceId => DeviceIdOn(0);
+
+    /// <summary>The slot's device ID on the computer tagged <paramref name="computer"/>, e.g.
+    /// "02:5A:1F:C3:09:01". iPhones tell receivers apart by this ID (uxplay also derives its key from
+    /// it), so two computers on the same network whose slots shared "02:00:00:00:00:01" looked like
+    /// one receiver, and phones dropped both from Screen Mirroring. The tag is random per computer.</summary>
+    public string DeviceIdOn(uint computer) =>
+        $"02:{computer >> 24 & 0xFF:X2}:{computer >> 16 & 0xFF:X2}:{computer >> 8 & 0xFF:X2}:{computer & 0xFF:X2}:{Id & 0xFF:X2}";
 
     /// <summary>The highest frame rates the app offers to ask phones for. uxplay's own default is 30.</summary>
     public static readonly int[] FrameRates = { 30, 60 };
@@ -141,14 +149,14 @@ public sealed record SlotConfig
     /// <paramref name="sharpPicture"/>, phones are offered H.265 at up to 3840×2160, and send portrait
     /// pictures twice as tall and wide as with H.264's 1920×1080.
     /// </summary>
-    public List<string> UxPlayArguments(int maxFrameRate = 30, IEnumerable<string>? allowedDevices = null, bool sharpPicture = false)
+    public List<string> UxPlayArguments(int maxFrameRate = 30, IEnumerable<string>? allowedDevices = null, bool sharpPicture = false, uint computer = 0)
     {
         var arguments = new List<string>
         {
             "-n", Name,
             "-nh",                      // don't append "@hostname" to the name
             "-p", AirplayBasePort.ToString(),
-            "-m", DeviceId,
+            "-m", DeviceIdOn(computer),
             "-vsync", "no",             // show frames as they arrive; with sync on the picture froze after the phone slept
             "-as", "0",                 // view only: no audio
             "-d", "1",                  // debug log without packet dumps: reports connects and disconnects

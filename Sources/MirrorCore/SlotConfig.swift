@@ -116,10 +116,17 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         5598 + UInt16(id) * 2
     }
 
-    /// A locally administered MAC-style device ID, unique per slot.
-    public var deviceID: String {
-        let hex = String(id, radix: 16, uppercase: true)
-        return "02:00:00:00:00:" + (hex.count == 1 ? "0" + hex : hex)
+    /// A locally administered MAC-style device ID, unique per slot: "02:00:00:00:00:01" with no
+    /// computer tag (see `deviceID(computer:)`).
+    public var deviceID: String { deviceID(computer: 0) }
+
+    /// The slot's device ID on the computer tagged `computer`, e.g. "02:5A:1F:C3:09:01". iPhones
+    /// tell receivers apart by this ID (uxplay also derives its key from it), so two computers on
+    /// the same network whose slots shared "02:00:00:00:00:01" looked like one receiver, and
+    /// phones dropped both from Screen Mirroring. The tag is random per computer.
+    public func deviceID(computer: UInt32) -> String {
+        let bytes = [2, (computer >> 24) & 0xFF, (computer >> 16) & 0xFF, (computer >> 8) & 0xFF, computer & 0xFF, UInt32(id) & 0xFF]
+        return bytes.map { String(format: "%02X", $0) }.joined(separator: ":")
     }
 
     /// The highest frame rates the app offers to ask phones for. uxplay's own default is 30.
@@ -134,12 +141,12 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// second the phone is asked to send; it may send fewer. With `allowedDevices`, only phones
     /// with those device IDs may connect. With `sharpPicture`, phones are offered H.265 at up to
     /// 3840×2160, and send portrait pictures twice as tall and wide as with H.264's 1920×1080.
-    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false) -> [String] {
+    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false, computer: UInt32 = 0) -> [String] {
         var arguments = [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
             "-p", String(airplayBasePort),
-            "-m", deviceID,
+            "-m", deviceID(computer: computer),
             "-vsync", "no",             // show frames as they arrive; with sync on the picture froze after the phone slept
             "-as", "0",                 // view only: no audio
             "-d", "1",                  // debug log without packet dumps: reports connects and disconnects

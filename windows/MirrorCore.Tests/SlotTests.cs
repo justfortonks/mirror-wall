@@ -16,6 +16,8 @@ public class SlotConfigTests
         Assert.Equal(7400, two.AirplayBasePort);
         Assert.Equal("02:00:00:00:00:01", one.DeviceId);
         Assert.Equal("02:00:00:00:00:0C", new SlotConfig(12, "x").DeviceId);
+        Assert.Equal("02:5A:1F:C3:09:03", new SlotConfig(3, "x").DeviceIdOn(0x5A1FC309));
+        Assert.Equal("02:DE:AD:BE:EF:01", After(new SlotConfig(1, "x").UxPlayArguments(computer: 0xDEADBEEF), "-m"));
         Assert.Equal(5600, one.RtpPort);
         Assert.Equal(5602, two.RtpPort);
     }

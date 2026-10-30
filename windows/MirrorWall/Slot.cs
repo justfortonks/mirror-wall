@@ -211,7 +211,7 @@ internal sealed class Slot : Observable
         receiver = newReceiver;
         receiving = true;
 
-        var arguments = Config.UxPlayArguments(MaxFrameRate, AllowedDevices, SharpPicture);
+        var arguments = Config.UxPlayArguments(MaxFrameRate, AllowedDevices, SharpPicture, Settings.Current.ReceiverTagValue());
         var newProcess = new ReceiverProcess(uxplay, arguments,
             onLine: line => { if (generation == currentGeneration) Append(line); },
             onExit: status => { if (generation == currentGeneration) ProcessExited(status); });
