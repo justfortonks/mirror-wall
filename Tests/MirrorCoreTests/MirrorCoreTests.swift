@@ -101,6 +101,9 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertEqual(two.airplayBasePort, 7400)
         XCTAssertEqual(one.deviceID, "02:00:00:00:00:01")
         XCTAssertEqual(SlotConfig(id: 12, name: "x").deviceID, "02:00:00:00:00:0C")
+        XCTAssertEqual(SlotConfig(id: 3, name: "x").deviceID(computer: 0x5A1F_C309), "02:5A:1F:C3:09:03")
+        let args = SlotConfig(id: 1, name: "x").uxplayArguments(maxFrameRate: 30, computer: 0xDEAD_BEEF)
+        XCTAssertEqual(args[args.firstIndex(of: "-m")! + 1], "02:DE:AD:BE:EF:01")
         XCTAssertNotEqual(one.rtpPort, two.rtpPort)
     }
 

@@ -88,6 +88,7 @@ struct MenuBarMenu: View {
         } else {
             Button("Record All Slots") { store.startAllRecordings() }
         }
+        SavedFilesItems(store: store)
         Button("Settings…") {
             NSApp.activate(ignoringOtherApps: true)
             openSettings()

@@ -61,6 +61,20 @@ internal sealed class MainWindow : Window
         };
         settingsButton.Click += (_, _) => SettingsWindow.Show(this, store);
 
+        var savedButton = new Button
+        {
+            Style = (Style)Application.Current.Resources["IconButton"],
+            Content = Glyphs.Folder,
+            ToolTip = "Open the folder screenshots or recordings are saved to",
+        };
+        savedButton.ContextMenu = Menus.Context(() => Menus.SavedFilesItems());
+        savedButton.Click += (_, _) =>
+        {
+            savedButton.ContextMenu.PlacementTarget = savedButton;
+            savedButton.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            savedButton.ContextMenu.IsOpen = true;
+        };
+
         var stageLabel = new StackPanel { Orientation = Orientation.Horizontal };
         stageLabel.Children.Add(new TextBlock { FontFamily = (FontFamily)Application.Current.Resources["Icons"], Text = Glyphs.Layout, VerticalAlignment = VerticalAlignment.Center });
         stageLabel.Children.Add(new TextBlock { Text = "Stage", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
@@ -77,6 +91,7 @@ internal sealed class MainWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
         buttons.Children.Add(stageButton);
         buttons.Children.Add(addButton);
+        buttons.Children.Add(savedButton);
         buttons.Children.Add(settingsButton);
         var bar = new DockPanel();
         DockPanel.SetDock(buttons, Dock.Right);
@@ -92,7 +107,8 @@ internal sealed class MainWindow : Window
         {
             Menus.Item("Add Slot", store.AddSlot, enabled: store.CanAddSlot),
             Menus.Item("Show Stage", store.ShowStage),
-        });
+            new Separator(),
+        }.Concat(Menus.SavedFilesItems()));
         var root = new DockPanel();
         DockPanel.SetDock(bar, Dock.Top);
         root.Children.Add(bar);

@@ -12,8 +12,11 @@ namespace MirrorWall;
 /// mirroring starts, the screen wakes or it rotates. Re-compressing lets a recording start the
 /// moment it's asked for.
 ///
-/// A new file starts when the picture changes size (the phone rotates) or a new connection
-/// begins. Frames are timed from the stream's own timestamps where it has them
+/// The video is a square, sized when the file starts to hold the phone's picture either way up,
+/// so turning the phone doesn't start a new file: each picture is scaled to fit it, upright with
+/// black bars at the sides, sideways with bars above and below. (Turning can change the picture's
+/// longer side, not just swap its width and height: an iPhone sends 498×1080 upright but
+/// 1920×884 sideways.) A new file starts when a new connection begins. Frames are timed from the stream's own timestamps where it has them
 /// (<see cref="RecordingClock"/>), not their bursty arrival. Encoding happens on a thread of its
 /// own, so the slot's stream never waits for it.
 /// </summary>
@@ -75,11 +78,10 @@ internal sealed class SlotRecorder
     {
         try
         {
-            if (writer != null && (writer.Width != picture.Width || writer.Height != picture.Height)) Finish(arrival);
             if (writer == null)
             {
                 clock = new RecordingClock();
-                Start(picture.Width, picture.Height);
+                Start(Mp4Writer.SideFor(picture.Width, picture.Height));
             }
             if (writer == null) return;
             writer.Write(picture, clock.Time(rtp, arrival));
@@ -97,7 +99,7 @@ internal sealed class SlotRecorder
         }
     }
 
-    private void Start(int width, int height)
+    private void Start(int side)
     {
         part++;
         if (part == 1) startedAt = DateTime.Now;
@@ -105,7 +107,7 @@ internal sealed class SlotRecorder
         try
         {
             Directory.CreateDirectory(folder);
-            writer = new Mp4Writer(path, width, height);
+            writer = new Mp4Writer(path, side);
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or DllNotFoundException or NotSupportedException)
         {
@@ -143,7 +145,8 @@ internal sealed class SlotRecorder
         $"{FileNames.Safe(baseName)} {startedAt:yyyy-MM-dd HH.mm.ss}{(part > 1 ? $" part {part}" : "")}.mp4";
 }
 
-/// <summary>One MP4 file being written: FFmpeg's H.264 encoder and MP4 muxer.</summary>
+/// <summary>One MP4 file being written: FFmpeg's H.264 encoder and MP4 muxer. The video is a square;
+/// each picture is fitted into it, centred, with black around it.</summary>
 internal sealed unsafe class Mp4Writer : IDisposable
 {
     /// <summary>Fine enough that frames a few milliseconds apart never share a time.</summary>
@@ -153,25 +156,40 @@ internal sealed unsafe class Mp4Writer : IDisposable
     /// card where it can), then the graphics makers' own, then software ones if present.</summary>
     private static readonly string[] Encoders = { "h264_mf", "h264_qsv", "h264_nvenc", "h264_amf", "libopenh264", "libx264" };
 
-    public int Width { get; }
-    public int Height { get; }
-    /// <summary>The recorded size: the picture's, made even, as H.264 in NV12 needs.</summary>
-    private int EncodedWidth => Width & ~1;
-    private int EncodedHeight => Height & ~1;
+    /// <summary>The square's side in pixels (see <see cref="SideFor"/>).</summary>
+    public int Side { get; }
     private AVFormatContext* format;
     private AVCodecContext* encoder;
     private AVStream* stream;
     private AVFrame* frame;
     private AVPacket* packet;
     private SwsContext* converter;
+    /// <summary>The picture size <see cref="converter"/> takes, and where it puts it in the square.</summary>
+    private (int Width, int Height) converterFrom;
+    private (int X, int Y, int Width, int Height) placed;
     private long lastPts = -1;
     private bool headerWritten;
 
-    public Mp4Writer(string path, int width, int height)
+    /// <summary>The square's side for a recording whose first picture is this size: long enough for
+    /// the phone turned the other way too. The stream fits a 16:9 box, so an upright picture's height
+    /// is the box's height and a sideways one may be up to 16/9 of that wide (1080 → 1920). Capped at
+    /// 2304, the tallest picture Windows' own H.264 decoder plays, so Sharper Picture's 2160-tall
+    /// upright and 3840-wide sideways pictures are scaled down a little. Even, as H.264 in NV12
+    /// needs.</summary>
+    /// <summary>Windows' H.264 decoder plays pictures up to 4096×2304; a square can't be taller.</summary>
+    private const int MaxSide = 2304;
+
+    public static int SideFor(int width, int height)
+    {
+        int longSide = Math.Max(width, height);
+        int roomy = height > width ? Math.Max(longSide, longSide * 16 / 9) : longSide;
+        return Math.Min(roomy, MaxSide) & ~1;
+    }
+
+    public Mp4Writer(string path, int side)
     {
         FFmpegLibraries.Load();
-        Width = width;
-        Height = height;
+        Side = side;
         try
         {
             Open(path);
@@ -202,11 +220,25 @@ internal sealed unsafe class Mp4Writer : IDisposable
 
         frame = ffmpeg.av_frame_alloc();
         frame->format = (int)encoder->pix_fmt;
-        frame->width = EncodedWidth;
-        frame->height = EncodedHeight;
+        frame->width = Side;
+        frame->height = Side;
         Check(ffmpeg.av_frame_get_buffer(frame, 0), "out of memory");
         packet = ffmpeg.av_packet_alloc();
-        converter = ffmpeg.sws_getContext(Width, Height, AVPixelFormat.AV_PIX_FMT_BGRA, EncodedWidth, EncodedHeight, encoder->pix_fmt,
+    }
+
+    /// <summary>Sets up the converter for pictures of this size, fitted into the square and centred.
+    /// Positions and sizes are even, so NV12's half-size colour plane lines up.</summary>
+    private void Convert(int width, int height)
+    {
+        if (converter != null && converterFrom == (width, height)) return;
+        if (converter != null) ffmpeg.sws_freeContext(converter);
+        // Scaled to fill the square's side either way, as the Mac's letterboxing does.
+        double scale = Side / (double)Math.Max(width, height);
+        int fitWidth = Math.Max(2, (int)(width * scale) & ~1);
+        int fitHeight = Math.Max(2, (int)(height * scale) & ~1);
+        placed = (((Side - fitWidth) / 2) & ~1, ((Side - fitHeight) / 2) & ~1, fitWidth, fitHeight);
+        converterFrom = (width, height);
+        converter = ffmpeg.sws_getContext(width, height, AVPixelFormat.AV_PIX_FMT_BGRA, fitWidth, fitHeight, encoder->pix_fmt,
             (int)SwsFlags.SWS_BILINEAR, null, null, null);
         if (converter == null) throw new InvalidOperationException("couldn't convert the picture for the encoder");
         // Tag the colours as the phone sent them: BT.709, limited range.
@@ -214,6 +246,13 @@ internal sealed unsafe class Mp4Writer : IDisposable
         int* coefficients = ffmpeg.sws_getCoefficients(ffmpeg.SWS_CS_ITU709);
         for (uint i = 0; i < 4; i++) table[i] = coefficients[i];
         ffmpeg.sws_setColorspaceDetails(converter, table, 1, table, 0, 0, 1 << 16, 1 << 16);
+    }
+
+    /// <summary>Paints the whole square black (limited-range NV12: Y 16, U and V 128).</summary>
+    private void FillBlack()
+    {
+        for (int y = 0; y < Side; y++) new Span<byte>(frame->data[0] + (long)y * frame->linesize[0], Side).Fill(16);
+        for (int y = 0; y < Side / 2; y++) new Span<byte>(frame->data[1] + (long)y * frame->linesize[1], Side).Fill(128);
     }
 
     /// <summary>The first encoder on this PC that opens for this picture size.</summary>
@@ -225,14 +264,16 @@ internal sealed unsafe class Mp4Writer : IDisposable
             AVCodec* codec = ffmpeg.avcodec_find_encoder_by_name(name);
             if (codec == null) continue;
             AVCodecContext* context = ffmpeg.avcodec_alloc_context3(codec);
-            context->width = EncodedWidth;
-            context->height = EncodedHeight;
+            context->width = Side;
+            context->height = Side;
             context->time_base = new AVRational { num = 1, den = Timescale };
             context->framerate = new AVRational { num = 60, den = 1 };
             context->pix_fmt = AVPixelFormat.AV_PIX_FMT_NV12;
-            // A generous bitrate so the copy looks like what the phone sent: about 4 Mbps for a
-            // portrait phone, 12 Mbps for landscape 1920×884 (the Mac app's figures).
-            context->bit_rate = (long)Math.Max(4_000_000, Width * (double)Height * 60 * 0.12);
+            // Enough for a 16:9 picture as wide as the square to look like what the phone sent (the
+            // black bars cost almost nothing; a phone's screen is mostly still): about 9 Mbps for a
+            // 1920 square. H.264 rather than the Mac's HEVC, which many PCs can't play without a
+            // paid extension.
+            context->bit_rate = (long)Math.Max(3_000_000, Side * (Side * 9 / 16) * 60 * 0.07);
             // A keyframe every 2 seconds so players can jump around the file, and no reordering.
             context->gop_size = 120;
             context->max_b_frames = 0;
@@ -248,7 +289,7 @@ internal sealed unsafe class Mp4Writer : IDisposable
         }
         throw new InvalidOperationException(failures.Count == 0
             ? "no H.264 encoder found"
-            : $"no H.264 encoder would record a {Width}×{Height} picture ({string.Join("; ", failures)})");
+            : $"no H.264 encoder would record a {Side}×{Side} video ({string.Join("; ", failures)})");
     }
 
     /// <summary>Adds a picture shown <paramref name="seconds"/> into the recording.</summary>
@@ -258,13 +299,22 @@ internal sealed unsafe class Mp4Writer : IDisposable
         if (pts <= lastPts) pts = lastPts + 1;
         lastPts = pts;
         Check(ffmpeg.av_frame_make_writable(frame), "out of memory");
+        Convert(picture.Width, picture.Height);
+        // The encoder may still hold the last buffer, so this one may be new: black it every time.
+        FillBlack();
         fixed (byte* pixels = picture.Pixels)
         {
             var source = new byte_ptrArray4();
             source[0] = pixels;
             var strides = new int_array4();
             strides[0] = picture.Stride;
-            ffmpeg.sws_scale(converter, source, strides, 0, Height, frame->data, frame->linesize);
+            var target = new byte_ptrArray4();
+            target[0] = frame->data[0] + (long)placed.Y * frame->linesize[0] + placed.X;
+            target[1] = frame->data[1] + (long)(placed.Y / 2) * frame->linesize[1] + placed.X;
+            var targetStrides = new int_array4();
+            targetStrides[0] = frame->linesize[0];
+            targetStrides[1] = frame->linesize[1];
+            ffmpeg.sws_scale(converter, source, strides, 0, picture.Height, target, targetStrides);
         }
         frame->pts = pts;
         Check(ffmpeg.avcodec_send_frame(encoder, frame), "the encoder refused a picture");

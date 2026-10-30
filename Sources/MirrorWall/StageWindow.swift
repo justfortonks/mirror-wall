@@ -120,13 +120,6 @@ struct StageView: View {
                         .frame(width: proxy.size.width, height: captionHeight)
                         .offset(y: proxy.size.height - captionHeight)
                 }
-                if !phones.isEmpty {
-                    WaitingPills(slots: store.slots.filter { !$0.showsPicture })
-                        .frame(width: proxy.size.width)
-                        .offset(y: proxy.size.height - captionHeight - 42)
-                        .opacity(controlsVisible ? 1 : 0)
-                        .allowsHitTesting(false)
-                }
                 StageControls(store: store, connected: store.slots.filter(\.showsPicture), recording: store.isAnyRecording)
                     .onHover { inside in
                         overControls = inside
@@ -187,18 +180,6 @@ struct StageView: View {
     private static func size(of slot: Slot) -> (width: Double, height: Double) {
         let picture = picture(of: slot)
         return stagePhoneSize(modelCode: slot.config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height, bezel: slot.showsBezel)
-    }
-}
-
-private func stageStatus(_ state: Slot.State) -> String {
-    switch state {
-    case .live: return "live"
-    case .connecting: return "connecting"
-    case .paused: return "screen off"
-    case .waiting: return "waiting"
-    case .disconnected: return "disconnected"
-    case .stopped: return "stopped"
-    case .failed: return "error"
     }
 }
 
@@ -343,28 +324,6 @@ private struct StageSlotChip: View {
     }
 }
 
-/// Slots without a phone, along the bottom while the controls show.
-private struct WaitingPills: View {
-    @CurrentTheme private var theme
-    let slots: [Slot]
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(slots) { slot in
-                HStack(spacing: 7) {
-                    Circle().fill(theme.statusColor(slot.state)).frame(width: 7, height: 7)
-                    Text(slot.name).font(theme.font(12, .semibold))
-                    Text(stageStatus(slot.state)).font(theme.font(11)).opacity(0.7)
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 11)
-                .frame(height: 26)
-                .background(Capsule().fill(theme.panel.opacity(0.75)))
-            }
-        }
-    }
-}
-
 /// The Stage before any phone is mirroring: how to connect, slot by slot. The meeting may see
 /// this, so it reads as a friendly "about to start" screen.
 private struct StageEmptyState: View {
@@ -440,7 +399,7 @@ private struct StagePhone: View {
 
     var body: some View {
         let shape = slot.videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
-        if slot.showsBezel {
+        if slot.drawsBezel {
             PhoneBezel(geometry: slot.bezel(for: shape), picture: shape) { picture }
         } else {
             GeometryReader { proxy in

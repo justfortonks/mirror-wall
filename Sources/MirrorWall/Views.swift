@@ -37,6 +37,14 @@ struct ContentView: View {
                 .help("Open the Stage: every phone on it in one window, for sharing in Teams, Zoom or OBS (⌘1)")
             }
             ToolbarItem {
+                Menu {
+                    SavedFilesItems(store: store)
+                } label: {
+                    Label("Saved Files", systemImage: "folder")
+                }
+                .help("Open the folder screenshots or recordings are saved to")
+            }
+            ToolbarItem {
                 SettingsLink {
                     Label("Settings", systemImage: "gearshape")
                 }
@@ -81,9 +89,22 @@ struct ContentView: View {
                     Button("Add Slot") { store.addSlot() }
                         .disabled(!store.canAddSlot)
                     Button("Show Stage") { store.showStage() }
+                    Divider()
+                    SavedFilesItems(store: store)
                 }
             }
         }
+    }
+}
+
+/// Opens the screenshots or recordings folder in Finder: for the toolbar, the wall's and the
+/// tiles' right-click menus, and the menu bar icon.
+struct SavedFilesItems: View {
+    let store: SlotStore
+
+    var body: some View {
+        Button("Open Screenshots Folder") { Screenshots.showInFinder() }
+        Button("Open Recordings Folder") { store.showRecordings() }
     }
 }
 
@@ -162,7 +183,7 @@ struct SlotTile: View {
             }
         }
         .overlay(alignment: .topTrailing) { popOutButton }
-        if slot.showsBezel {
+        if slot.drawsBezel {
             PhoneBezel(geometry: slot.bezel(for: pictureShape), picture: pictureShape) {
                 picture.background(Color.black)
             }
@@ -348,6 +369,7 @@ struct SlotTile: View {
         } else {
             Button("Stop Recording") { slot.stopRecording() }
         }
+        SavedFilesItems(store: store)
         Divider()
         if SyphonFeed.isAvailable {
             Toggle("Send to OBS (Syphon)", isOn: Binding(

@@ -5,6 +5,25 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 30, 2026: Bezels only around phones, one file per recording
+
+- A slot's phone bezel now only shows while a phone is mirroring to it. While it's waiting or
+  disconnected, the standby picture shows without a frame, on the wall, in its own window, on
+  the Stage and in the OBS feed, and the right frame comes back when a phone connects.
+- Turning the phone no longer splits a recording into several files. Recordings are square,
+  with black bars beside an upright phone or above and below a sideways one.
+- Recordings are much smaller: about a third of the size on the Mac, which now records HEVC
+  (H.265), and a bit over half on Windows, which keeps H.264 so every PC can play them.
+- Mac recordings stay playable if they're cut short, and if the Mac's video encoder fails or
+  stalls, recording carries on in a new file instead of quietly stopping.
+- New folder button on the wall, plus "Open Screenshots Folder" and "Open Recordings Folder" in
+  the wall's and each slot's right-click menus and the menu bar (notification area) icon.
+- Two computers running Mirror Wall on the same network no longer knock each other's slots out
+  of iPhones' Screen Mirroring list. Each computer's slots now have their own AirPlay identity
+  (before, every computer's slot 1 claimed the same one). Phones see each slot as new once.
+- The Stage no longer shows pills for slots without a phone along its bottom edge: they sat
+  under the phone on the Stage and looked like its status.
+
 ## October 29, 2026: Pop-outs come to the front
 
 - Choosing a phone from the menu bar icon (the notification area icon on Windows) now brings

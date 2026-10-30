@@ -34,7 +34,6 @@ internal sealed class StageWindow : Window
     private readonly Border caption = new() { Background = new SolidColorBrush(Color.FromArgb(46, 0, 0, 0)) };
     private readonly RowDefinition captionRow = new() { Height = new GridLength(0) };
     /// <summary>Slots without a phone, along the bottom while the controls show.</summary>
-    private readonly StackPanel waitingPills = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 16), Opacity = 0, IsHitTestVisible = false };
     private readonly Border controls = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 36, 0, 0), Opacity = 0, IsHitTestVisible = false };
     private readonly Button closeButton = new();
     private readonly DispatcherTimer hideTimer = new() { Interval = TimeSpan.FromSeconds(2.2) };
@@ -90,7 +89,6 @@ internal sealed class StageWindow : Window
         root.Children.Add(canvas);
         root.Children.Add(empty);
         root.Children.Add(caption);
-        root.Children.Add(waitingPills);
         root.Children.Add(controls);
         Grid.SetRowSpan(closeButton, 2);
         root.Children.Add(closeButton);
@@ -207,7 +205,6 @@ internal sealed class StageWindow : Window
     {
         var onStage = store.Slots.Where(phones.ContainsKey).ToList();
         empty.Visibility = onStage.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        waitingPills.Visibility = onStage.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         var sizes = onStage.Select(slot =>
         {
             var shape = StagePhone.PictureShape(slot);
@@ -247,7 +244,6 @@ internal sealed class StageWindow : Window
         controls.IsHitTestVisible = visible;
         var fade = new DoubleAnimation(visible ? 1 : 0, TimeSpan.FromSeconds(visible ? 0.15 : 0.4));
         controls.BeginAnimation(OpacityProperty, fade);
-        waitingPills.BeginAnimation(OpacityProperty, fade);
     }
 
     /// <summary>Rebuilds the control bar, the empty screen and the caption when what they show changes.</summary>
@@ -260,8 +256,6 @@ internal sealed class StageWindow : Window
         builtFrom = state;
         controls.Child = ControlBar();
         empty.Content = EmptyState();
-        waitingPills.Children.Clear();
-        foreach (var slot in store.Slots.Where(slot => !slot.ShowsPicture)) waitingPills.Children.Add(WaitingPill(slot));
         SizeCaption();
     }
 
@@ -382,35 +376,6 @@ internal sealed class StageWindow : Window
         menu.Placement = PlacementMode.Bottom;
         menu.IsOpen = true;
     }
-
-    private UIElement WaitingPill(Slot slot)
-    {
-        var panel = Themes.Panel();
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = Themes.StatusBrush(slot.State), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
-        row.Children.Add(new TextBlock { Text = slot.Name, FontWeight = FontWeights.SemiBold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
-        row.Children.Add(new TextBlock { Text = Status(slot.State), FontSize = 11, Opacity = 0.7, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-        return new Border
-        {
-            Child = row,
-            Background = new SolidColorBrush(Color.FromArgb(191, panel.R, panel.G, panel.B)),
-            CornerRadius = new CornerRadius(13),
-            Height = 26,
-            Padding = new Thickness(11, 0, 11, 0),
-            Margin = new Thickness(4, 0, 4, 0),
-        };
-    }
-
-    private static string Status(SlotState state) => state switch
-    {
-        SlotState.Live => "live",
-        SlotState.Connecting => "connecting",
-        SlotState.Paused => "screen off",
-        SlotState.Waiting => "waiting",
-        SlotState.Disconnected => "disconnected",
-        SlotState.Stopped => "stopped",
-        _ => "error",
-    };
 
     /// <summary>The Stage before any phone is mirroring: how to connect, slot by slot. The meeting
     /// may see this, so it reads as a friendly "about to start" screen.</summary>

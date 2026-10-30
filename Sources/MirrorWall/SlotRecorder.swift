@@ -1,17 +1,26 @@
 import AVFoundation
 import CoreMedia
 import MirrorCore
+import VideoToolbox
 
-/// Writes one slot's pictures to movie files, compressing them with the Mac's video encoder.
+/// Writes one slot's pictures to movie files, compressing them with the Mac's HEVC encoder.
 ///
 /// It records the pictures already decoded for the tile rather than copying the phone's video,
 /// because a copied stream can only start on a keyframe, and an iPhone sends one only when
 /// mirroring starts, the screen wakes or it rotates. Re-compressing lets a recording start the
 /// moment it's asked for.
 ///
-/// A new file starts when the picture changes size (the phone rotates) or a new connection
-/// begins. Frames are timed from the stream's own timestamps where it has them
+/// The video is a square, sized when the file starts to hold the phone's picture either way up,
+/// so turning the phone doesn't start a new file: each picture is scaled to fit it, upright with
+/// black bars at the sides, sideways with bars above and below. (Turning can change the picture's
+/// longer side, not just swap its width and height: an iPhone sends 498×1080 upright but
+/// 1920×884 sideways.) A new file starts when a new connection begins. Frames are timed from the stream's own timestamps where it has them
 /// (`RecordingClock`), not their bursty arrival.
+///
+/// Files are written in fragments every couple of seconds, so a file cut short (the app quits
+/// unexpectedly, or the encoder fails) still plays up to its last fragment. If the writer fails
+/// or the encoder stops taking pictures, that file is closed and the next one starts a moment
+/// later, rather than the slot showing it's recording while nothing gets written.
 ///
 /// Not thread-safe: the slot calls it under its own lock.
 final class SlotRecorder {
@@ -19,12 +28,26 @@ final class SlotRecorder {
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var size: (width: Int, height: Int)?
+    /// The square video's side, in pixels.
+    private var side: Int?
+    /// Fits each picture into the square, with black bars.
+    private var transfer: VTPixelTransferSession?
+    private var canvasPool: CVPixelBufferPool?
     /// Names later files, e.g. after the phone that's mirroring.
     var baseName: String
     private var part = 0
     private var startedAt = Date()
     private var clock = RecordingClock()
+    /// When the encoder began refusing pictures (`append`'s arrival), to notice one that has
+    /// stopped; nil while it's taking them.
+    private var refusingSince: Double?
+    /// After a failure, no new file starts before this arrival time, so a failure that repeats
+    /// doesn't make a file per picture.
+    private var retryAfter = 0.0
+
+    /// An encoder that has refused every picture for this long counts as stuck.
+    static let stallLimit = 5.0
+    static let retryDelay = 2.0
 
     /// Fine enough that frames a few milliseconds apart never share a time.
     static let timescale: CMTimeScale = 90_000
@@ -44,21 +67,69 @@ final class SlotRecorder {
     func append(image: CVImageBuffer, rtpTimestamp: UInt32?, arrival: Double) {
         let width = CVPixelBufferGetWidth(image)
         let height = CVPixelBufferGetHeight(image)
-        if let size, size.width != width || size.height != height {
-            endFile(at: arrival)
+        if let writer, writer.status != .writing {
+            // Failed between pictures (e.g. the encoder was lost while the Mac slept).
+            abandonFile(writer, at: arrival)
         }
         if writer == nil {
+            guard arrival >= retryAfter else { return }
             clock = RecordingClock()
-            startFile(width: width, height: height)
+            startFile(side: Self.side(width: width, height: height), format: CVPixelBufferGetPixelFormatType(image), at: arrival)
         }
-        guard let writer, let input, let adaptor, writer.status == .writing else { return }
-        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
+        guard let writer, let input, let adaptor else { return }
         guard input.isReadyForMoreMediaData else {
-            return // dropped; the encoder keeps up with a phone easily, so this is rare
+            // Dropped; the encoder keeps up with a phone easily, so this is rare. One that has
+            // refused every picture for seconds is stuck: close the file and start another.
+            let since = refusingSince ?? arrival
+            refusingSince = since
+            if arrival - since > Self.stallLimit {
+                onError?("the encoder stopped taking pictures; starting a new file")
+                endFile(at: arrival)
+                retryAfter = arrival + Self.retryDelay
+            }
+            return
         }
-        if !adaptor.append(image, withPresentationTime: time) {
-            fail(writer)
+        refusingSince = nil
+        guard let squared = fitted(image) else {
+            onError?("couldn't fit a \(width)×\(height) picture into the recording")
+            return
         }
+        let time = CMTime(seconds: clock.time(rtp: rtpTimestamp, arrival: arrival), preferredTimescale: Self.timescale)
+        if !adaptor.append(squared, withPresentationTime: time) {
+            abandonFile(writer, at: arrival)
+        }
+    }
+
+    /// Gives up on a file whose writer has failed: it can't be finished, but its fragments so far
+    /// still play. The next picture after a short pause starts a new file.
+    private func abandonFile(_ writer: AVAssetWriter, at arrival: Double) {
+        fail(writer)
+        self.writer = nil
+        input = nil
+        adaptor = nil
+        side = nil
+        currentURL = nil
+        retryAfter = arrival + Self.retryDelay
+    }
+
+    /// The square's side for a recording whose first picture is this size: long enough for the
+    /// phone turned the other way too. The stream fits a 16:9 box, so an upright picture's height
+    /// is the box's height and a sideways one may be up to 16/9 of that wide (1080 → 1920). Capped
+    /// at 2560, within what H.264 encoders take too, so Sharper Picture's 3840-wide landscape is
+    /// scaled down a little. Even, as the encoders need.
+    static func side(width: Int, height: Int) -> Int {
+        let long = max(width, height)
+        let roomy = height > width ? max(long, long * 16 / 9) : long
+        return min(roomy, 2560) & ~1
+    }
+
+    /// The picture centred in a square buffer, scaled to fit if needed, with black around it.
+    private func fitted(_ image: CVImageBuffer) -> CVPixelBuffer? {
+        guard let transfer, let canvasPool else { return nil }
+        var output: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, canvasPool, &output)
+        guard let output, VTPixelTransferSessionTransferImage(transfer, from: image, to: output) == noErr else { return nil }
+        return output
     }
 
     /// Finishes the current file but keeps recording: the next picture starts a new one.
@@ -71,7 +142,7 @@ final class SlotRecorder {
         self.writer = nil
         self.input = nil
         adaptor = nil
-        size = nil
+        side = nil
         currentURL = nil
         guard writer.status == .writing else { return }
         input.markAsFinished()
@@ -86,7 +157,9 @@ final class SlotRecorder {
         if wait { _ = done.wait(timeout: .now() + 3) }
     }
 
-    private func startFile(width: Int, height: Int) {
+    private func startFile(side: Int, format: OSType, at arrival: Double) {
+        // If this one can't start either, wait before trying again.
+        retryAfter = arrival + Self.retryDelay
         part += 1
         if part == 1 { startedAt = Date() }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -94,11 +167,13 @@ final class SlotRecorder {
         do {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(width: width, height: height))
+            writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
+            let hevc = writer.canApply(outputSettings: Self.videoSettings(side: side), forMediaType: .video)
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(side: side, hevc: hevc))
             input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else {
-                onError?("couldn't record a \(width)×\(height) picture")
+                onError?("couldn't record a \(side)×\(side) video")
                 return
             }
             writer.add(input)
@@ -108,27 +183,48 @@ final class SlotRecorder {
                 return
             }
             writer.startSession(atSourceTime: .zero)
+            if transfer == nil {
+                VTPixelTransferSessionCreate(allocator: kCFAllocatorDefault, pixelTransferSessionOut: &transfer)
+                if let transfer {
+                    VTSessionSetProperty(transfer, key: kVTPixelTransferPropertyKey_ScalingMode, value: kVTScalingMode_Letterbox)
+                }
+            }
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: format,
+                kCVPixelBufferWidthKey: side,
+                kCVPixelBufferHeightKey: side,
+                kCVPixelBufferIOSurfacePropertiesKey: [CFString: Any](),
+            ]
+            canvasPool = nil
+            CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &canvasPool)
             self.writer = writer
             self.input = input
             self.adaptor = adaptor
-            size = (width, height)
+            self.side = side
             currentURL = url
+            refusingSince = nil
+            // Started: the next file (e.g. after the phone rotates) may start at once.
+            retryAfter = 0
         } catch {
             onError?("couldn't create \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
-    /// H.264, which every player and editor reads, at a generous bitrate so the copy looks like
-    /// what the phone sent: about 4 Mbps for a portrait phone, 12 Mbps for landscape 1920×884.
-    static func videoSettings(width: Int, height: Int) -> [String: Any] {
-        let bitsPerSecond = max(4_000_000, Double(width * height) * 60 * 0.12)
+    /// HEVC (H.265) in a `side`-pixel square: QuickTime, Photos and editors on Macs and iPhones
+    /// play it, and it needs about half H.264's bitrate for the same picture. A phone's screen is
+    /// mostly still, so about 5 Mbps for a 1920 square (a 16:9 picture that wide; the black bars
+    /// cost almost nothing) looks like what the phone sent, a third of H.264's 15 Mbps before.
+    /// `hevc` false gives H.264 at that 15 Mbps, if this Mac can't encode HEVC.
+    static func videoSettings(side: Int, hevc: Bool = true) -> [String: Any] {
+        let pixels = Double(side * side * 9 / 16) * 60
+        let bitsPerSecond = hevc ? max(2_500_000, pixels * 0.04) : max(4_000_000, pixels * 0.12)
         return [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
+            AVVideoCodecKey: hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
+            AVVideoWidthKey: side,
+            AVVideoHeightKey: side,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitsPerSecond,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoProfileLevelKey: hevc ? kVTProfileLevel_HEVC_Main_AutoLevel as String : AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoExpectedSourceFrameRateKey: 60,
                 // A keyframe every 2 seconds so players can jump around the file.
                 AVVideoMaxKeyFrameIntervalDurationKey: 2,

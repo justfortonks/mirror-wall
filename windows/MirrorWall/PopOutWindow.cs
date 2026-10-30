@@ -117,7 +117,9 @@ internal sealed class PopOutWindow : Window
 
     private void Update()
     {
-        if (slot.ShowsBezel)
+        // The window keeps its framed size while the phone is away (see WindowShape), so an OBS
+        // capture of it doesn't jump; the standby picture just fills it without the frame.
+        if (slot.DrawsBezel)
         {
             bezelFrame.Update(slot.Bezel(PictureShape), PictureShape);
             if (bezelFrame.Content != screen)

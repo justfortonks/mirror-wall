@@ -303,11 +303,14 @@ final class SlotStore: ObservableObject {
     }
 
     /// Stops uxplay processes left behind by an earlier run that crashed or was killed.
-    /// They are recognised by the device IDs only Mirror Wall slots use.
+    /// They are recognised by the device IDs only Mirror Wall slots use: this Mac's, or the
+    /// untagged ones versions before 0.150 used.
     nonisolated static func stopLeftoverReceivers() {
+        // This Mac's IDs without the slot number, e.g. "02:5A:1F:C3:09".
+        let tag = SlotConfig(id: 1, name: "").deviceID(computer: ReceiverTag.current).dropLast(3)
         let pkill = Process()
         pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        pkill.arguments = ["-f", "uxplay .*-m 02:00:00:00:00:[0-9A-F]{2}"]
+        pkill.arguments = ["-f", "uxplay .*-m (02:00:00:00:00|\(tag)):[0-9A-F]{2}"]
         guard (try? pkill.run()) != nil else { return }
         pkill.waitUntilExit()
         if pkill.terminationStatus == 0 {
