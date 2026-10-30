@@ -5,6 +5,9 @@
 #   installed keep working.
 # - Offer again: publishes a withdrawn test build again.
 # - Withdraw all: withdraws every test build on offer, for a clean list before the next round.
+# - Delete old: keeps the 5 newest test builds on offer and deletes every other test build
+#   (withdrawn ones included) with its tag. Regular releases are never touched, and Check for
+#   Update and "Go Back to" only read the release list, so nothing depends on a deleted tag.
 # Name a build by its beta number ("48"), its version ("0.123 beta 48") or its tag
 # ("v0.123-beta.48"). The run's summary lists what's on offer afterwards.
 name: Beta builds
@@ -15,10 +18,10 @@ on:
       action:
         description: What to do
         type: choice
-        options: [Withdraw, Offer again, Withdraw all]
+        options: [Withdraw, Offer again, Withdraw all, Delete old]
         default: Withdraw
       build:
-        description: Which test build (beta number, version or tag; not needed for Withdraw all)
+        description: Which test build (beta number, version or tag; not needed for Withdraw all or Delete old)
         type: string
         default: ""
 
@@ -47,6 +50,18 @@ jobs:
             awk -F'\t' '$2 == "false" { print $1 }' betas.tsv | while read -r tag; do
               gh release edit "$tag" --draft=true > /dev/null
               echo "Withdrew $tag"
+            done
+          elif [[ "$ACTION" == "Delete old" ]]; then
+            # Newest first by beta number, which counts up across branches.
+            sort -t. -k3 -n -r betas.tsv > newest-first.tsv
+            KEEP=$(awk -F'\t' '$2 == "false" { print $1 }' newest-first.tsv | head -n 5)
+            cut -f1 newest-first.tsv | while read -r tag; do
+              if grep -qxF "$tag" <<< "$KEEP"; then
+                echo "Kept $tag"
+              else
+                gh release delete "$tag" --yes --cleanup-tag
+                echo "Deleted $tag"
+              fi
             done
           else
             # "48", "0.123 beta 48" and "v0.123-beta.48" all name beta 48.
