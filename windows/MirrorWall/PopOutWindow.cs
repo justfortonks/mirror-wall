@@ -139,6 +139,20 @@ internal sealed class PopOutWindow : Window
         if (!slot.ShowsPicture) standby.Children.Add(StandbyView.Make(store.StandbyFor(slot), slot));
     }
 
+    /// <summary>
+    /// Brings the window in front of every app's windows, e.g. when chosen from the tray icon
+    /// while another app is in front. Activate alone can leave it behind and only flash the
+    /// taskbar button; a moment on top lifts it over them.
+    /// </summary>
+    public void BringForward()
+    {
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Topmost = true;
+        Topmost = false;
+        Activate();
+    }
+
     /// <summary>Resizable by dragging its edges only with an unlocked Custom size.</summary>
     public void UpdateResizable()
     {
