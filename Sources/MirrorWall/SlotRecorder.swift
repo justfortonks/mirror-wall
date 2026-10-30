@@ -159,6 +159,8 @@ final class SlotRecorder {
             size = (width, height)
             currentURL = url
             refusingSince = nil
+            // Started: the next file (e.g. after the phone rotates) may start at once.
+            retryAfter = 0
         } catch {
             onError?("couldn't create \(url.lastPathComponent): \(error.localizedDescription)")
         }
