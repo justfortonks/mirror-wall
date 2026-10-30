@@ -265,10 +265,11 @@ internal sealed unsafe class Mp4Writer : IDisposable
             context->time_base = new AVRational { num = 1, den = Timescale };
             context->framerate = new AVRational { num = 60, den = 1 };
             context->pix_fmt = AVPixelFormat.AV_PIX_FMT_NV12;
-            // A generous bitrate for a 16:9 picture as wide as the square, so the copy looks like
-            // what the phone sent (the black bars cost almost nothing): about 15 Mbps for a 1920
-            // square (the Mac app's figures).
-            context->bit_rate = (long)Math.Max(4_000_000, Side * (Side * 9 / 16) * 60 * 0.12);
+            // Enough for a 16:9 picture as wide as the square to look like what the phone sent (the
+            // black bars cost almost nothing; a phone's screen is mostly still): about 9 Mbps for a
+            // 1920 square. H.264 rather than the Mac's HEVC, which many PCs can't play without a
+            // paid extension.
+            context->bit_rate = (long)Math.Max(3_000_000, Side * (Side * 9 / 16) * 60 * 0.07);
             // A keyframe every 2 seconds so players can jump around the file, and no reordering.
             context->gop_size = 120;
             context->max_b_frames = 0;

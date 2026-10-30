@@ -12,6 +12,8 @@ if it hasn't been released yet.
   the Stage and in the OBS feed, and the right frame comes back when a phone connects.
 - Turning the phone no longer splits a recording into several files. Recordings are square,
   with black bars beside an upright phone or above and below a sideways one.
+- Recordings are much smaller: about a third of the size on the Mac, which now records HEVC
+  (H.265), and a bit over half on Windows, which keeps H.264 so every PC can play them.
 - Mac recordings stay playable if they're cut short, and if the Mac's video encoder fails or
   stalls, recording carries on in a new file instead of quietly stopping.
 - New folder button on the wall, plus "Open Screenshots Folder" and "Open Recordings Folder" in
