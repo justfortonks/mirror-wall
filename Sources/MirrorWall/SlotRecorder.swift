@@ -3,7 +3,7 @@ import CoreMedia
 import MirrorCore
 import VideoToolbox
 
-/// Writes one slot's pictures to movie files, compressing them with the Mac's video encoder.
+/// Writes one slot's pictures to movie files, compressing them with the Mac's HEVC encoder.
 ///
 /// It records the pictures already decoded for the tile rather than copying the phone's video,
 /// because a copied stream can only start on a keyframe, and an iPhone sends one only when
@@ -115,8 +115,8 @@ final class SlotRecorder {
     /// The square's side for a recording whose first picture is this size: long enough for the
     /// phone turned the other way too. The stream fits a 16:9 box, so an upright picture's height
     /// is the box's height and a sideways one may be up to 16/9 of that wide (1080 → 1920). Capped
-    /// at 2560, within what H.264 encoders take, so Sharper Picture's 3840-wide landscape is
-    /// scaled down a little. Even, as H.264 needs.
+    /// at 2560, within what H.264 encoders take too, so Sharper Picture's 3840-wide landscape is
+    /// scaled down a little. Even, as the encoders need.
     static func side(width: Int, height: Int) -> Int {
         let long = max(width, height)
         let roomy = height > width ? max(long, long * 16 / 9) : long
@@ -168,7 +168,8 @@ final class SlotRecorder {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
             writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(side: side))
+            let hevc = writer.canApply(outputSettings: Self.videoSettings(side: side), forMediaType: .video)
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(side: side, hevc: hevc))
             input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else {
@@ -209,18 +210,21 @@ final class SlotRecorder {
         }
     }
 
-    /// H.264, which every player and editor reads, in a `side`-pixel square, at a generous
-    /// bitrate for a 16:9 picture that wide so the copy looks like what the phone sent (the black
-    /// bars cost almost nothing): about 15 Mbps for a 1920 square.
-    static func videoSettings(side: Int) -> [String: Any] {
-        let bitsPerSecond = max(4_000_000, Double(side * side * 9 / 16) * 60 * 0.12)
+    /// HEVC (H.265) in a `side`-pixel square: QuickTime, Photos and editors on Macs and iPhones
+    /// play it, and it needs about half H.264's bitrate for the same picture. A phone's screen is
+    /// mostly still, so about 5 Mbps for a 1920 square (a 16:9 picture that wide; the black bars
+    /// cost almost nothing) looks like what the phone sent, a third of H.264's 15 Mbps before.
+    /// `hevc` false gives H.264 at that 15 Mbps, if this Mac can't encode HEVC.
+    static func videoSettings(side: Int, hevc: Bool = true) -> [String: Any] {
+        let pixels = Double(side * side * 9 / 16) * 60
+        let bitsPerSecond = hevc ? max(2_500_000, pixels * 0.04) : max(4_000_000, pixels * 0.12)
         return [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
             AVVideoWidthKey: side,
             AVVideoHeightKey: side,
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: bitsPerSecond,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoProfileLevelKey: hevc ? kVTProfileLevel_HEVC_Main_AutoLevel as String : AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoExpectedSourceFrameRateKey: 60,
                 // A keyframe every 2 seconds so players can jump around the file.
                 AVVideoMaxKeyFrameIntervalDurationKey: 2,
