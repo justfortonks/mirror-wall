@@ -54,4 +54,5 @@ internal static class Glyphs
     public const string Broadcast = "";
     public const string Close = "";
     public const string Layout = "\uF0E2"; // GridView
+    public const string Folder = "\uE8B7";
 }

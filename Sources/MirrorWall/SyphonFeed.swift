@@ -43,7 +43,7 @@ final class SyphonFeed {
 
     private let lock = NSLock()
     // Guarded by `lock`.
-    private var waiting: CVImageBuffer?
+    private var waiting: (image: CVImageBuffer, framed: Bool)?
     private var busy = false
     private var framesOn = true
     private var frameStyle: BezelStyle?
@@ -97,9 +97,11 @@ final class SyphonFeed {
     }
 
     /// Hands a picture to OBS. Called from whatever thread shows the picture; returns at once.
-    func publish(_ image: CVImageBuffer) {
+    /// `framed` false sends it without the phone frame, as for the standby picture: no phone is
+    /// there to frame.
+    func publish(_ image: CVImageBuffer, framed: Bool = true) {
         lock.lock()
-        waiting = image
+        waiting = (image, framed)
         let start = !busy
         busy = true
         lock.unlock()
@@ -113,13 +115,13 @@ final class SyphonFeed {
     private func drain() {
         while true {
             lock.lock()
-            guard let image = waiting else {
+            guard let (image, isFramed) = waiting else {
                 busy = false
                 lock.unlock()
                 return
             }
             waiting = nil
-            let style = frameStyle
+            let style = isFramed ? frameStyle : nil
             let turns = frameTurns
             lock.unlock()
             send(image, style: style, turns: turns)
@@ -207,7 +209,7 @@ final class SyphonFeed {
     var passesFrames = true
     var bezelStyle: BezelStyle?
     var bezelTurns: Int?
-    func publish(_ image: CVImageBuffer) {}
+    func publish(_ image: CVImageBuffer, framed: Bool = true) {}
     func publishFrame(_ image: CVImageBuffer) {}
     func stop() {}
 }

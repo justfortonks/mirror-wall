@@ -42,6 +42,14 @@ internal static class Menus
         return menu;
     }
 
+    /// <summary>Opens the screenshots or recordings folder: for the wall's folder button, the wall's
+    /// and the tiles' right-click menus.</summary>
+    public static IEnumerable<object> SavedFilesItems()
+    {
+        yield return Item("Open Screenshots Folder", () => Native.ShowFolder(SaveFolders.Screenshots));
+        yield return Item("Open Recordings Folder", () => Native.ShowFolder(SaveFolders.Recordings));
+    }
+
     public static ContextMenu Context(Func<IEnumerable<object>> items)
     {
         // A menu takes its font from what it opens from, which for the ⋯ button is the icon font.
@@ -93,6 +101,7 @@ internal static class Menus
             // With no phone yet, recording starts when one connects.
             ? Item(slot.ShowsPicture ? "Start Recording" : "Record When a Phone Connects", slot.StartRecording)
             : Item("Stop Recording", () => slot.StopRecording());
+        foreach (var item in SavedFilesItems()) yield return item;
         yield return new Separator();
         var bezel = new List<object>
         {

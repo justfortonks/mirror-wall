@@ -256,6 +256,11 @@ final class Slot: ObservableObject, Identifiable {
     /// the store from the slot's own choice or the setting for all slots.
     @Published var showsBezel = false
 
+    /// Whether the frame is drawn now: only around a phone's picture, so an empty or
+    /// disconnected slot shows its standby picture bare, and the frame comes back styled after
+    /// whichever phone connects next.
+    var drawsBezel: Bool { showsBezel && showsPicture }
+
     func rememberBezel(_ choice: Bool?) {
         config.bezel = choice
     }
@@ -304,9 +309,10 @@ final class Slot: ObservableObject, Identifiable {
     /// The name OBS lists the slot's feed under, while it's on.
     var obsFeedName: String? { syphonFeed?.name }
 
-    /// Sends a still picture (the standby picture) down the OBS feed, if it's on.
+    /// Sends a still picture (the standby picture) down the OBS feed, if it's on, without the
+    /// phone frame.
     func sendToOBS(_ image: CVImageBuffer) {
-        syphonFeed?.publish(image)
+        syphonFeed?.publish(image, framed: false)
     }
 
     func setStandby(_ standby: StandbyPicture?) {

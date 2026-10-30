@@ -440,7 +440,7 @@ private struct StagePhone: View {
 
     var body: some View {
         let shape = slot.videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
-        if slot.showsBezel {
+        if slot.drawsBezel {
             PhoneBezel(geometry: slot.bezel(for: shape), picture: shape) { picture }
         } else {
             GeometryReader { proxy in
