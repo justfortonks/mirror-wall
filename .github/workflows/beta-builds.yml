@@ -8,6 +8,7 @@
 # - Delete old: keeps the 5 newest test builds on offer and deletes every other test build
 #   (withdrawn ones included) with its tag. Regular releases are never touched, and Check for
 #   Update and "Go Back to" only read the release list, so nothing depends on a deleted tag.
+#   It also runs by itself every Monday.
 # Name a build by its beta number ("48"), its version ("0.123 beta 48") or its tag
 # ("v0.123-beta.48"). The run's summary lists what's on offer afterwards.
 name: Beta builds
@@ -24,6 +25,9 @@ on:
         description: Which test build (beta number, version or tag; not needed for Withdraw all or Delete old)
         type: string
         default: ""
+  schedule:
+    # Mondays 09:00 UTC; a scheduled run has no inputs, so it does Delete old.
+    - cron: "0 9 * * 1"
 
 permissions:
   contents: write
@@ -38,7 +42,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          ACTION: ${{ inputs.action }}
+          ACTION: ${{ inputs.action || 'Delete old' }}
           BUILD: ${{ inputs.build }}
         run: |
           set -euo pipefail
