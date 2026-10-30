@@ -208,7 +208,9 @@ struct PopOutView: View {
 
     var body: some View {
         Group {
-            if slot.showsBezel {
+            // The window keeps its framed size while the phone is away (see `fit`), so an OBS
+            // capture of it doesn't jump; the standby picture just fills it without the frame.
+            if slot.drawsBezel {
                 let shape = slot.videoSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? CGSize(width: 9, height: 19.5)
                 ZStack {
                     Color.black

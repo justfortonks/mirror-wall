@@ -333,6 +333,11 @@ internal sealed class Slot : Observable
     /// Set by the store from the slot's own choice or the setting for all slots.</summary>
     public bool ShowsBezel { get => showsBezel; set => Set(ref showsBezel, value); }
 
+    /// <summary>Whether the frame is drawn now: only around a phone's picture, so an empty or
+    /// disconnected slot shows its standby picture bare, and the frame comes back styled after
+    /// whichever phone connects next.</summary>
+    public bool DrawsBezel => ShowsBezel && ShowsPicture;
+
     /// <summary>Remembers this slot's own bezel choice; null follows the setting for all slots.</summary>
     public void RememberBezel(bool? choice) => Config.Bezel = choice;
 
@@ -393,8 +398,9 @@ internal sealed class Slot : Observable
     /// <summary>The name OBS lists the slot's feed under, while it's on.</summary>
     public string? ObsFeedName => spoutFeed?.Name;
 
-    /// <summary>Sends a still picture (the standby picture) down the OBS feed, if it's on.</summary>
-    public void SendToObs(Picture picture) => spoutFeed?.Publish(picture);
+    /// <summary>Sends a still picture (the standby picture) down the OBS feed, if it's on, without
+    /// the phone frame.</summary>
+    public void SendToObs(Picture picture) => spoutFeed?.Publish(picture, framed: false);
 
     public void SetStandby(StandbyPicture? standby)
     {

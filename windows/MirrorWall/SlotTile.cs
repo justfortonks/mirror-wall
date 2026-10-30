@@ -198,7 +198,7 @@ internal sealed class SlotTile : UserControl
         bool hasStandbyImage = standbyPicture.Kind == StandbyKind.Image;
 
         var shape = slot.VideoSize is { Width: > 0, Height: > 0 } size ? size : new Size(9, 19.5);
-        if (slot.ShowsBezel)
+        if (slot.DrawsBezel)
         {
             bezelFrame.Update(slot.Bezel(shape), shape);
             if (pictureBox.Child != bezelFrame)
@@ -275,7 +275,7 @@ internal sealed class SlotTile : UserControl
     /// <summary>Rounds the picture's corners on the bare wall; in a bezel, the bezel rounds them.</summary>
     private void ClipFrame()
     {
-        double radius = slot.ShowsBezel ? 0 : 12;
+        double radius = slot.DrawsBezel ? 0 : 12;
         frame.CornerRadius = new CornerRadius(radius);
         frame.Clip = new RectangleGeometry(new Rect(frame.RenderSize), radius, radius);
     }

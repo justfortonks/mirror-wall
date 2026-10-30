@@ -67,6 +67,8 @@ internal sealed class TrayIcon : IDisposable
             menu.Items.Add("Stop All Recordings", null, (_, _) => Later(store.StopAllRecordings));
         else
             menu.Items.Add("Record All Slots", null, (_, _) => Later(store.StartAllRecordings));
+        menu.Items.Add("Open Screenshots Folder", null, (_, _) => Later(() => Native.ShowFolder(SaveFolders.Screenshots)));
+        menu.Items.Add("Open Recordings Folder", null, (_, _) => Later(() => Native.ShowFolder(SaveFolders.Recordings)));
         menu.Items.Add("Settings…", null, (_, _) => Later(() =>
         {
             MainWindow.ShowMain();

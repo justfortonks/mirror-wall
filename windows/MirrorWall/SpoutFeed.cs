@@ -22,6 +22,7 @@ internal sealed class SpoutFeed
     private readonly object gate = new();
     // Guarded by `gate`.
     private Picture? waiting;
+    private bool waitingFramed = true;
     private bool framesOn = true;
     private BezelStyle? frameStyle;
     private int? frameTurns;
@@ -96,14 +97,17 @@ internal sealed class SpoutFeed
         Publish(picture);
     }
 
-    /// <summary>Hands a picture to OBS. Returns at once; the picture is only lent for the call.</summary>
-    public void Publish(Picture picture)
+    /// <summary>Hands a picture to OBS. Returns at once; the picture is only lent for the call.
+    /// <paramref name="framed"/> false sends it without the phone frame, as for the standby
+    /// picture: no phone is there to frame.</summary>
+    public void Publish(Picture picture, bool framed = true)
     {
         lock (gate)
         {
             if (stopping) return;
             waiting?.Release();
             waiting = picture.Retain();
+            waitingFramed = framed;
         }
         wake.Set();
     }
@@ -134,7 +138,7 @@ internal sealed class SpoutFeed
                     if (stopping) break;
                     picture = waiting;
                     waiting = null;
-                    style = frameStyle;
+                    style = waitingFramed ? frameStyle : null;
                     turns = frameTurns;
                     if (renamed)
                     {
