@@ -16,6 +16,9 @@ if it hasn't been released yet.
   stalls, recording carries on in a new file instead of quietly stopping.
 - New folder button on the wall, plus "Open Screenshots Folder" and "Open Recordings Folder" in
   the wall's and each slot's right-click menus and the menu bar (notification area) icon.
+- Two computers running Mirror Wall on the same network no longer knock each other's slots out
+  of iPhones' Screen Mirroring list. Each computer's slots now have their own AirPlay identity
+  (before, every computer's slot 1 claimed the same one). Phones see each slot as new once.
 - The Stage's pills for slots without a phone are now labelled "Other slots", so they no longer
   look like the status of the phone above them.
 
