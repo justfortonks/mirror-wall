@@ -120,13 +120,6 @@ struct StageView: View {
                         .frame(width: proxy.size.width, height: captionHeight)
                         .offset(y: proxy.size.height - captionHeight)
                 }
-                if !phones.isEmpty {
-                    WaitingPills(slots: store.slots.filter { !$0.showsPicture })
-                        .frame(width: proxy.size.width)
-                        .offset(y: proxy.size.height - captionHeight - 42)
-                        .opacity(controlsVisible ? 1 : 0)
-                        .allowsHitTesting(false)
-                }
                 StageControls(store: store, connected: store.slots.filter(\.showsPicture), recording: store.isAnyRecording)
                     .onHover { inside in
                         overControls = inside
@@ -187,18 +180,6 @@ struct StageView: View {
     private static func size(of slot: Slot) -> (width: Double, height: Double) {
         let picture = picture(of: slot)
         return stagePhoneSize(modelCode: slot.config.lastPhoneModel, pictureWidth: picture.width, pictureHeight: picture.height, bezel: slot.showsBezel)
-    }
-}
-
-private func stageStatus(_ state: Slot.State) -> String {
-    switch state {
-    case .live: return "live"
-    case .connecting: return "connecting"
-    case .paused: return "screen off"
-    case .waiting: return "waiting"
-    case .disconnected: return "disconnected"
-    case .stopped: return "stopped"
-    case .failed: return "error"
     }
 }
 
@@ -340,35 +321,6 @@ private struct StageSlotChip: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(slot.showsOnStage ? "On the Stage. Click for this phone's options." : "Off the Stage. Click to put it back.")
-    }
-}
-
-/// Slots without a phone, along the bottom while the controls show.
-private struct WaitingPills: View {
-    @CurrentTheme private var theme
-    let slots: [Slot]
-
-    var body: some View {
-        HStack(spacing: 8) {
-            // Labelled, so a pill sitting under a phone isn't read as that phone's status.
-            if !slots.isEmpty {
-                Text("Other slots")
-                    .font(theme.font(11, .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .shadow(color: .black.opacity(0.6), radius: 2)
-            }
-            ForEach(slots) { slot in
-                HStack(spacing: 7) {
-                    Circle().fill(theme.statusColor(slot.state)).frame(width: 7, height: 7)
-                    Text(slot.name).font(theme.font(12, .semibold))
-                    Text(stageStatus(slot.state)).font(theme.font(11)).opacity(0.7)
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 11)
-                .frame(height: 26)
-                .background(Capsule().fill(theme.panel.opacity(0.75)))
-            }
-        }
     }
 }
 

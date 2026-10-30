@@ -19,8 +19,8 @@ if it hasn't been released yet.
 - Two computers running Mirror Wall on the same network no longer knock each other's slots out
   of iPhones' Screen Mirroring list. Each computer's slots now have their own AirPlay identity
   (before, every computer's slot 1 claimed the same one). Phones see each slot as new once.
-- The Stage's pills for slots without a phone are now labelled "Other slots", so they no longer
-  look like the status of the phone above them.
+- The Stage no longer shows pills for slots without a phone along its bottom edge: they sat
+  under the phone on the Stage and looked like its status.
 
 ## October 29, 2026: Pop-outs come to the front
 
