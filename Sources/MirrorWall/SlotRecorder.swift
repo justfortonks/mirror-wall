@@ -10,10 +10,11 @@ import VideoToolbox
 /// mirroring starts, the screen wakes or it rotates. Re-compressing lets a recording start the
 /// moment it's asked for.
 ///
-/// The video is square, as wide as the phone's picture is long, so turning the phone doesn't
-/// start a new file: each picture is fitted in, upright with black bars at the sides, sideways
-/// with bars above and below. A new file starts when a new connection begins, or a phone with a
-/// different screen size connects. Frames are timed from the stream's own timestamps where it has them
+/// The video is a square, sized when the file starts to hold the phone's picture either way up,
+/// so turning the phone doesn't start a new file: each picture is scaled to fit it, upright with
+/// black bars at the sides, sideways with bars above and below. (Turning can change the picture's
+/// longer side, not just swap its width and height: an iPhone sends 498×1080 upright but
+/// 1920×884 sideways.) A new file starts when a new connection begins. Frames are timed from the stream's own timestamps where it has them
 /// (`RecordingClock`), not their bursty arrival.
 ///
 /// Files are written in fragments every couple of seconds, so a file cut short (the app quits
@@ -66,10 +67,6 @@ final class SlotRecorder {
     func append(image: CVImageBuffer, rtpTimestamp: UInt32?, arrival: Double) {
         let width = CVPixelBufferGetWidth(image)
         let height = CVPixelBufferGetHeight(image)
-        let pictureSide = Self.side(width: width, height: height)
-        if let side, side != pictureSide {
-            endFile(at: arrival)
-        }
         if let writer, writer.status != .writing {
             // Failed between pictures (e.g. the encoder was lost while the Mac slept).
             abandonFile(writer, at: arrival)
@@ -77,7 +74,7 @@ final class SlotRecorder {
         if writer == nil {
             guard arrival >= retryAfter else { return }
             clock = RecordingClock()
-            startFile(side: pictureSide, format: CVPixelBufferGetPixelFormatType(image), pictureWidth: width, pictureHeight: height, at: arrival)
+            startFile(side: Self.side(width: width, height: height), format: CVPixelBufferGetPixelFormatType(image), at: arrival)
         }
         guard let writer, let input, let adaptor else { return }
         guard input.isReadyForMoreMediaData else {
@@ -115,9 +112,15 @@ final class SlotRecorder {
         retryAfter = arrival + Self.retryDelay
     }
 
-    /// The square's side for a picture: its longer side, made even as H.264 needs.
+    /// The square's side for a recording whose first picture is this size: long enough for the
+    /// phone turned the other way too. The stream fits a 16:9 box, so an upright picture's height
+    /// is the box's height and a sideways one may be up to 16/9 of that wide (1080 → 1920). Capped
+    /// at 2560, within what H.264 encoders take, so Sharper Picture's 3840-wide landscape is
+    /// scaled down a little. Even, as H.264 needs.
     static func side(width: Int, height: Int) -> Int {
-        max(width, height) & ~1
+        let long = max(width, height)
+        let roomy = height > width ? max(long, long * 16 / 9) : long
+        return min(roomy, 2560) & ~1
     }
 
     /// The picture centred in a square buffer, scaled to fit if needed, with black around it.
@@ -154,7 +157,7 @@ final class SlotRecorder {
         if wait { _ = done.wait(timeout: .now() + 3) }
     }
 
-    private func startFile(side: Int, format: OSType, pictureWidth: Int, pictureHeight: Int, at arrival: Double) {
+    private func startFile(side: Int, format: OSType, at arrival: Double) {
         // If this one can't start either, wait before trying again.
         retryAfter = arrival + Self.retryDelay
         part += 1
@@ -165,7 +168,7 @@ final class SlotRecorder {
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieTimeScale = Self.timescale
             writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(side: side, pictureWidth: pictureWidth, pictureHeight: pictureHeight))
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: Self.videoSettings(side: side))
             input.mediaTimeScale = Self.timescale
             input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else {
@@ -207,10 +210,10 @@ final class SlotRecorder {
     }
 
     /// H.264, which every player and editor reads, in a `side`-pixel square, at a generous
-    /// bitrate for the phone's picture so the copy looks like what it sent (the black bars cost
-    /// almost nothing): about 4 Mbps for a portrait phone, 12 Mbps for landscape 1920×884.
-    static func videoSettings(side: Int, pictureWidth: Int, pictureHeight: Int) -> [String: Any] {
-        let bitsPerSecond = max(4_000_000, Double(pictureWidth * pictureHeight) * 60 * 0.12)
+    /// bitrate for a 16:9 picture that wide so the copy looks like what the phone sent (the black
+    /// bars cost almost nothing): about 15 Mbps for a 1920 square.
+    static func videoSettings(side: Int) -> [String: Any] {
+        let bitsPerSecond = max(4_000_000, Double(side * side * 9 / 16) * 60 * 0.12)
         return [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: side,
