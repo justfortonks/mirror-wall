@@ -173,13 +173,17 @@ internal sealed unsafe class Mp4Writer : IDisposable
     /// <summary>The square's side for a recording whose first picture is this size: long enough for
     /// the phone turned the other way too. The stream fits a 16:9 box, so an upright picture's height
     /// is the box's height and a sideways one may be up to 16/9 of that wide (1080 → 1920). Capped at
-    /// 2560, within what H.264 encoders take, so Sharper Picture's 3840-wide landscape is scaled down
-    /// a little. Even, as H.264 in NV12 needs.</summary>
+    /// 2304, the tallest picture Windows' own H.264 decoder plays, so Sharper Picture's 2160-tall
+    /// upright and 3840-wide sideways pictures are scaled down a little. Even, as H.264 in NV12
+    /// needs.</summary>
+    /// <summary>Windows' H.264 decoder plays pictures up to 4096×2304; a square can't be taller.</summary>
+    private const int MaxSide = 2304;
+
     public static int SideFor(int width, int height)
     {
         int longSide = Math.Max(width, height);
         int roomy = height > width ? Math.Max(longSide, longSide * 16 / 9) : longSide;
-        return Math.Min(roomy, 2560) & ~1;
+        return Math.Min(roomy, MaxSide) & ~1;
     }
 
     public Mp4Writer(string path, int side)
