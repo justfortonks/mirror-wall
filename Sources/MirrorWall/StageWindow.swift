@@ -350,6 +350,13 @@ private struct WaitingPills: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            // Labelled, so a pill sitting under a phone isn't read as that phone's status.
+            if !slots.isEmpty {
+                Text("Other slots")
+                    .font(theme.font(11, .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .shadow(color: .black.opacity(0.6), radius: 2)
+            }
             ForEach(slots) { slot in
                 HStack(spacing: 7) {
                     Circle().fill(theme.statusColor(slot.state)).frame(width: 7, height: 7)

@@ -5,6 +5,20 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 30, 2026: Bezels only around phones, one file per recording
+
+- A slot's phone bezel now only shows while a phone is mirroring to it. While it's waiting or
+  disconnected, the standby picture shows without a frame, on the wall, in its own window, on
+  the Stage and in the OBS feed, and the right frame comes back when a phone connects.
+- Turning the phone no longer splits a recording into several files. Recordings are square,
+  with black bars beside an upright phone or above and below a sideways one.
+- Mac recordings stay playable if they're cut short, and if the Mac's video encoder fails or
+  stalls, recording carries on in a new file instead of quietly stopping.
+- New folder button on the wall, plus "Open Screenshots Folder" and "Open Recordings Folder" in
+  the wall's and each slot's right-click menus and the menu bar (notification area) icon.
+- The Stage's pills for slots without a phone are now labelled "Other slots", so they no longer
+  look like the status of the phone above them.
+
 ## October 29, 2026: Pop-outs come to the front
 
 - Choosing a phone from the menu bar icon (the notification area icon on Windows) now brings
