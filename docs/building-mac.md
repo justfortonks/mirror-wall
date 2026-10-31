@@ -29,7 +29,7 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 - macOS 14 or later, Xcode (or the Swift toolchain).
 - A `uxplay` build that supports `-vrtp` (UxPlay 1.72 or later). Homebrew has no UxPlay
   formula; `scripts/build-uxplay.sh` builds the exact one releases use (UxPlay at a fixed commit
-  with all three patches below) into `build/UxPlay/build/uxplay`, after
+  with all four patches below) into `build/UxPlay/build/uxplay`, after
   `brew install cmake pkgconf libplist openssl@3 gstreamer`.
   Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
   `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
@@ -50,6 +50,11 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
   crashes as a phone disconnects, and macOS then puts up a "uxplay quit unexpectedly" dialog,
   possibly in front of what OBS is capturing. With the patch a crashing uxplay exits quietly
   (it logs that it crashed); the app starts a fresh one either way.
+- And `patches/uxplay-stuck-stop-flag.patch`. An iPhone sometimes flags every frame it sends as
+  "video stream is stopping" for minutes while it keeps mirroring; stock uxplay pauses its video
+  output on that flag until a normal codec packet comes, so the picture freezes. The patch
+  treats 20 such packets within 2 seconds as a running stream and keeps the video going until
+  the flag clears. A phone that really stops sends one.
 
 ## Build and run
 

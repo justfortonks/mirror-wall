@@ -29,7 +29,7 @@ git remote add origin https://github.com/FDH2/UxPlay.git
 git fetch -q --depth 1 origin "$UXPLAY_COMMIT"
 git checkout -q FETCH_HEAD
 
-for patch in uxplay-latency-report uxplay-frame-timestamps uxplay-quiet-crash; do
+for patch in uxplay-latency-report uxplay-frame-timestamps uxplay-quiet-crash uxplay-stuck-stop-flag; do
     git apply "$repo/patches/$patch.patch"
 done
 git apply "$here/uxplay-windows.patch"

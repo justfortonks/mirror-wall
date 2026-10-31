@@ -1,0 +1,72 @@
+diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
+index e6a1788..3089355 100644
+--- a/lib/raop_rtp_mirror.c
++++ b/lib/raop_rtp_mirror.c
+@@ -199,6 +199,12 @@ raop_rtp_mirror_thread(void *arg)
+     const char h265[] = "h265";
+     bool unsupported_codec = false;
+     bool video_stream_suspended = false;
++    /* Mirror Wall: a phone that keeps sending its "stream is stopping" codec packet with every
++     * frame is still mirroring (seen for minutes on an iPhone in H.265 mode). Count those
++     * packets; past a burst, stop pausing the video for them until a normal codec packet. */
++    int stop_packets_in_window = 0;
++    uint64_t stop_window_start = 0;
++    bool ignore_stop_flag = false;
+     bool first_packet = true;
+     
+     while (1) {
+@@ -589,19 +595,44 @@ raop_rtp_mirror_thread(void *arg)
+ 	      
+                 // The information in the payload contains an SPS and a PPS NAL
+                 // The sps_pps is not encrypted
+-                logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "\nReceived unencrypted codec packet from client:"
+-                           " payload_size %d header %s ts_client = %8.6f",
+-                           payload_size, packet_description, (double) ntp_timestamp_remote / SEC);
++                bool stop_flag = (packet[6] == 0x56 || packet[6] == 0x5e);
++                if (!(stop_flag && ignore_stop_flag)) {
++                    logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "\nReceived unencrypted codec packet from client:"
++                               " payload_size %d header %s ts_client = %8.6f",
++                               payload_size, packet_description, (double) ntp_timestamp_remote / SEC);
++                }
+ 
+-                if (packet[6] == 0x56 || packet[6] == 0x5e) {
++                if (stop_flag && !ignore_stop_flag) {
+                     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "This packet indicates video stream is stopping");
+                 }
+-                if (!video_stream_suspended && (packet[6] == 0x56 || packet[6] == 0x5e)) {
+-                    video_stream_suspended = true;
+-                    raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
+-                } else if (video_stream_suspended && (packet[6] == 0x16 || packet[6] == 0x1e)) {
+-                    raop_rtp_mirror->callbacks.video_resume(raop_rtp_mirror->callbacks.cls);
+-                    video_stream_suspended = false;
++                if (stop_flag && !ignore_stop_flag) {
++                    uint64_t now = raop_ntp_get_local_time();
++                    if (now - stop_window_start > 2 * SEC) {
++                        stop_window_start = now;
++                        stop_packets_in_window = 0;
++                    }
++                    stop_packets_in_window++;
++                    if (!video_stream_suspended) {
++                        video_stream_suspended = true;
++                        raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
++                    } else if (stop_packets_in_window >= 20) {
++                        /* A stopping phone sends one such packet, not a stream of them. */
++                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "Mirror Wall: the phone keeps sending video "
++                                   "while flagging it as stopped; resuming video until the flag clears");
++                        ignore_stop_flag = true;
++                        raop_rtp_mirror->callbacks.video_resume(raop_rtp_mirror->callbacks.cls);
++                        video_stream_suspended = false;
++                    }
++                } else if (!stop_flag) {
++                    if (ignore_stop_flag) {
++                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "Mirror Wall: the phone cleared its stop flag");
++                        ignore_stop_flag = false;
++                    }
++                    stop_packets_in_window = 0;
++                    if (video_stream_suspended && (packet[6] == 0x16 || packet[6] == 0x1e)) {
++                        raop_rtp_mirror->callbacks.video_resume(raop_rtp_mirror->callbacks.cls);
++                        video_stream_suspended = false;
++                    }
+                 }
+ 
+                 assert (raop_rtp_mirror->callbacks.video_set_codec);
