@@ -5,6 +5,12 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## October 31, 2026: No more frozen picture while an iPhone mirrors
+
+- Fixed an iPhone's picture freezing for minutes while the phone kept mirroring and its tile
+  said Screen off. The phone was marking every frame it sent as "stopping"; Mirror Wall now
+  notices that the frames keep coming and keeps showing them.
+
 ## October 30, 2026: Bezels only around phones, one file per recording
 
 - A slot's phone bezel now only shows while a phone is mirroring to it. While it's waiting or
