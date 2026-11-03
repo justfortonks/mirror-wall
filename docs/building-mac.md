@@ -29,7 +29,7 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
 - macOS 14 or later, Xcode (or the Swift toolchain).
 - A `uxplay` build that supports `-vrtp` (UxPlay 1.72 or later). Homebrew has no UxPlay
   formula; `scripts/build-uxplay.sh` builds the exact one releases use (UxPlay at a fixed commit
-  with all four patches below) into `build/UxPlay/build/uxplay`, after
+  with all five patches below) into `build/UxPlay/build/uxplay`, after
   `brew install cmake pkgconf libplist openssl@3 gstreamer`.
   Run from the checkout, the app looks for it in `/opt/homebrew/bin`, `/usr/local/bin` and
   `~/Documents/Claude Code/casting app/UxPlay`, or you can pick it with **File › Choose uxplay…**.
@@ -55,6 +55,10 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
   output on that flag until a normal codec packet comes, so the picture freezes. The patch
   treats 20 such packets within 2 seconds as a running stream and keeps the video going until
   the flag clears. A phone that really stops sends one.
+- And `patches/uxplay-video-counts.patch`, which logs once a second (at `-d 1`) how many frames
+  and parameter packets arrived from the phone, how many were flagged as stopping, and whether
+  uxplay's video output is paused. With the app's own once-a-second counts (frames in, decoded,
+  shown) a slot log shows where a frozen picture stops.
 
 ## Build and run
 

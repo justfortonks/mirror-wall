@@ -302,6 +302,11 @@ final class StreamMeterTests: XCTestCase {
         XCTAssertEqual(snapshot.packetsLost, 2)
         XCTAssertEqual(snapshot.totalFramesSkipped, 1)
         XCTAssertEqual(snapshot.totalKeyframes, 1)
+        XCTAssertEqual(snapshot.framesArrived, 3)
+        XCTAssertEqual(snapshot.keyframesArrived, 1)
+        XCTAssertEqual(snapshot.framesSkipped, 1)
+        XCTAssertEqual(snapshot.packets, 2)
+        XCTAssertEqual(snapshot.seconds, 1)
 
         // The next second starts empty, but totals carry on.
         meter.packet(bytes: 10, lost: 1, at: 1.2)
@@ -309,6 +314,9 @@ final class StreamMeterTests: XCTestCase {
         XCTAssertEqual(next.framesPerSecond, 0)
         XCTAssertEqual(next.packetsLost, 1)
         XCTAssertEqual(next.totalPacketsLost, 3)
+        XCTAssertEqual(next.framesArrived, 0)
+        XCTAssertEqual(next.framesSkipped, 0)
+        XCTAssertEqual(next.packets, 1)
     }
 
     func testJitterIgnoresPauses() throws {
