@@ -160,7 +160,7 @@ struct SmoothMotionCommands: Commands {
             ))
             Toggle("Sharper Picture (H.265)", isOn: Binding(
                 get: { store.sharpPicture },
-                set: { store.setSharpPicture($0) }
+                set: { on in DispatchQueue.main.async { store.confirmSharpPicture(on) } }
             ))
         }
     }

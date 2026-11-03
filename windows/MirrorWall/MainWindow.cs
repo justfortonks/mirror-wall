@@ -162,7 +162,7 @@ internal sealed class MainWindow : Window
             Menus.Submenu("Frame Rate Limit", SlotConfig.FrameRates.Select(rate =>
                 (object)Menus.Item($"{rate} frames a second", () => store.SetMaxFrameRate(rate), isChecked: store.MaxFrameRate == rate))),
             Menus.Item("Smoother Motion", () => store.SetSmoothMotion(!store.SmoothMotion), isChecked: store.SmoothMotion),
-            Menus.Item("Sharper Picture (H.265)", () => store.SetSharpPicture(!store.SharpPicture), isChecked: store.SharpPicture),
+            Menus.Item("Sharper Picture (H.265)", () => store.ConfirmSharpPicture(!store.SharpPicture, this), isChecked: store.SharpPicture),
             new Separator(),
             Menus.Submenu("Pop-out Window Size", Menus.PopOutSizeItems(store)),
             new Separator(),
