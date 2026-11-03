@@ -397,6 +397,33 @@ final class SlotStore: ObservableObject {
         for slot in slots { slot.renderer.smoothMotion = on }
     }
 
+    /// View › Sharper Picture: asks first when phones are mirroring, since the change restarts
+    /// every receiver and drops them. With no phone on any slot it just switches.
+    func confirmSharpPicture(_ on: Bool) {
+        guard on != sharpPicture else { return }
+        let phones = slots.filter(\.carriesPhoneFrames)
+        if !phones.isEmpty {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Turn \(on ? "on" : "off") Sharper Picture?"
+            alert.informativeText = Self.sharpPictureWarning(phones.map { (phone: $0.phoneName, slot: $0.name) })
+            alert.addButton(withTitle: on ? "Turn On" : "Turn Off")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        setSharpPicture(on)
+    }
+
+    /// "Every slot restarts to apply this, so iPhone 17 Pro Max (Mirror Wall 1) will disconnect. …"
+    static func sharpPictureWarning(_ phones: [(phone: String?, slot: String)]) -> String {
+        let names = phones.map { "\($0.phone ?? "the phone") (\($0.slot))" }
+        let list = names.count <= 1 ? (names.first ?? "")
+            : names.dropLast().joined(separator: ", ") + " and " + names.last!
+        return "Every slot restarts to apply this, so \(list) will disconnect. "
+            + "iPhones have to start Screen Mirroring again; the Android app reconnects on its own."
+    }
+
     /// Turns the sharper picture on or off. Each receiver restarts to apply it, so phones
     /// mirroring now have to reconnect.
     func setSharpPicture(_ on: Bool) {

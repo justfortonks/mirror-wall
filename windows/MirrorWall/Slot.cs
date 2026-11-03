@@ -52,7 +52,7 @@ internal sealed class Slot : Observable
     public string? FailureMessage { get; private set; }
 
     /// <summary>True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.</summary>
-    private bool CarriesPhoneFrames => State is SlotState.Connecting or SlotState.Live or SlotState.Paused;
+    public bool CarriesPhoneFrames => State is SlotState.Connecting or SlotState.Live or SlotState.Paused;
 
     /// <summary>When the current state began, e.g. how long the screen has been off.</summary>
     public DateTime StateSince { get; private set; } = DateTime.Now;

@@ -334,6 +334,29 @@ internal sealed class SlotStore : Observable
         foreach (var slot in Slots) slot.Renderer.SmoothMotion = on;
     }
 
+    /// <summary>View › Sharper Picture: asks first when phones are mirroring, since the change
+    /// restarts every receiver and drops them. With no phone on any slot it just switches.</summary>
+    public void ConfirmSharpPicture(bool on, Window? owner)
+    {
+        if (on == settings.SharpPicture) return;
+        var phones = Slots.Where(slot => slot.CarriesPhoneFrames).ToList();
+        if (phones.Count > 0)
+        {
+            string names = string.Join(", ", phones.Select(slot => $"{slot.PhoneName ?? "the phone"} ({slot.Name})"));
+            int last = names.LastIndexOf(", ", StringComparison.Ordinal);
+            if (last >= 0) names = names[..last] + " and " + names[(last + 2)..];
+            string text = $"Every slot restarts to apply this, so {names} will disconnect. "
+                + "iPhones have to start Screen Mirroring again; the Android app reconnects on its own.\n\n"
+                + $"Turn {(on ? "on" : "off")} Sharper Picture?";
+            string title = "Sharper Picture";
+            var answer = owner != null
+                ? MessageBox.Show(owner, text, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel)
+                : MessageBox.Show(text, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+            if (answer != MessageBoxResult.OK) return;
+        }
+        SetSharpPicture(on);
+    }
+
     /// <summary>Turns the sharper picture on or off. Each receiver restarts to apply it, so phones
     /// mirroring now have to reconnect.</summary>
     public void SetSharpPicture(bool on)
