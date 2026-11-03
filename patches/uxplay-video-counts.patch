@@ -1,10 +1,10 @@
 diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
-index 3089355..036c6b6 100644
+index 6c81370..1752d46 100644
 --- a/lib/raop_rtp_mirror.c
 +++ b/lib/raop_rtp_mirror.c
-@@ -205,6 +205,10 @@ raop_rtp_mirror_thread(void *arg)
-     int stop_packets_in_window = 0;
-     uint64_t stop_window_start = 0;
+@@ -209,6 +209,10 @@ raop_rtp_mirror_thread(void *arg)
+     uint64_t suspended_at = 0;
+     int late_frames_while_suspended = 0;
      bool ignore_stop_flag = false;
 +    /* Mirror Wall: once a second, what arrived from the phone, to tell where a frozen picture stops. */
 +    uint64_t counts_start = 0;
@@ -13,7 +13,7 @@ index 3089355..036c6b6 100644
      bool first_packet = true;
      
      while (1) {
-@@ -393,6 +397,32 @@ raop_rtp_mirror_thread(void *arg)
+@@ -397,6 +401,32 @@ raop_rtp_mirror_thread(void *arg)
                  break;
              }
  

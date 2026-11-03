@@ -5,12 +5,14 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
-## November 3, 2026: More detailed slot logs
+## November 3, 2026: Fewer frozen pictures, more detailed slot logs
 
 - Slot logs now have the time on every line, and once a second they note how much video
   arrived from the phone, how much was decoded and how much reached the screen, to track down
   pictures that freeze while a phone mirrors. The log from before the last restart is kept as
   slot-N.previous.log.
+- A phone that marks its video as stopping once but keeps sending pictures no longer leaves
+  its tile frozen: after a second of pictures still arriving, Mirror Wall shows them again.
 
 ## October 31, 2026: No more frozen picture while an iPhone mirrors
 

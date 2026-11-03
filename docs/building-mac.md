@@ -54,7 +54,8 @@ The Mac's own AirPlay Receiver (port 7000) can stay on; it doesn't conflict.
   "video stream is stopping" for minutes while it keeps mirroring; stock uxplay pauses its video
   output on that flag until a normal codec packet comes, so the picture freezes. The patch
   treats 20 such packets within 2 seconds as a running stream and keeps the video going until
-  the flag clears. A phone that really stops sends one.
+  the flag clears. A phone that really stops sends one. It also resumes the video when 10 frames
+  arrive more than a second after a stop flag: a locking phone sends a last frame or two at most.
 - And `patches/uxplay-video-counts.patch`, which logs once a second (at `-d 1`) how many frames
   and parameter packets arrived from the phone, how many were flagged as stopping, and whether
   uxplay's video output is paused. With the app's own once-a-second counts (frames in, decoded,
