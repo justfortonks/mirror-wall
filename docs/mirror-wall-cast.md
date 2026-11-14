@@ -46,7 +46,7 @@ listing, so the app only lists free slots; the connected phone keeps its connect
 When the connection drops without a bye or busy (the slot restarted, for example to apply Sharper
 Picture), the phone keeps its screen capture and reconnects to the same slot for up to a minute.
 
-From app 0.177, once a ping has arrived on a connection, ten seconds with nothing from Mirror
+From app 0.176 on, once a ping has arrived on a connection, ten seconds with nothing from Mirror
 Wall counts as a dropped connection too (a computer that went to sleep or left the network says
 nothing), and the phone reconnects the same way. A Mirror Wall that never pings (0.90) is never
 timed out. When pictures queue up faster than the network takes them, the phone drops the queued
