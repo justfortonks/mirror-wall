@@ -69,6 +69,9 @@ final class Slot: ObservableObject, Identifiable {
     var maxFrameRate = 30
     /// Offers phones H.265 for a sharper picture; takes effect when the receiver starts.
     var sharpPicture = false
+    /// The PIN for mirroring over the direct iPhone-to-Mac link, or nil while that's off; takes
+    /// effect when the receiver starts.
+    var directLinkPIN: Int?
     /// Numbers for the Stats for Nerds overlay, kept apart so they don't redraw everything else.
     let stats = SlotStats()
     /// Called when the config changes on its own (a new phone's name), so it can be saved.
@@ -159,7 +162,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current),
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current, directLinkPIN: directLinkPIN),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -181,7 +184,7 @@ final class Slot: ObservableObject, Identifiable {
         processStartedAt = Date()
         startCastServer()
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current).joined(separator: " "))")
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current, directLinkPIN: directLinkPIN).joined(separator: " "))")
         state = .waiting
     }
 

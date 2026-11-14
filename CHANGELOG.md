@@ -5,6 +5,12 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## November 13, 2026: Experimental direct connection for iPhones (Mac)
+
+- Settings › Phones › Direct connection: lets an iPhone mirror to this Mac when the two can't
+  see each other on the network, such as on guest Wi-Fi. Off by default. Each iPhone asks once
+  for the PIN shown in Settings.
+
 ## October 31, 2026: No more frozen picture while an iPhone mirrors
 
 - Fixed an iPhone's picture freezing for minutes while the phone kept mirroring and its tile

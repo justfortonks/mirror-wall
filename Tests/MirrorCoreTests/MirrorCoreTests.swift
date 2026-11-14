@@ -121,6 +121,10 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertFalse(args.contains("-h265"))
         XCTAssertEqual(args[args.firstIndex(of: "-nc")! + 1], "no")
         XCTAssertTrue(SlotConfig(id: 2, name: "x").uxplayArguments(maxFrameRate: 30, sharpPicture: true).contains("-h265"))
+        XCTAssertFalse(args.contains("-p2p"))
+        let direct = SlotConfig(id: 2, name: "x").uxplayArguments(maxFrameRate: 30, directLinkPIN: 42)
+        XCTAssertTrue(direct.contains("-p2p"))
+        XCTAssertEqual(direct[direct.firstIndex(of: "-pin")! + 1], "0042")
     }
 
     func testAllowList() {

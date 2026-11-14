@@ -141,7 +141,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// second the phone is asked to send; it may send fewer. With `allowedDevices`, only phones
     /// with those device IDs may connect. With `sharpPicture`, phones are offered H.265 at up to
     /// 3840×2160, and send portrait pictures twice as tall and wide as with H.264's 1920×1080.
-    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false, computer: UInt32 = 0) -> [String] {
+    /// With `directLinkPIN` (1...9999), the receiver is also offered over the direct iPhone-to-Mac
+    /// link AirDrop uses, for phones that aren't on the Mac's network; each phone types the PIN
+    /// the first time it connects.
+    public func uxplayArguments(maxFrameRate: Int, allowedDevices: [String]? = nil, sharpPicture: Bool = false, computer: UInt32 = 0, directLinkPIN: Int? = nil) -> [String] {
         var arguments = [
             "-n", name,
             "-nh",                      // don't append "@hostname" to the name
@@ -162,6 +165,10 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
         ]
         if sharpPicture {
             arguments.append("-h265")
+        }
+        if let directLinkPIN {
+            // uxplay only allows -p2p with a PIN, since any nearby iPhone can then see the slot.
+            arguments += ["-p2p", "-pin", String(format: "%04d", min(max(directLinkPIN, 1), 9999))]
         }
         if let allowedDevices {
             arguments.append("-restrict")

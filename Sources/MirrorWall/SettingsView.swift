@@ -181,6 +181,22 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section {
+                    Toggle("Let iPhones mirror without sharing a network (experimental)", isOn: Binding(
+                        get: { store.directLink },
+                        set: { store.setDirectLink($0) }
+                    ))
+                    if store.directLink {
+                        LabeledContent("PIN to type on the iPhone", value: String(format: "%04d", store.directLinkPIN))
+                    }
+                } header: {
+                    Text("Direct connection")
+                } footer: {
+                    Text("For Wi-Fi that stops devices seeing each other, such as guest networks. The iPhone reaches this Mac over the same direct link AirDrop uses, so both keep their own internet connection. Needs Wi-Fi and Bluetooth on, and AirPlay Receiver turned on in System Settings › General › AirDrop & Continuity. Each iPhone asks for the PIN the first time it mirrors to a slot. Changing this restarts the slots.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
             }
             .formStyle(.grouped)
             .tabItem { Label("Phones", systemImage: "iphone") }

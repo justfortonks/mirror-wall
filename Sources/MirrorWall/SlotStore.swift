@@ -17,6 +17,11 @@ final class SlotStore: ObservableObject {
     @Published private(set) var smoothMotion: Bool
     /// Offers phones H.265, for portrait pictures twice as tall and wide. Off by default.
     @Published private(set) var sharpPicture: Bool
+    /// Experimental: also offer the slots over the direct iPhone-to-Mac link (the one AirDrop
+    /// uses), for phones that can't reach this Mac over the network.
+    @Published private(set) var directLink: Bool
+    /// The PIN phones type the first time they mirror while `directLink` is on. Random per Mac.
+    let directLinkPIN: Int
     /// The size of slots' own windows.
     @Published private(set) var popOutSize: PopOutSize
     /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
@@ -47,6 +52,8 @@ final class SlotStore: ObservableObject {
     private let maxFrameRateKey = "maxFrameRate"
     private let smoothMotionKey = "smoothMotion"
     private let sharpPictureKey = "sharpPicture"
+    private let directLinkKey = "directLink"
+    private let directLinkPINKey = "directLinkPIN"
     private let popOutSizeKey = "popOutSize"
     private let popOutSizeLockedKey = "popOutSizeLocked"
     private let knownPhonesKey = "knownPhones"
@@ -124,6 +131,13 @@ final class SlotStore: ObservableObject {
         maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
         smoothMotion = defaults.bool(forKey: smoothMotionKey)
         sharpPicture = defaults.bool(forKey: sharpPictureKey)
+        directLink = defaults.bool(forKey: directLinkKey)
+        var pin = defaults.integer(forKey: directLinkPINKey)
+        if !(1000...9999).contains(pin) {
+            pin = Int.random(in: 1000...9999)
+            defaults.set(pin, forKey: directLinkPINKey)
+        }
+        directLinkPIN = pin
         popOutSize = defaults.string(forKey: popOutSizeKey).flatMap(PopOutSize.init(rawValue:)) ?? .medium
         popOutSizeLocked = defaults.bool(forKey: popOutSizeLockedKey)
         knownPhones = defaults.data(forKey: knownPhonesKey).flatMap { try? JSONDecoder().decode([KnownPhone].self, from: $0) } ?? []
@@ -157,6 +171,7 @@ final class SlotStore: ObservableObject {
         slot.maxFrameRate = maxFrameRate
         slot.renderer.smoothMotion = smoothMotion
         slot.sharpPicture = sharpPicture
+        slot.directLinkPIN = directLink ? directLinkPIN : nil
         slot.allowedDevices = allowedDevices
         slot.showsBezel = slot.config.bezel ?? bezelsForAllSlots
         slot.onConfigChanged = { [weak self] in
@@ -405,6 +420,18 @@ final class SlotStore: ObservableObject {
         defaults.set(on, forKey: sharpPictureKey)
         for slot in slots {
             slot.sharpPicture = on
+            restart(slot)
+        }
+    }
+
+    /// Turns mirroring over the direct iPhone-to-Mac link on or off. Each receiver restarts to
+    /// apply it, so phones mirroring now have to reconnect.
+    func setDirectLink(_ on: Bool) {
+        guard on != directLink else { return }
+        directLink = on
+        defaults.set(on, forKey: directLinkKey)
+        for slot in slots {
+            slot.directLinkPIN = on ? directLinkPIN : nil
             restart(slot)
         }
     }
