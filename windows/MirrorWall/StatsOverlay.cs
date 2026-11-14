@@ -91,7 +91,7 @@ internal sealed class StatsOverlay : Border
             string every = stats.HeartbeatInterval is double interval ? $"every {interval:0.0} s, " : "";
             yield return ("Check-ins", every + Ago(now - lastHeartbeat));
         }
-        yield return ("Connections", stats.Connections.ToString());
+        yield return ("Times connected", stats.Connections.ToString());
     }
 
     private static string Milliseconds(double seconds) =>
