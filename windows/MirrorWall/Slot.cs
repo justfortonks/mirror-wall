@@ -728,9 +728,13 @@ internal sealed class Slot : Observable
         // Latency reports come every second; they feed the stats overlay, not the log.
         if (uxplayEvent is not UxPlayEvent.VideoLatency)
         {
-            logFile?.WriteLine(line);
-            Log.Add(line);
-            while (Log.Count > 300) Log.RemoveAt(0);
+            logFile?.WriteLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture) + " " + line);
+            // The receiver's once-a-second counts go to the file only, so they don't crowd the log window.
+            if (!line.Contains("Mirror Wall receiver counts:"))
+            {
+                Log.Add(line);
+                while (Log.Count > 300) Log.RemoveAt(0);
+            }
         }
         if (uxplayEvent != null) Apply(uxplayEvent);
     }
@@ -844,7 +848,7 @@ internal sealed class Slot : Observable
     }
 
     /// <summary>Mirrors the log to %LOCALAPPDATA%\Mirror Wall\Logs\slot-N.log (replaced on each
-    /// start) for troubleshooting.</summary>
+    /// start, the one before kept as slot-N.previous.log) for troubleshooting.</summary>
     private void OpenLogFile()
     {
         logFile?.Dispose();
@@ -852,7 +856,9 @@ internal sealed class Slot : Observable
         try
         {
             Directory.CreateDirectory(AppPaths.Logs);
-            logFile = new StreamWriter(Path.Combine(AppPaths.Logs, $"slot-{Config.Id}.log"), append: false) { AutoFlush = true };
+            var path = Path.Combine(AppPaths.Logs, $"slot-{Config.Id}.log");
+            if (File.Exists(path)) File.Copy(path, Path.Combine(AppPaths.Logs, $"slot-{Config.Id}.previous.log"), overwrite: true);
+            logFile = new StreamWriter(path, append: false) { AutoFlush = true };
         }
         catch (IOException)
         {

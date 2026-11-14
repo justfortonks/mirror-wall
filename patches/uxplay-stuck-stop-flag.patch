@@ -1,8 +1,8 @@
 diff --git a/lib/raop_rtp_mirror.c b/lib/raop_rtp_mirror.c
-index e6a1788..3089355 100644
+index e6a1788..6c81370 100644
 --- a/lib/raop_rtp_mirror.c
 +++ b/lib/raop_rtp_mirror.c
-@@ -199,6 +199,12 @@ raop_rtp_mirror_thread(void *arg)
+@@ -199,6 +199,16 @@ raop_rtp_mirror_thread(void *arg)
      const char h265[] = "h265";
      bool unsupported_codec = false;
      bool video_stream_suspended = false;
@@ -11,11 +11,33 @@ index e6a1788..3089355 100644
 +     * packets; past a burst, stop pausing the video for them until a normal codec packet. */
 +    int stop_packets_in_window = 0;
 +    uint64_t stop_window_start = 0;
++    /* And a phone that flags its stream as stopping once but carries on sending video: frames
++     * still arriving more than a second after the flag mean it didn't stop. */
++    uint64_t suspended_at = 0;
++    int late_frames_while_suspended = 0;
 +    bool ignore_stop_flag = false;
      bool first_packet = true;
      
      while (1) {
-@@ -589,19 +595,44 @@ raop_rtp_mirror_thread(void *arg)
+@@ -391,6 +401,17 @@ raop_rtp_mirror_thread(void *arg)
+             case  0x00:
+                 // Normal video data (VCL NAL)
+ 
++                if (video_stream_suspended) {
++                    uint64_t now = raop_ntp_get_local_time();
++                    /* A locking phone can send a last frame or two right after the flag. */
++                    if (now - suspended_at > SEC && ++late_frames_while_suspended >= 10) {
++                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "Mirror Wall: video still arriving %.1f s after "
++                                   "the phone flagged its stream as stopping; resuming video", (double) (now - suspended_at) / SEC);
++                        raop_rtp_mirror->callbacks.video_resume(raop_rtp_mirror->callbacks.cls);
++                        video_stream_suspended = false;
++                    }
++                }
++
+                 // Conveniently, the video data is already stamped with the remote wall clock time,
+                 // so no additional clock syncing needed. The only thing odd here is that the video
+                 // ntp time stamps don't include the SECONDS_FROM_1900_TO_1970, so it's really just
+@@ -589,19 +610,46 @@ raop_rtp_mirror_thread(void *arg)
  	      
                  // The information in the payload contains an SPS and a PPS NAL
                  // The sps_pps is not encrypted
@@ -48,6 +70,8 @@ index e6a1788..3089355 100644
 +                    stop_packets_in_window++;
 +                    if (!video_stream_suspended) {
 +                        video_stream_suspended = true;
++                        suspended_at = now;
++                        late_frames_while_suspended = 0;
 +                        raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
 +                    } else if (stop_packets_in_window >= 20) {
 +                        /* A stopping phone sends one such packet, not a stream of them. */
