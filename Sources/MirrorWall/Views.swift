@@ -446,8 +446,9 @@ struct SlotTile: View {
         case .disconnected: return "Disconnected"
         case .paused: return "Screen off \(Self.format(now.timeIntervalSince(slot.stateSince)))"
         case .live:
-            guard let since = slot.connectedSince else { return "Live" }
-            return "Live \(Self.format(now.timeIntervalSince(since)))"
+            let link = slot.viaDirectLink ? " · Direct" : ""
+            guard let since = slot.connectedSince else { return "Live" + link }
+            return "Live \(Self.format(now.timeIntervalSince(since)))" + link
         }
     }
 

@@ -184,6 +184,7 @@ final class Slot: ObservableObject, Identifiable {
         processStartedAt = Date()
         startCastServer()
         startWatchdog()
+        viaDirectLink = false
         append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current, directLinkPIN: directLinkPIN).joined(separator: " "))")
         state = .waiting
     }
@@ -263,6 +264,10 @@ final class Slot: ObservableObject, Identifiable {
     /// disconnected slot shows its standby picture bare, and the frame comes back styled after
     /// whichever phone connects next.
     var drawsBezel: Bool { showsBezel && showsPicture }
+
+    /// Whether the phone mirroring now came in over the direct iPhone-to-Mac link rather than the
+    /// network.
+    @Published private(set) var viaDirectLink = false
 
     /// Whether the slot is set to take iPhones over the direct link.
     var wantsDirectLink: Bool { config.directLink == true }
@@ -595,6 +600,11 @@ final class Slot: ObservableObject, Identifiable {
 
     private func apply(_ event: UxPlayEvent) {
         switch event {
+        case .remoteAddress(let interface):
+            // The direct link is its own network interface: "awdl0", or "llw0" for its low-latency twin.
+            var name = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
+            let direct = interface.map { $0 != 0 && if_indextoname($0, &name) != nil && ["awdl", "llw"].contains { String(cString: name).hasPrefix($0) } } ?? false
+            if direct != viaDirectLink { viaDirectLink = direct }
         case .clientConnecting(let name, let model, let deviceID):
             // The decoder needs no reset here: a new stream starts with new parameter sets, which
             // rebuild it. (This line can also arrive after the new stream's first frames.)

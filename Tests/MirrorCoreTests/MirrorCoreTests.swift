@@ -107,6 +107,12 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertNotEqual(one.rtpPort, two.rtpPort)
     }
 
+    func testRemoteAddressNamesItsInterface() {
+        XCTAssertEqual(UxPlayEvent(line: "Remote: 192.168.1.20"), .remoteAddress(interface: nil))
+        XCTAssertEqual(UxPlayEvent(line: "Remote: fe80::1c2d:3eff:fe4f:5a6b%14"), .remoteAddress(interface: 14))
+        XCTAssertNil(UxPlayEvent(line: "Remote: "))
+    }
+
     func testArgumentsTurnOffTimestampSyncAndForwardVideo() {
         let args = SlotConfig(id: 2, name: "Kitchen iPhone").uxplayArguments
         XCTAssertEqual(args[args.firstIndex(of: "-n")! + 1], "Kitchen iPhone")
