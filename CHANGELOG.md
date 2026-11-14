@@ -5,11 +5,12 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
-## November 13, 2026: Experimental direct connection for iPhones (Mac)
+## November 13, 2026: Direct connection for iPhones without a shared network (Mac)
 
-- Settings › Phones › Direct connection: lets an iPhone mirror to this Mac when the two can't
-  see each other on the network, such as on guest Wi-Fi. Off by default. Each iPhone asks once
-  for the PIN shown in Settings.
+- A slot's ⋯ menu › Direct Connection lets an iPhone mirror to that slot when the phone and
+  the Mac can't see each other on the network, such as on guest Wi-Fi. Both keep their own
+  internet connection. Each iPhone asks once for a PIN, which you can change in
+  Settings › Phones. Needs AirPlay Receiver turned on in System Settings.
 
 ## October 31, 2026: No more frozen picture while an iPhone mirrors
 

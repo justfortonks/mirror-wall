@@ -17,11 +17,11 @@ final class SlotStore: ObservableObject {
     @Published private(set) var smoothMotion: Bool
     /// Offers phones H.265, for portrait pictures twice as tall and wide. Off by default.
     @Published private(set) var sharpPicture: Bool
-    /// Experimental: also offer the slots over the direct iPhone-to-Mac link (the one AirDrop
-    /// uses), for phones that can't reach this Mac over the network.
-    @Published private(set) var directLink: Bool
-    /// The PIN phones type the first time they mirror while `directLink` is on. Random per Mac.
-    let directLinkPIN: Int
+    /// The PIN phones type the first time they mirror to a slot over the direct iPhone-to-Mac
+    /// link (a slot's Direct Connection). Random per Mac until the person sets their own.
+    @Published private(set) var directLinkPIN: Int
+    /// Looks for AirPlay Receiver being switched on while a slot is waiting for it.
+    private var airPlayReceiverTimer: Timer?
     /// Whether macOS says AirPlay Receiver is on. The receiver refuses to start with the direct
     /// link otherwise, so the slots only ask for it while this is true.
     @Published private(set) var airPlayReceiverOn = SlotStore.readAirPlayReceiverOn()
@@ -33,7 +33,15 @@ final class SlotStore: ObservableObject {
         return (value as? Bool) ?? ((value as? NSNumber)?.boolValue ?? false)
     }
 
-    private var slotDirectLinkPIN: Int? { directLink && airPlayReceiverOn ? directLinkPIN : nil }
+    private func directLinkPIN(for slot: Slot) -> Int? {
+        slot.wantsDirectLink && airPlayReceiverOn ? directLinkPIN : nil
+    }
+
+    /// Whether a slot has Direct Connection on but macOS's AirPlay Receiver is off, so it can't
+    /// work yet.
+    var directLinkWaitingForAirPlayReceiver: Bool {
+        !airPlayReceiverOn && slots.contains(where: \.wantsDirectLink)
+    }
     /// The size of slots' own windows.
     @Published private(set) var popOutSize: PopOutSize
     /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
@@ -64,7 +72,6 @@ final class SlotStore: ObservableObject {
     private let maxFrameRateKey = "maxFrameRate"
     private let smoothMotionKey = "smoothMotion"
     private let sharpPictureKey = "sharpPicture"
-    private let directLinkKey = "directLink"
     private let directLinkPINKey = "directLinkPIN"
     private let popOutSizeKey = "popOutSize"
     private let popOutSizeLockedKey = "popOutSizeLocked"
@@ -143,7 +150,6 @@ final class SlotStore: ObservableObject {
         maxFrameRate = SlotConfig.frameRates.contains(savedRate) ? savedRate : 30
         smoothMotion = defaults.bool(forKey: smoothMotionKey)
         sharpPicture = defaults.bool(forKey: sharpPictureKey)
-        directLink = defaults.bool(forKey: directLinkKey)
         var pin = defaults.integer(forKey: directLinkPINKey)
         if !(1000...9999).contains(pin) {
             pin = Int.random(in: 1000...9999)
@@ -183,7 +189,11 @@ final class SlotStore: ObservableObject {
         slot.maxFrameRate = maxFrameRate
         slot.renderer.smoothMotion = smoothMotion
         slot.sharpPicture = sharpPicture
-        slot.directLinkPIN = slotDirectLinkPIN
+        slot.directLinkPIN = directLinkPIN(for: slot)
+        if slot.wantsDirectLink && !airPlayReceiverOn {
+            // Once the slot is in the list: start looking for AirPlay Receiver being switched on.
+            DispatchQueue.main.async { [weak self] in self?.recheckAirPlayReceiver() }
+        }
         slot.allowedDevices = allowedDevices
         slot.showsBezel = slot.config.bezel ?? bezelsForAllSlots
         slot.onConfigChanged = { [weak self] in
@@ -436,27 +446,50 @@ final class SlotStore: ObservableObject {
         }
     }
 
-    /// Turns mirroring over the direct iPhone-to-Mac link on or off. Each receiver restarts to
-    /// apply it, so phones mirroring now have to reconnect.
-    func setDirectLink(_ on: Bool) {
-        guard on != directLink else { return }
-        directLink = on
-        defaults.set(on, forKey: directLinkKey)
-        airPlayReceiverOn = Self.readAirPlayReceiverOn()
-        applyDirectLink()
+    /// Turns a slot's Direct Connection on or off: whether iPhones can reach it over the direct
+    /// iPhone-to-Mac link. The slot's receiver restarts to apply it.
+    func setDirectLink(_ slot: Slot, on: Bool) {
+        guard on != slot.wantsDirectLink else { return }
+        slot.rememberDirectLink(on)
+        save()
+        recheckAirPlayReceiver()
+        guard on, !airPlayReceiverOn else { return }
+        let alert = NSAlert()
+        alert.messageText = "Turn on AirPlay Receiver to use Direct Connection"
+        alert.informativeText = "In System Settings › General › AirDrop & Continuity, turn AirPlay Receiver off and on again. Direct Connection starts by itself once it's on."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
-    /// Looks again at whether AirPlay Receiver is on, after the person changes it in System
-    /// Settings, and restarts the slots if that changes what they should offer.
+    /// Sets the PIN iPhones type the first time they use a slot's Direct Connection (1...9999).
+    /// Slots using Direct Connection restart to apply it.
+    func setDirectLinkPIN(_ pin: Int) {
+        guard (1...9999).contains(pin), pin != directLinkPIN else { return }
+        directLinkPIN = pin
+        defaults.set(pin, forKey: directLinkPINKey)
+        for slot in slots where slot.directLinkPIN != nil {
+            slot.directLinkPIN = pin
+            restart(slot)
+        }
+    }
+
+    /// Looks again at whether AirPlay Receiver is on, and restarts the slots whose Direct
+    /// Connection that changes. Keeps looking every few seconds while a slot is waiting for it.
     func recheckAirPlayReceiver() {
         airPlayReceiverOn = Self.readAirPlayReceiverOn()
-        applyDirectLink()
-    }
-
-    private func applyDirectLink() {
-        for slot in slots where slot.directLinkPIN != slotDirectLinkPIN {
-            slot.directLinkPIN = slotDirectLinkPIN
+        for slot in slots where slot.directLinkPIN != directLinkPIN(for: slot) {
+            slot.directLinkPIN = directLinkPIN(for: slot)
             restart(slot)
+        }
+        if directLinkWaitingForAirPlayReceiver {
+            if airPlayReceiverTimer == nil {
+                airPlayReceiverTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.recheckAirPlayReceiver() }
+                }
+            }
+        } else {
+            airPlayReceiverTimer?.invalidate()
+            airPlayReceiverTimer = nil
         }
     }
 

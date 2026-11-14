@@ -264,6 +264,13 @@ final class Slot: ObservableObject, Identifiable {
     /// whichever phone connects next.
     var drawsBezel: Bool { showsBezel && showsPicture }
 
+    /// Whether the slot is set to take iPhones over the direct link.
+    var wantsDirectLink: Bool { config.directLink == true }
+
+    func rememberDirectLink(_ on: Bool) {
+        config.directLink = on ? true : nil
+    }
+
     func rememberBezel(_ choice: Bool?) {
         config.bezel = choice
     }

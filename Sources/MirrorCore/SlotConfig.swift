@@ -28,6 +28,9 @@ public struct SlotConfig: Codable, Hashable, Identifiable {
     /// Whether the slot's phone appears in the Stage window while it's mirroring; nil (off) by
     /// default, and cleared at launch unless the Stage remembers its phones.
     public var onStage: Bool?
+    /// Whether iPhones can also reach the slot over the direct iPhone-to-Mac link AirDrop uses,
+    /// without sharing a network with the Mac; nil (off) by default. Mac only.
+    public var directLink: Bool?
 
     public init(id: Int, name: String, lastPhoneName: String? = nil) {
         precondition(id >= 1 && id <= 99, "slot id out of range")
