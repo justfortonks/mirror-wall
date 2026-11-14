@@ -186,8 +186,15 @@ struct SettingsView: View {
                         get: { store.directLink },
                         set: { store.setDirectLink($0) }
                     ))
-                    if store.directLink {
+                    if store.directLink && store.airPlayReceiverOn {
                         LabeledContent("PIN to type on the iPhone", value: String(format: "%04d", store.directLinkPIN))
+                    } else if store.directLink {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label("Not active yet. In System Settings › General › AirDrop & Continuity, turn AirPlay Receiver off and on again, then click Check Again.", systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button("Check Again") { store.recheckAirPlayReceiver() }
+                        }
                     }
                 } header: {
                     Text("Direct connection")

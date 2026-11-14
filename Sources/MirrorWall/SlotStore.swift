@@ -22,6 +22,18 @@ final class SlotStore: ObservableObject {
     @Published private(set) var directLink: Bool
     /// The PIN phones type the first time they mirror while `directLink` is on. Random per Mac.
     let directLinkPIN: Int
+    /// Whether macOS says AirPlay Receiver is on. The receiver refuses to start with the direct
+    /// link otherwise, so the slots only ask for it while this is true.
+    @Published private(set) var airPlayReceiverOn = SlotStore.readAirPlayReceiverOn()
+
+    /// What `defaults -currentHost read com.apple.controlcenter AirplayReceiverEnabled` reports,
+    /// which is what uxplay checks. macOS saves no value until the switch has been flipped once.
+    nonisolated static func readAirPlayReceiverOn() -> Bool {
+        let value = CFPreferencesCopyValue("AirplayReceiverEnabled" as CFString, "com.apple.controlcenter" as CFString, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+        return (value as? Bool) ?? ((value as? NSNumber)?.boolValue ?? false)
+    }
+
+    private var slotDirectLinkPIN: Int? { directLink && airPlayReceiverOn ? directLinkPIN : nil }
     /// The size of slots' own windows.
     @Published private(set) var popOutSize: PopOutSize
     /// With a Custom size, whether windows' sizes are locked against dragging. On by default.
@@ -171,7 +183,7 @@ final class SlotStore: ObservableObject {
         slot.maxFrameRate = maxFrameRate
         slot.renderer.smoothMotion = smoothMotion
         slot.sharpPicture = sharpPicture
-        slot.directLinkPIN = directLink ? directLinkPIN : nil
+        slot.directLinkPIN = slotDirectLinkPIN
         slot.allowedDevices = allowedDevices
         slot.showsBezel = slot.config.bezel ?? bezelsForAllSlots
         slot.onConfigChanged = { [weak self] in
@@ -430,8 +442,20 @@ final class SlotStore: ObservableObject {
         guard on != directLink else { return }
         directLink = on
         defaults.set(on, forKey: directLinkKey)
-        for slot in slots {
-            slot.directLinkPIN = on ? directLinkPIN : nil
+        airPlayReceiverOn = Self.readAirPlayReceiverOn()
+        applyDirectLink()
+    }
+
+    /// Looks again at whether AirPlay Receiver is on, after the person changes it in System
+    /// Settings, and restarts the slots if that changes what they should offer.
+    func recheckAirPlayReceiver() {
+        airPlayReceiverOn = Self.readAirPlayReceiverOn()
+        applyDirectLink()
+    }
+
+    private func applyDirectLink() {
+        for slot in slots where slot.directLinkPIN != slotDirectLinkPIN {
+            slot.directLinkPIN = slotDirectLinkPIN
             restart(slot)
         }
     }
