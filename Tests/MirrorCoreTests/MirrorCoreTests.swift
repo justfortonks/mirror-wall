@@ -107,6 +107,14 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertNotEqual(one.rtpPort, two.rtpPort)
     }
 
+    func testRemoteAddressNamesItsInterface() {
+        XCTAssertEqual(UxPlayEvent(line: "Remote: 192.168.1.20"), .remoteAddress(interface: nil))
+        XCTAssertEqual(UxPlayEvent(line: "Remote: fe80::1c2d:3eff:fe4f:5a6b%14"), .remoteAddress(interface: 14))
+        XCTAssertNil(UxPlayEvent(line: "Remote: "))
+        XCTAssertEqual(UxPlayEvent(line: "2026-11-13 21:55:03.636 Remote: fe80::5465:adff:feb2:1011%13"), .remoteAddress(interface: 13))
+        XCTAssertNil(UxPlayEvent(line: "2026-11-13 21:57:48.957 Active-Remote: 1139546198"))
+    }
+
     func testArgumentsTurnOffTimestampSyncAndForwardVideo() {
         let args = SlotConfig(id: 2, name: "Kitchen iPhone").uxplayArguments
         XCTAssertEqual(args[args.firstIndex(of: "-n")! + 1], "Kitchen iPhone")
@@ -121,6 +129,10 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertFalse(args.contains("-h265"))
         XCTAssertEqual(args[args.firstIndex(of: "-nc")! + 1], "no")
         XCTAssertTrue(SlotConfig(id: 2, name: "x").uxplayArguments(maxFrameRate: 30, sharpPicture: true).contains("-h265"))
+        XCTAssertFalse(args.contains("-p2p"))
+        let direct = SlotConfig(id: 2, name: "x").uxplayArguments(maxFrameRate: 30, directLinkPIN: 42)
+        XCTAssertTrue(direct.contains("-p2p"))
+        XCTAssertEqual(direct[direct.firstIndex(of: "-pin")! + 1], "0042")
     }
 
     func testAllowList() {
@@ -302,6 +314,11 @@ final class StreamMeterTests: XCTestCase {
         XCTAssertEqual(snapshot.packetsLost, 2)
         XCTAssertEqual(snapshot.totalFramesSkipped, 1)
         XCTAssertEqual(snapshot.totalKeyframes, 1)
+        XCTAssertEqual(snapshot.framesArrived, 3)
+        XCTAssertEqual(snapshot.keyframesArrived, 1)
+        XCTAssertEqual(snapshot.framesSkipped, 1)
+        XCTAssertEqual(snapshot.packets, 2)
+        XCTAssertEqual(snapshot.seconds, 1)
 
         // The next second starts empty, but totals carry on.
         meter.packet(bytes: 10, lost: 1, at: 1.2)
@@ -309,6 +326,9 @@ final class StreamMeterTests: XCTestCase {
         XCTAssertEqual(next.framesPerSecond, 0)
         XCTAssertEqual(next.packetsLost, 1)
         XCTAssertEqual(next.totalPacketsLost, 3)
+        XCTAssertEqual(next.framesArrived, 0)
+        XCTAssertEqual(next.framesSkipped, 0)
+        XCTAssertEqual(next.packets, 1)
     }
 
     func testJitterIgnoresPauses() throws {

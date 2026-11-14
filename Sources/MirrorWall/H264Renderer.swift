@@ -32,6 +32,8 @@ final class H264Renderer {
     /// Counts pictures, so one held back can't replace a later one already shown.
     private var pictureNumber = 0
     private var shownNumber = 0
+    /// Since the last `takeCounts()`, for the once-a-second log line.
+    private var counts = Counts()
     private let playoutQueue = DispatchQueue(label: "Mirror Wall playout", qos: .userInteractive)
 
     /// Shows pictures at the pace the phone captured them, about a tenth of a second later,
@@ -155,15 +157,48 @@ final class H264Renderer {
         let status = VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: sample, flags: [._1xRealTimePlayback], infoFlagsOut: nil
         ) { [weak self] status, _, imageBuffer, _, _ in
-            guard status == noErr, let imageBuffer else { return }
-            self?.present(imageBuffer, rtpTimestamp: frame.timestamp, arrival: arrival)
-            self?.onPicture?(imageBuffer, frame.timestamp)
+            guard let self else { return }
+            guard status == noErr, let imageBuffer else {
+                self.lock.withLock {
+                    self.counts.decodeErrors += 1
+                    self.counts.lastDecodeError = status
+                }
+                return
+            }
+            self.lock.withLock { self.counts.decoded += 1 }
+            self.present(imageBuffer, rtpTimestamp: frame.timestamp, arrival: arrival)
+            self.onPicture?(imageBuffer, frame.timestamp)
+        }
+        if status != noErr {
+            lock.withLock {
+                counts.decodeErrors += 1
+                counts.lastDecodeError = status
+            }
         }
         if status == kVTInvalidSessionErr {
             // The Mac slept or the GPU changed: start over at the next keyframe.
             invalidateSession()
         }
         return status == noErr
+    }
+
+    /// What happened to frames since the last call: decoded, failed to decode, put on screen.
+    struct Counts {
+        var decoded = 0
+        var decodeErrors = 0
+        var lastDecodeError: OSStatus = noErr
+        var shown = 0
+        /// Times a display layer had failed or stalled and had to be flushed.
+        var layerResets = 0
+    }
+
+    /// Returns the counts since the last call and starts new ones. Call on the UDP thread.
+    func takeCounts() -> (counts: Counts, waitingForKeyframe: Bool) {
+        lock.lock()
+        let taken = counts
+        counts = Counts()
+        lock.unlock()
+        return (taken, waitingForKeyframe)
     }
 
     /// Clears the picture, e.g. when the slot stops. Only call it once rendering has stopped.
@@ -249,9 +284,13 @@ final class H264Renderer {
         guard let picture else { return }
         Self.markDisplayImmediately(picture)
         lastPicture = picture
+        counts.shown += 1
         for layer in layers {
             let renderer = layer.sampleBufferRenderer
-            if renderer.status == .failed || renderer.requiresFlushToResumeDecoding { renderer.flush() }
+            if renderer.status == .failed || renderer.requiresFlushToResumeDecoding {
+                counts.layerResets += 1
+                renderer.flush()
+            }
             renderer.enqueue(picture)
         }
     }

@@ -5,6 +5,8 @@ import SwiftUI
 /// alerts), Wall (standby picture, bezels), OBS, and Phones (who can mirror).
 struct SettingsView: View {
     @EnvironmentObject private var store: SlotStore
+    /// The Direct Connection PIN as typed, before it's four digits.
+    @State private var directLinkPINText = ""
     @AppStorage(SlotStore.bounceKey) private var bounceOnDisconnect = true
     @AppStorage(SlotStore.menuBarIconKey) private var showsMenuBarIcon = true
     // Read so the rows update when a folder is chosen; SaveFolders reads the same keys.
@@ -181,11 +183,46 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section {
+                    LabeledContent("PIN") {
+                        TextField("PIN", text: $directLinkPINText)
+                            .labelsHidden()
+                            .frame(width: 70)
+                            .multilineTextAlignment(.trailing)
+                            .onSubmit { commitDirectLinkPIN() }
+                            .onChange(of: directLinkPINText) { _, text in
+                                // Four digits at most; anything else typed is dropped.
+                                let digits = String(text.filter(\.isNumber).prefix(4))
+                                if digits != text { directLinkPINText = digits }
+                                if digits.count == 4 { commitDirectLinkPIN() }
+                            }
+                            .onAppear { directLinkPINText = String(format: "%04d", store.directLinkPIN) }
+                    }
+                    if store.directLinkWaitingForAirPlayReceiver {
+                        Label("Direct Connection isn't active yet. In System Settings › General › AirDrop & Continuity, turn AirPlay Receiver off and on again.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("Direct connection")
+                } footer: {
+                    Text("For Wi-Fi that stops devices seeing each other, such as guest networks. Turn it on in a slot's ⋯ menu: iPhones then reach that slot over the direct link AirDrop uses, so the phone and this Mac keep their own internet connection. Needs Wi-Fi and Bluetooth on, and AirPlay Receiver turned on in System Settings. Each iPhone asks for this PIN, four digits other than 0000, the first time it mirrors to such a slot. Changing the PIN restarts those slots.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
             }
             .formStyle(.grouped)
             .tabItem { Label("Phones", systemImage: "iphone") }
         }
         .frame(width: 500, height: 480)
+    }
+
+    /// Saves the typed PIN if it's usable, and shows the PIN in use either way.
+    private func commitDirectLinkPIN() {
+        if let pin = Int(directLinkPINText), (1...9999).contains(pin) { store.setDirectLinkPIN(pin) }
+        if directLinkPINText.count == 4 || directLinkPINText.isEmpty {
+            directLinkPINText = String(format: "%04d", store.directLinkPIN)
+        }
     }
 
     private func folderRow(_ title: String, _ kind: SaveFolders.Kind, chosen: String) -> some View {

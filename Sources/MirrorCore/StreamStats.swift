@@ -16,11 +16,21 @@ public struct StreamSnapshot: Equatable {
     public var totalKeyframes: Int
     /// Seconds between the last two keyframes.
     public var keyframeInterval: Double?
+    /// Frames that arrived complete in this window, shown or not, and how many were keyframes.
+    public var framesArrived: Int
+    public var keyframesArrived: Int
+    /// Frames that couldn't be shown in this window.
+    public var framesSkipped: Int
+    /// Packets (or Android pictures) that arrived in this window.
+    public var packets: Int
+    /// The window's length, in seconds.
+    public var seconds: Double
 
     public init(
         framesPerSecond: Double = 0, bitsPerSecond: Double = 0, frameJitter: Double = 0, macTime: Double? = nil,
         packetsLost: Int = 0, totalPacketsLost: Int = 0, totalFramesSkipped: Int = 0, totalKeyframes: Int = 0,
-        keyframeInterval: Double? = nil
+        keyframeInterval: Double? = nil, framesArrived: Int = 0, keyframesArrived: Int = 0, framesSkipped: Int = 0,
+        packets: Int = 0, seconds: Double = 1
     ) {
         self.framesPerSecond = framesPerSecond
         self.bitsPerSecond = bitsPerSecond
@@ -31,6 +41,11 @@ public struct StreamSnapshot: Equatable {
         self.totalFramesSkipped = totalFramesSkipped
         self.totalKeyframes = totalKeyframes
         self.keyframeInterval = keyframeInterval
+        self.framesArrived = framesArrived
+        self.keyframesArrived = keyframesArrived
+        self.framesSkipped = framesSkipped
+        self.packets = packets
+        self.seconds = seconds
     }
 }
 
@@ -53,6 +68,10 @@ public final class StreamMeter {
     private var totalLost = 0
     private var totalSkipped = 0
     private var totalKeyframes = 0
+    private var arrived = 0
+    private var keyframesArrived = 0
+    private var skipped = 0
+    private var packets = 0
 
     static let pauseGap = 0.5
 
@@ -65,6 +84,7 @@ public final class StreamMeter {
         if windowStart == nil { windowStart = time }
         self.bytes += bytes
         self.lost += lost
+        packets += 1
         totalLost += lost
     }
 
@@ -72,7 +92,10 @@ public final class StreamMeter {
     /// frame couldn't be shown.
     public func frame(at time: Double, isKeyframe: Bool, macTime: Double?) {
         if windowStart == nil { windowStart = time }
+        arrived += 1
+        if isKeyframe { keyframesArrived += 1 }
         guard let macTime else {
+            skipped += 1
             totalSkipped += 1
             return
         }
@@ -102,9 +125,18 @@ public final class StreamMeter {
             totalPacketsLost: totalLost,
             totalFramesSkipped: totalSkipped,
             totalKeyframes: totalKeyframes,
-            keyframeInterval: keyframeInterval
+            keyframeInterval: keyframeInterval,
+            framesArrived: arrived,
+            keyframesArrived: keyframesArrived,
+            framesSkipped: skipped,
+            packets: packets,
+            seconds: elapsed
         )
         windowStart = time
+        arrived = 0
+        keyframesArrived = 0
+        skipped = 0
+        packets = 0
         bytes = 0
         shown = 0
         lost = 0
@@ -123,6 +155,10 @@ public final class StreamMeter {
         macTimeTotal = 0
         macTimeCount = 0
         gaps = []
+        arrived = 0
+        keyframesArrived = 0
+        skipped = 0
+        packets = 0
         lastFrameAt = nil
         lastKeyframeAt = nil
         keyframeInterval = nil

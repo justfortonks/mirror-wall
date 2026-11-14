@@ -20,6 +20,10 @@ public enum UxPlayEvent: Equatable {
     /// a fixed, unknown amount per phone). Printed once a second by a uxplay with
     /// `patches/uxplay-latency-report.patch`.
     case videoLatency(Double)
+    /// A connection opened from the phone's address: "Remote: 192.168.1.20" or, for an address
+    /// that only exists on one network interface, "Remote: fe80::1c2d:3eff:fe4f:5a6b%14" with
+    /// that interface's number (nil otherwise). Tells the direct iPhone-to-Mac link from Wi-Fi.
+    case remoteAddress(interface: UInt32?)
 
     public init?(line: String) {
         if let range = line.range(of: "connection request from "),
@@ -42,6 +46,13 @@ public enum UxPlayEvent: Equatable {
             self = .videoLatency(latency)
         } else if line.contains("best NTP data:"), let delay = Self.number(after: "delay ", in: line) {
             self = .networkRoundTrip(delay)
+        } else if let range = line.range(of: "Remote: "),
+                  // Not the "Active-Remote: 1139546198" header the phone sends every 2 seconds.
+                  range.lowerBound == line.startIndex || line[line.index(before: range.lowerBound)] == " " {
+            let address = line[range.upperBound...].prefix { !$0.isWhitespace }
+            guard !address.isEmpty else { return nil }
+            let zone = address.split(separator: "%", omittingEmptySubsequences: false).dropFirst().first
+            self = .remoteAddress(interface: zone.flatMap { UInt32($0) })
         } else if line.contains("POST /feedback") {
             self = .heartbeat
         } else if line.contains("lost connection with client") {

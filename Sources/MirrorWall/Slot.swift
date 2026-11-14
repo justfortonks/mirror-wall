@@ -32,7 +32,7 @@ final class Slot: ObservableObject, Identifiable {
         }
     }
     /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
-    private var carriesPhoneFrames: Bool {
+    var carriesPhoneFrames: Bool {
         state == .connecting || state == .live || state == .paused
     }
     /// When the current state began, e.g. how long the screen has been off.
@@ -69,6 +69,9 @@ final class Slot: ObservableObject, Identifiable {
     var maxFrameRate = 30
     /// Offers phones H.265 for a sharper picture; takes effect when the receiver starts.
     var sharpPicture = false
+    /// The PIN for mirroring over the direct iPhone-to-Mac link, or nil while that's off; takes
+    /// effect when the receiver starts.
+    var directLinkPIN: Int?
     /// Numbers for the Stats for Nerds overlay, kept apart so they don't redraw everything else.
     let stats = SlotStats()
     /// Called when the config changes on its own (a new phone's name), so it can be saved.
@@ -123,6 +126,8 @@ final class Slot: ObservableObject, Identifiable {
     /// The Android phone's codec, read from its keyframes.
     private var castStreamCodec: VideoCodec = .h264
     private var lastLatencyReport: Double = 0
+    /// When the last packet (or Android picture) arrived, to log long gaps.
+    private var lastPacketAt: Double?
 
     init(config: SlotConfig) {
         self.config = config
@@ -145,6 +150,7 @@ final class Slot: ObservableObject, Identifiable {
         }
         depacketizer.reset()
         meter.reset()
+        lastPacketAt = nil
 
         let receiver = UDPReceiver(port: config.rtpPort) { [weak self] datagram in
             self?.handle(datagram)
@@ -159,7 +165,7 @@ final class Slot: ObservableObject, Identifiable {
 
         let process = ReceiverProcess(
             executable: uxplay,
-            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current),
+            arguments: config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current, directLinkPIN: directLinkPIN),
             onLine: { [weak self] line in
                 guard let self, self.generation == currentGeneration else { return }
                 self.append(line)
@@ -181,7 +187,9 @@ final class Slot: ObservableObject, Identifiable {
         processStartedAt = Date()
         startCastServer()
         startWatchdog()
-        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current).joined(separator: " "))")
+        viaDirectLink = false
+        stats.link = nil
+        append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current, directLinkPIN: directLinkPIN).joined(separator: " "))")
         state = .waiting
     }
 
@@ -260,6 +268,17 @@ final class Slot: ObservableObject, Identifiable {
     /// disconnected slot shows its standby picture bare, and the frame comes back styled after
     /// whichever phone connects next.
     var drawsBezel: Bool { showsBezel && showsPicture }
+
+    /// Whether the phone mirroring now came in over the direct iPhone-to-Mac link rather than the
+    /// network.
+    @Published private(set) var viaDirectLink = false
+
+    /// Whether the slot is set to take iPhones over the direct link.
+    var wantsDirectLink: Bool { config.directLink == true }
+
+    func rememberDirectLink(_ on: Bool) {
+        config.directLink = on ? true : nil
+    }
 
     func rememberBezel(_ choice: Bool?) {
         config.bezel = choice
@@ -419,6 +438,13 @@ final class Slot: ObservableObject, Identifiable {
 
     /// Under `streamLock`: decodes frames from either kind of phone and keeps the tile up to date.
     private func deliver(_ frames: [H264Frame], arrivedAt: Double) {
+        if let lastPacketAt, arrivedAt - lastPacketAt >= 2 {
+            let gap = arrivedAt - lastPacketAt
+            DispatchQueue.main.async { [weak self] in
+                self?.append(String(format: "Mirror Wall app: video arriving again after %.1f s with none", gap))
+            }
+        }
+        lastPacketAt = arrivedAt
         var rendered = false
         for frame in frames {
             let shown = renderer.render(frame, arrival: arrivedAt)
@@ -427,10 +453,12 @@ final class Slot: ObservableObject, Identifiable {
         }
         if let snapshot = meter.snapshotIfDue(at: arrivedAt) {
             let codec = renderer.codecDescription
+            let (counts, waitingForKeyframe) = renderer.takeCounts()
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.receiver != nil else { return }
                 self.stats.stream = snapshot
                 self.stats.codec = codec
+                self.append(Self.countsLine(snapshot, counts, waitingForKeyframe: waitingForKeyframe, state: self.state))
             }
         }
         guard rendered else { return }
@@ -458,6 +486,20 @@ final class Slot: ObservableObject, Identifiable {
                 self.state = .live
             }
         }
+    }
+
+    /// Once a second while video arrives, what happened to it in the app, so a log shows where a
+    /// frozen picture stops: frames not arriving, not decoding, or not reaching the screen.
+    private static func countsLine(_ snapshot: StreamSnapshot, _ counts: H264Renderer.Counts, waitingForKeyframe: Bool, state: State) -> String {
+        var line = String(format: "Mirror Wall app counts: %.1f s, %d packets (%d lost), %d frames in (%d keyframes, %d skipped), "
+                          + "%d decoded, %d decode errors, %d shown, %.1f Mbps",
+                          snapshot.seconds, snapshot.packets, snapshot.packetsLost, snapshot.framesArrived,
+                          snapshot.keyframesArrived, snapshot.framesSkipped, counts.decoded, counts.decodeErrors,
+                          counts.shown, snapshot.bitsPerSecond / 1e6) + ", \(state)"
+        if waitingForKeyframe { line += ", waiting for a keyframe" }
+        if counts.decodeErrors > 0 { line += ", last decode error \(counts.lastDecodeError)" }
+        if counts.layerResets > 0 { line += ", \(counts.layerResets) display resets" }
+        return line
     }
 
     // MARK: - Android phones (Mirror Wall Cast)
@@ -574,9 +616,12 @@ final class Slot: ObservableObject, Identifiable {
         let event = UxPlayEvent(line: line)
         // Latency reports come every second; they feed the stats overlay, not the log.
         if case .videoLatency? = event {} else {
-            logFile?.write(Data((line + "\n").utf8))
-            log.lines.append(line)
-            if log.lines.count > 300 { log.lines.removeFirst(log.lines.count - 300) }
+            logFile?.write(Data((Self.timeFormatter.string(from: Date()) + " " + line + "\n").utf8))
+            // Once-a-second counts go to the file only, so they don't crowd the log window.
+            if !line.hasPrefix("Mirror Wall app counts:") && !line.contains("Mirror Wall receiver counts:") {
+                log.lines.append(line)
+                if log.lines.count > 300 { log.lines.removeFirst(log.lines.count - 300) }
+            }
         }
         if let event {
             apply(event)
@@ -585,6 +630,12 @@ final class Slot: ObservableObject, Identifiable {
 
     private func apply(_ event: UxPlayEvent) {
         switch event {
+        case .remoteAddress(let interface):
+            // The direct link is its own network interface: "awdl0", or "llw0" for its low-latency twin.
+            var name = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
+            let direct = interface.map { $0 != 0 && if_indextoname($0, &name) != nil && ["awdl", "llw"].contains { String(cString: name).hasPrefix($0) } } ?? false
+            if direct != viaDirectLink { viaDirectLink = direct }
+            stats.link = direct ? "Direct (no shared network)" : "Network"
         case .clientConnecting(let name, let model, let deviceID):
             // The decoder needs no reset here: a new stream starts with new parameter sets, which
             // rebuild it. (This line can also arrive after the new stream's first frames.)
@@ -677,17 +728,32 @@ final class Slot: ObservableObject, Identifiable {
         }
     }
 
+    /// Each log file line starts with the time, e.g. "2026-11-03 13:14:20.123".
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+
     /// Seconds on a steady clock, for timing frames.
     private static func uptime() -> Double {
         Double(DispatchTime.now().uptimeNanoseconds) / 1e9
     }
 
     /// Mirrors the log to ~/Library/Logs/MirrorWall/slot-N.log (replaced on each start) for troubleshooting.
+    /// The one before it is kept as slot-N.previous.log, so relaunching the app or changing a
+    /// setting doesn't lose what happened.
     private func openLogFile() {
         try? logFile?.close()
         let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/MirrorWall")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent("slot-\(config.id).log")
+        let previous = folder.appendingPathComponent("slot-\(config.id).previous.log")
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: previous)
+            try? FileManager.default.moveItem(at: url, to: previous)
+        }
         FileManager.default.createFile(atPath: url.path, contents: nil)
         logFile = try? FileHandle(forWritingTo: url)
     }

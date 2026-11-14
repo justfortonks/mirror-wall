@@ -401,6 +401,13 @@ struct SlotTile: View {
                 DispatchQueue.main.async { store.chooseStandbyImage(for: slot) }
             }
         }
+        Toggle(slot.wantsDirectLink ? "Direct Connection (PIN \(String(format: "%04d", store.directLinkPIN)))" : "Direct Connection (No Shared Network)", isOn: Binding(
+            get: { slot.wantsDirectLink },
+            set: { on in
+                // Once the menu has closed, in case it has to explain AirPlay Receiver.
+                DispatchQueue.main.async { store.setDirectLink(slot, on: on) }
+            }
+        ))
         Divider()
         Button("Rename…") {
             newName = slot.name
@@ -439,8 +446,9 @@ struct SlotTile: View {
         case .disconnected: return "Disconnected"
         case .paused: return "Screen off \(Self.format(now.timeIntervalSince(slot.stateSince)))"
         case .live:
-            guard let since = slot.connectedSince else { return "Live" }
-            return "Live \(Self.format(now.timeIntervalSince(since)))"
+            let link = slot.viaDirectLink ? " · Direct" : ""
+            guard let since = slot.connectedSince else { return "Live" + link }
+            return "Live \(Self.format(now.timeIntervalSince(since)))" + link
         }
     }
 

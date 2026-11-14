@@ -5,6 +5,22 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## November 13, 2026: Direct connection for iPhones without a shared network (Mac)
+
+- A slot's ⋯ menu › Direct Connection lets an iPhone mirror to that slot when the phone and
+  the Mac can't see each other on the network, such as on guest Wi-Fi. Both keep their own
+  internet connection. Each iPhone asks once for a PIN, which you can change in
+  Settings › Phones. Needs AirPlay Receiver turned on in System Settings.
+
+## November 3, 2026: Fewer frozen pictures, more detailed slot logs
+
+- Slot logs now have the time on every line, and once a second they note how much video
+  arrived from the phone, how much was decoded and how much reached the screen, to track down
+  pictures that freeze while a phone mirrors. The log from before the last restart is kept as
+  slot-N.previous.log.
+- A phone that marks its video as stopping once but keeps sending pictures no longer leaves
+  its tile frozen: after a second of pictures still arriving, Mirror Wall shows them again.
+
 ## October 31, 2026: No more frozen picture while an iPhone mirrors
 
 - Fixed an iPhone's picture freezing for minutes while the phone kept mirroring and its tile
