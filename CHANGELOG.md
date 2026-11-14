@@ -5,6 +5,16 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## November 14, 2026: Android app notices a lost computer and copes with weak Wi-Fi
+
+- Mirror Wall Cast (Android) now notices within about ten seconds when the computer has gone
+  quiet (asleep, off the network) and reconnects, instead of saying "Sharing" for minutes.
+- On weak Wi-Fi the app lowers the picture's bit rate while the network can't keep up and
+  raises it again afterwards, instead of repeatedly dropping pictures.
+- The app can reach a computer over a Wi-Fi network that has no internet (a computer's
+  hotspot, say) while mobile data carries everything else, and remembers the last address
+  typed under "Or connect by address".
+
 ## November 13, 2026: Direct connection for iPhones without a shared network (Mac)
 
 - A slot's ⋯ menu › Direct Connection lets an iPhone mirror to that slot when the phone and

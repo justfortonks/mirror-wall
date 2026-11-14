@@ -133,6 +133,7 @@ class MainActivity : Activity() {
     private fun shareToTypedAddress() {
         val text = addressField.text.toString().trim()
         if (text.isEmpty()) return
+        Phone.setLastAddress(this, text)
         // "192.168.1.20" means slot 1; "192.168.1.20:7450" names the slot's port.
         val host = text.substringBefore(':')
         val port = text.substringAfter(':', "7350").toIntOrNull() ?: 7350
@@ -314,6 +315,7 @@ class MainActivity : Activity() {
         val addressRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         addressField = EditText(this).apply {
             hint = "192.168.1.20"
+            setText(Phone.lastAddress(this@MainActivity))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             imeOptions = EditorInfo.IME_ACTION_GO
             setSingleLine()

@@ -22,6 +22,8 @@ class ScreenEncoder(
     private val onError: (Exception) -> Unit,
 ) {
     private val codec = MediaCodec.createEncoderByType(mime)
+    /** The bit rate the encoder starts at, and its usual one. */
+    val bitRate = bitRate(width, height, frameRate, mime)
     val inputSurface: Surface
     @Volatile private var running = true
     private var parameterSets: ByteArray? = null
@@ -30,7 +32,7 @@ class ScreenEncoder(
     init {
         val format = MediaFormat.createVideoFormat(mime, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitRate(width, height, frameRate, mime))
+            setInteger(MediaFormat.KEY_BIT_RATE, bitRate)
             setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
             setFloat(MediaFormat.KEY_MAX_FPS_TO_ENCODER, frameRate.toFloat())
             // A keyframe every few seconds; more are asked for when frames have to be dropped.
@@ -56,6 +58,15 @@ class ScreenEncoder(
         if (!running) return
         try {
             codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
+        } catch (_: IllegalStateException) {
+        }
+    }
+
+    /** Changes the bit rate of the pictures from now on, e.g. while the network can't keep up. */
+    fun changeBitRate(bitsPerSecond: Int) {
+        if (!running) return
+        try {
+            codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitsPerSecond) })
         } catch (_: IllegalStateException) {
         }
     }

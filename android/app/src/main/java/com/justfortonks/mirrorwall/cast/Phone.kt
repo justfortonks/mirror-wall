@@ -29,6 +29,14 @@ object Phone {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("keepScreenOn", on).apply()
     }
 
+    /** The address last shared to by typing it, offered again next time. */
+    fun lastAddress(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("lastAddress", "") ?: ""
+
+    fun setLastAddress(context: Context, address: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("lastAddress", address).apply()
+    }
+
     /** E.g. "Zebra Technologies HC50". */
     fun model(): String {
         val maker = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }

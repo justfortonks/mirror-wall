@@ -16,6 +16,9 @@ import android.hardware.display.VirtualDisplay
 import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
@@ -31,6 +34,7 @@ import java.io.DataInputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
 
@@ -74,6 +78,13 @@ class CastService : Service() {
         /** How long to keep trying after the connection drops. */
         private const val RECONNECT_FOR_MS = 60_000L
         private const val RECONNECT_EVERY_MS = 2_000L
+        /**
+         * Mirror Wall answers each 2-second heartbeat with a ping. Once one has arrived, this long
+         * with nothing from Mirror Wall means the connection is dead, even if Android hasn't noticed.
+         */
+        private const val SILENCE_MEANS_LOST_MS = 10_000
+        /** After the network fell behind, how long it must keep up before the picture is sharpened again. */
+        private const val RAISE_BIT_RATE_AFTER_MS = 10_000L
         private val END = ByteArray(0)
     }
 
@@ -98,6 +109,10 @@ class CastService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     @Volatile private var screenOff = false
     @Volatile private var waitingForKeyframe = false
+    /** What the encoder is asked for now; below its usual rate while the network can't keep up. */
+    private var bitRate = 0
+    /** When the network last fell behind, or the bit rate was last raised. */
+    private var bitRateChangedAt = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -187,15 +202,41 @@ class CastService : Service() {
             }
         }
 
+        /**
+         * Connects the usual way; if that fails and the phone is on a Wi-Fi network Android isn't
+         * using for the internet (one without internet, such as a computer's hotspot, while mobile
+         * data carries everything else), tries again through that Wi-Fi.
+         */
+        private fun open(): Socket {
+            try {
+                return open(null)
+            } catch (error: IOException) {
+                val wifi = if (closed) null else otherWifi()
+                if (wifi == null) throw error
+                AppLog.write("Couldn't connect the usual way (${error.message}); trying through Wi-Fi")
+                return open(wifi)
+            }
+        }
+
+        private fun open(network: Network?): Socket {
+            val socket = network?.socketFactory?.createSocket() ?: Socket()
+            this.socket = socket
+            if (closed) throw IOException("Stopped")
+            socket.tcpNoDelay = true
+            socket.sendBufferSize = 256 * 1024
+            try {
+                socket.connect(InetSocketAddress(host, port), 5000)
+            } catch (error: IOException) {
+                closeSocket()
+                throw error
+            }
+            return socket
+        }
+
         private fun run() {
             var gotWelcome = false
             try {
-                val socket = Socket()
-                this.socket = socket
-                if (closed) return
-                socket.tcpNoDelay = true
-                socket.sendBufferSize = 256 * 1024
-                socket.connect(InetSocketAddress(host, port), 5000)
+                val socket = open()
                 val output = BufferedOutputStream(socket.getOutputStream(), 64 * 1024)
                 val input = DataInputStream(socket.getInputStream())
                 val hello = JSONObject()
@@ -230,9 +271,16 @@ class CastService : Service() {
                     val message = CastProtocol.read(input)
                     if (message.type == CastProtocol.PING) {
                         outbox.offer(CastProtocol.message(CastProtocol.PONG, message.payload))
+                        // This Mirror Wall pings (0.90 didn't), so silence from now on means it's gone.
+                        if (socket.soTimeout == 0) socket.soTimeout = SILENCE_MEANS_LOST_MS
                     }
                 }
-            } catch (error: Exception) {
+            } catch (caught: Exception) {
+                val error = if (caught is SocketTimeoutException && gotWelcome) {
+                    IOException("nothing heard from Mirror Wall for ${SILENCE_MEANS_LOST_MS / 1000} s")
+                } else {
+                    caught
+                }
                 closeSocket()
                 if (!closed) {
                     AppLog.error("Connection to $host:$port ended", error)
@@ -255,6 +303,16 @@ class CastService : Service() {
             } finally {
                 closeSocket()
             }
+        }
+    }
+
+    /** A Wi-Fi network the phone is on that isn't the one Android sends traffic through, if any. */
+    private fun otherWifi(): Network? {
+        val connectivity = getSystemService(ConnectivityManager::class.java)
+        val active = connectivity.activeNetwork
+        @Suppress("DEPRECATION")
+        return connectivity.allNetworks.firstOrNull {
+            it != active && connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         }
     }
 
@@ -391,6 +449,7 @@ class CastService : Service() {
             return
         }
         this.encoder = encoder
+        bitRate = encoder.bitRate
         if (display != null) {
             display.resize(size.width, size.height, size.dpi)
             display.surface = encoder.inputSurface
@@ -406,9 +465,12 @@ class CastService : Service() {
             return
         }
         if (outbox.size > MAX_QUEUED) {
-            AppLog.write("Network falling behind: dropped ${outbox.size} queued messages")
-            outbox.clear()
+            // Only pictures are dropped: heartbeats, pongs, paused and orientation must still arrive.
+            val before = outbox.size
+            outbox.removeIf { it.isNotEmpty() && it[0] == CastProtocol.VIDEO.toByte() }
+            AppLog.write("Network falling behind: dropped ${before - outbox.size} queued pictures")
             waitingForKeyframe = true
+            main.post { networkFellBehind() }
         }
         if (waitingForKeyframe) {
             if (!isKeyframe) {
@@ -420,9 +482,33 @@ class CastService : Service() {
         outbox.offer(CastProtocol.video(captureMicros, prefix, data))
     }
 
+    /** Pictures had to be dropped: send smaller ones, down to a quarter of the usual bit rate. */
+    private fun networkFellBehind() {
+        val encoder = encoder ?: return
+        bitRateChangedAt = SystemClock.elapsedRealtime()
+        val lower = maxOf(encoder.bitRate / 4, bitRate * 6 / 10)
+        if (lower == bitRate) return
+        bitRate = lower
+        encoder.changeBitRate(lower)
+        AppLog.write("Lowered the picture's bit rate to ${lower / 1000} kbps")
+    }
+
+    /** Once the network has kept up for a while, works back up to the usual bit rate in steps. */
+    private fun restoreBitRate() {
+        val encoder = encoder ?: return
+        if (bitRate >= encoder.bitRate || link == null) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - bitRateChangedAt < RAISE_BIT_RATE_AFTER_MS) return
+        bitRateChangedAt = now
+        bitRate = minOf(encoder.bitRate, bitRate * 5 / 4)
+        encoder.changeBitRate(bitRate)
+        AppLog.write("Raised the picture's bit rate to ${bitRate / 1000} kbps")
+    }
+
     private val heartbeat = object : Runnable {
         override fun run() {
             link?.outbox?.offer(CastProtocol.message(CastProtocol.HEARTBEAT))
+            restoreBitRate()
             // A turn the display listener missed is caught here.
             matchScreenShape()
             main.postDelayed(this, 2000)
