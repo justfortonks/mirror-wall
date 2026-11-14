@@ -111,6 +111,8 @@ final class SlotConfigTests: XCTestCase {
         XCTAssertEqual(UxPlayEvent(line: "Remote: 192.168.1.20"), .remoteAddress(interface: nil))
         XCTAssertEqual(UxPlayEvent(line: "Remote: fe80::1c2d:3eff:fe4f:5a6b%14"), .remoteAddress(interface: 14))
         XCTAssertNil(UxPlayEvent(line: "Remote: "))
+        XCTAssertEqual(UxPlayEvent(line: "2026-11-13 21:55:03.636 Remote: fe80::5465:adff:feb2:1011%13"), .remoteAddress(interface: 13))
+        XCTAssertNil(UxPlayEvent(line: "2026-11-13 21:57:48.957 Active-Remote: 1139546198"))
     }
 
     func testArgumentsTurnOffTimestampSyncAndForwardVideo() {

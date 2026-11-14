@@ -46,7 +46,9 @@ public enum UxPlayEvent: Equatable {
             self = .videoLatency(latency)
         } else if line.contains("best NTP data:"), let delay = Self.number(after: "delay ", in: line) {
             self = .networkRoundTrip(delay)
-        } else if let range = line.range(of: "Remote: ") {
+        } else if let range = line.range(of: "Remote: "),
+                  // Not the "Active-Remote: 1139546198" header the phone sends every 2 seconds.
+                  range.lowerBound == line.startIndex || line[line.index(before: range.lowerBound)] == " " {
             let address = line[range.upperBound...].prefix { !$0.isWhitespace }
             guard !address.isEmpty else { return nil }
             let zone = address.split(separator: "%", omittingEmptySubsequences: false).dropFirst().first
