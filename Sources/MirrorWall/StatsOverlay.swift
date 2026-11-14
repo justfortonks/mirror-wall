@@ -23,6 +23,8 @@ final class SlotStats: ObservableObject {
     }
     /// The phone's model, e.g. "iPhone 15 Pro Max".
     @Published var phoneModel: String?
+    /// How the phone mirroring now reaches the Mac: "Direct (no shared network)" or "Network".
+    @Published var link: String?
     /// Phones that have connected since the app started.
     @Published var connections = 0
     @Published private(set) var lastHeartbeatAt: Date?
@@ -84,6 +86,9 @@ struct StatsOverlay: View {
         let stream = stats.stream
         var rows: [Row] = []
         rows.append(Row(label: "Phone", value: stats.phoneModel ?? "–"))
+        if let link = stats.link {
+            rows.append(Row(label: "Link", value: link))
+        }
         if let codec = stats.codec {
             rows.append(Row(label: "Codec", value: codec))
         }
@@ -110,7 +115,7 @@ struct StatsOverlay: View {
             let every = stats.heartbeatInterval.map { String(format: "every %.1f s, ", $0) } ?? ""
             rows.append(Row(label: "Check-ins", value: every + Self.ago(now.timeIntervalSince(last))))
         }
-        rows.append(Row(label: "Connections", value: "\(stats.connections)"))
+        rows.append(Row(label: "Times connected", value: "\(stats.connections)"))
         return rows
     }
 

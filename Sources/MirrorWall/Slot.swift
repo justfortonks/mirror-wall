@@ -188,6 +188,7 @@ final class Slot: ObservableObject, Identifiable {
         startCastServer()
         startWatchdog()
         viaDirectLink = false
+        stats.link = nil
         append("Started: uxplay \(config.uxplayArguments(maxFrameRate: maxFrameRate, allowedDevices: allowedDevices, sharpPicture: sharpPicture, computer: ReceiverTag.current, directLinkPIN: directLinkPIN).joined(separator: " "))")
         state = .waiting
     }
@@ -634,6 +635,7 @@ final class Slot: ObservableObject, Identifiable {
             var name = [CChar](repeating: 0, count: Int(IF_NAMESIZE))
             let direct = interface.map { $0 != 0 && if_indextoname($0, &name) != nil && ["awdl", "llw"].contains { String(cString: name).hasPrefix($0) } } ?? false
             if direct != viaDirectLink { viaDirectLink = direct }
+            stats.link = direct ? "Direct (no shared network)" : "Network"
         case .clientConnecting(let name, let model, let deviceID):
             // The decoder needs no reset here: a new stream starts with new parameter sets, which
             // rebuild it. (This line can also arrive after the new stream's first frames.)
