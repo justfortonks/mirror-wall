@@ -32,7 +32,7 @@ final class Slot: ObservableObject, Identifiable {
         }
     }
     /// True while a phone is (or is about to be) mirroring, so its frames belong in the OBS feed.
-    private var carriesPhoneFrames: Bool {
+    var carriesPhoneFrames: Bool {
         state == .connecting || state == .live || state == .paused
     }
     /// When the current state began, e.g. how long the screen has been off.
