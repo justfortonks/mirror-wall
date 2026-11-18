@@ -62,8 +62,8 @@ final class SlotStore: ObservableObject {
     /// Keeps the Mac and its screen from going to sleep while a phone is mirroring or a slot is
     /// recording. On by default.
     @Published private(set) var keepsMacAwake: Bool
-    /// How the Stage window arranges the phones.
-    @Published private(set) var stageLayout: StageLayout
+    /// What's on the Stage window and where: phones, Mac windows and cameras, and saved layouts.
+    let stage: StageController
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
@@ -83,7 +83,6 @@ final class SlotStore: ObservableObject {
     private let reopensOwnWindowsKey = "reopenOwnWindows"
     private let bezelsForAllSlotsKey = "bezelsForAllSlots"
     private let keepsMacAwakeKey = "keepMacAwake"
-    private let stageLayoutKey = "stageLayout"
     static let bounceKey = "bounceOnDisconnect"
     /// Shows Mirror Wall's icon in the menu bar, and keeps the app running (and mirroring) when
     /// the wall's window is closed. On by default.
@@ -138,6 +137,7 @@ final class SlotStore: ObservableObject {
     static let maxSlots = 8
 
     init() {
+        stage = StageController()
         defaults.register(defaults: [Self.bounceKey: true, popOutSizeLockedKey: true, keepsMacAwakeKey: true, Self.menuBarIconKey: true])
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
         var configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0, computerName: Self.computerName)) }
@@ -166,7 +166,6 @@ final class SlotStore: ObservableObject {
         reopensOwnWindows = defaults.bool(forKey: reopensOwnWindowsKey)
         bezelsForAllSlots = defaults.bool(forKey: bezelsForAllSlotsKey)
         keepsMacAwake = defaults.bool(forKey: keepsMacAwakeKey)
-        stageLayout = defaults.string(forKey: stageLayoutKey).flatMap(StageLayout.init(rawValue:)) ?? .sideBySide
         // The Stage starts empty unless it's set to remember the phones chosen last time.
         let clearsStage = StagePhones.current != .chosen && configs.contains { $0.onStage != nil }
         if clearsStage {
@@ -177,6 +176,7 @@ final class SlotStore: ObservableObject {
         slots.forEach(watch)
         if saved != nil || clearsStage { save() }
         updateWindowTitles() // also starts the OBS feeds that were on
+        stage.attach(self)
     }
 
     /// The Mac's name, as set in System Settings › General › Sharing.
@@ -612,21 +612,21 @@ final class SlotStore: ObservableObject {
     func showStage() {
         if stageWindow == nil {
             let window = StageWindow(store: self)
-            window.onClose = { [weak self] in self?.stageWindow = nil }
+            window.onClose = { [weak self] in
+                self?.stageWindow = nil
+                // Cameras and window captures only run while the Stage is open.
+                self?.stage.suspend()
+            }
             stageWindow = window
         }
         stageWindow?.show()
+        stage.resume()
     }
 
     func setShowsOnStage(_ slot: Slot, on: Bool) {
         slot.setShowsOnStage(on)
         save()
-    }
-
-    func setStageLayout(_ layout: StageLayout) {
-        guard layout != stageLayout else { return }
-        stageLayout = layout
-        defaults.set(layout.rawValue, forKey: stageLayoutKey)
+        stage.syncPhones()
     }
 
     func closeOwnWindow(_ slot: Slot) {

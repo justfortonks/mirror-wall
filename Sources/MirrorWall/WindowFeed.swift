@@ -464,13 +464,23 @@ final class WindowFeedStore: ObservableObject {
     private var observer: PickerObserver?
     /// A feed whose window went away, being replaced by a new pick under the same name.
     private var replacing: WindowFeed?
+    /// Set while the picker is open for the Stage, which wants the window itself rather than an
+    /// OBS feed of it: gets the chosen window's filter, app name, title and window ID.
+    private var stagePick: ((SCContentFilter, String?, String?, CGWindowID?) -> Void)?
     private var listWindow: WindowFeedsWindow?
 
     static var isAvailable: Bool { SyphonFeed.isAvailable }
 
+    /// Opens macOS's window picker for the Stage: the chosen window goes to `handler` instead of
+    /// to OBS.
+    func pickWindowForStage(_ handler: @escaping (SCContentFilter, String?, String?, CGWindowID?) -> Void) {
+        stagePick = handler
+        pickWindow()
+    }
+
     /// Opens macOS's window picker. The chosen window starts going to OBS.
     func pickWindow(replacing old: WindowFeed? = nil) {
-        guard Self.isAvailable else { return }
+        guard Self.isAvailable || stagePick != nil else { return }
         replacing = old
         let picker = SCContentSharingPicker.shared
         if observer == nil {
@@ -499,11 +509,13 @@ final class WindowFeedStore: ObservableObject {
 
     private func pickEnded() {
         replacing = nil
+        stagePick = nil
         SCContentSharingPicker.shared.isActive = false
     }
 
     private func picked(_ filter: SCContentFilter) {
         let old = replacing
+        let stageHandler = stagePick
         pickEnded()
 
         var app: String?
@@ -513,6 +525,10 @@ final class WindowFeedStore: ObservableObject {
             app = window.owningApplication?.applicationName
             title = window.title
             windowID = window.windowID
+        }
+        if let stageHandler {
+            stageHandler(filter, app, title, windowID)
+            return
         }
         if let old { remove(old) }
         let name = WindowFeedName.unique(old?.name ?? WindowFeedName.make(app: app, title: title), among: feeds.map(\.name))
