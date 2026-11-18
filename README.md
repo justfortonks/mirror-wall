@@ -70,6 +70,8 @@ Each slot can publish video directly through **Syphon on macOS** or **Spout on W
 
 Enable **Send to OBS** in the tile’s menu. In OBS, add a **Syphon Client** source on Mac or a **Spout2 Capture** source on Windows. Windows requires the [Spout2 plugin](https://github.com/Off-World-Live/obs-spout2-plugin).
 
+On the Mac, **File → Send a Window to OBS (Syphon)…** sends any Mac window, such as Screen Sharing or a browser, the same way: pick it in macOS’s window picker and it appears in OBS as **[Mirror Wall] <window name>**. Keep the window open (it can be behind other windows); macOS stops drawing a minimized window.
+
 ## Limitations
 
 - No remote control, audio, or USB mirroring.

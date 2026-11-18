@@ -34,6 +34,20 @@ The longer notes on how each Mac feature behaves, and on the Android app. The
   whichever suits a scene. Needs the app built with Syphon (`scripts/build-syphon.sh`, which needs
   Xcode's Metal Toolchain: `xcodebuild -downloadComponent MetalToolchain`); without it the menu
   item doesn't appear.
+- **Send a window to OBS (Mac):** File › Send a Window to OBS (Syphon)… (also in the menu bar
+  icon's menu and the wall's right-click menu) opens macOS's own window picker; the window you
+  choose goes to OBS as a Syphon feed named `[Mirror Wall] <app> – <window title>`, the same way a
+  slot's feed does, with no phone frame. The picker is the permission, so nothing needs
+  turning on in System Settings. Windows Sent to OBS (File menu, or Settings › OBS) lists each
+  feed with a preview, its status (Live and frames a second, "the window isn't changing", or no
+  picture for some seconds), the window's size and whether macOS has it on screen, a Name in OBS
+  field (renaming loses an OBS source set to the old name), Show mouse pointer, and Stop
+  Sending. A feed follows its window as it's resized. When the window is closed the feed shows
+  Stopped; Pick the Window Again… restarts it under the same name. Feeds aren't remembered
+  across launches. macOS doesn't draw a minimized, hidden or other-desktop window, so a
+  minimized window's feed stops getting pictures (the status and "not on screen" say so): keep
+  it open, behind other windows or on another screen. What each feed's pictures did is logged
+  in `~/Library/Logs/MirrorWall/window-feeds.log`.
 - **Slot names:** new slots are named "Mirror Wall 1 · MacBook Air": the Mac's name without its
   owner, shortened to 14 characters at a word, so two Macs' slots can be told apart on the phone
   while staying distinct from the Mac's own AirPlay receiver (which uses the Mac's full name).

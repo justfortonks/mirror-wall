@@ -900,3 +900,24 @@ final class LatestReleaseTests: XCTestCase {
         XCTAssertEqual(LatestRelease.title(in: "Something: else"), "")
     }
 }
+
+final class WindowFeedNameTests: XCTestCase {
+    func testNamesFromAppAndTitle() {
+        XCTAssertEqual(WindowFeedName.make(app: "Screen Sharing", title: "Studio Mac"), "Screen Sharing – Studio Mac")
+        XCTAssertEqual(WindowFeedName.make(app: "Safari", title: "  "), "Safari")
+        XCTAssertEqual(WindowFeedName.make(app: "Calculator", title: "Calculator"), "Calculator")
+        XCTAssertEqual(WindowFeedName.make(app: nil, title: "Untitled"), "Untitled")
+        XCTAssertEqual(WindowFeedName.make(app: nil, title: nil), "Window")
+    }
+
+    func testLongTitlesAreShortened() {
+        let name = WindowFeedName.make(app: "Safari", title: String(repeating: "a", count: 200))
+        XCTAssertEqual(name, "Safari – " + String(repeating: "a", count: WindowFeedName.longestTitle) + "…")
+    }
+
+    func testUniqueNames() {
+        XCTAssertEqual(WindowFeedName.unique("Safari", among: ["Notes"]), "Safari")
+        XCTAssertEqual(WindowFeedName.unique("Safari", among: ["Safari"]), "Safari 2")
+        XCTAssertEqual(WindowFeedName.unique("Safari", among: ["Safari", "Safari 2"]), "Safari 3")
+    }
+}

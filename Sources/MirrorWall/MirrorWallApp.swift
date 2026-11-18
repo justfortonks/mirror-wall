@@ -30,6 +30,10 @@ struct MirrorWallApp: App {
                 Divider()
                 Button("Screenshot All Slots") { appDelegate.store.screenshotAll() }
                 Button("Show Screenshots in Finder") { Screenshots.showInFinder() }
+                if WindowFeedStore.isAvailable {
+                    Divider()
+                    WindowFeedItems(feeds: .shared)
+                }
             }
             CommandGroup(before: .windowList) {
                 ShowMainWindowButton()
@@ -88,6 +92,7 @@ struct MenuBarMenu: View {
         } else {
             Button("Record All Slots") { store.startAllRecordings() }
         }
+        WindowFeedItems(feeds: .shared)
         SavedFilesItems(store: store)
         Button("Settings…") {
             NSApp.activate(ignoringOtherApps: true)
@@ -242,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.prepareForTermination()
         store.stopAllRecordings(wait: true)
         store.stopAll()
+        WindowFeedStore.shared.stopAll()
     }
 
     /// Clicking the Dock icon brings back the main window, even when it's minimized and slots'

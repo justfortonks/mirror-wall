@@ -5,6 +5,15 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## November 18, 2026: Send any Mac window to OBS (Mac)
+
+- File › Send a Window to OBS (Syphon)… (also in the menu bar icon's menu, and by right-clicking
+  the wall) sends any Mac window, such as Screen Sharing or a browser, to OBS as a Syphon feed.
+  Pick the window in macOS's own window picker (no Screen Recording permission to set up), then
+  in OBS add a Syphon Client source and choose "[Mirror Wall] <window name>". Windows Sent to
+  OBS lists each feed with a preview, a live/not-moving status, a rename field and a Stop button.
+  Keep the window open, which can be behind other windows: macOS doesn't draw a minimized window.
+
 ## November 13, 2026: Direct connection for iPhones without a shared network (Mac)
 
 - A slot's ⋯ menu › Direct Connection lets an iPhone mirror to that slot when the phone and
