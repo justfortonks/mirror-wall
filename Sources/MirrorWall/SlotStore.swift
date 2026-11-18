@@ -63,7 +63,7 @@ final class SlotStore: ObservableObject {
     /// recording. On by default.
     @Published private(set) var keepsMacAwake: Bool
     /// What's on the Stage window and where: phones, Mac windows and cameras, and saved layouts.
-    let stage = StageController()
+    let stage: StageController
 
     private let defaults = UserDefaults.standard
     private let slotsKey = "slots"
@@ -137,6 +137,7 @@ final class SlotStore: ObservableObject {
     static let maxSlots = 8
 
     init() {
+        stage = StageController()
         defaults.register(defaults: [Self.bounceKey: true, popOutSizeLockedKey: true, keepsMacAwakeKey: true, Self.menuBarIconKey: true])
         let saved = defaults.data(forKey: slotsKey).flatMap { try? JSONDecoder().decode([SlotConfig].self, from: $0) }
         var configs = saved ?? (1...2).map { SlotConfig(id: $0, name: SlotConfig.defaultName(for: $0, computerName: Self.computerName)) }
