@@ -621,8 +621,12 @@ private struct StageEditItem: View {
                 guard let start = moveStart else { return }
                 var moved = start.offsetBy(dx: value.translation.width, dy: value.translation.height).clamped(inside: bounds)
                 // Edges and middles line up with the Stage's and the other pictures', when close.
-                let xTargets = [0, bounds.midX, bounds.maxX] + others.flatMap { [$0.x, $0.midX, $0.maxX] }
-                let yTargets = [0, bounds.midY, bounds.maxY] + others.flatMap { [$0.y, $0.midY, $0.maxY] }
+                var xTargets: [Double] = [0, bounds.midX, bounds.maxX]
+                var yTargets: [Double] = [0, bounds.midY, bounds.maxY]
+                for other in others {
+                    xTargets += [other.x, other.midX, other.maxX]
+                    yTargets += [other.y, other.midY, other.maxY]
+                }
                 let snap = stageSnapOffset(for: moved, xTargets: xTargets, yTargets: yTargets, threshold: 8)
                 moved = moved.offsetBy(dx: snap.dx, dy: snap.dy).clamped(inside: bounds)
                 stage.setPicture(entry.id, rect: moved, area: area)
