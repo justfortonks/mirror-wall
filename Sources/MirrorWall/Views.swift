@@ -89,6 +89,7 @@ struct ContentView: View {
                     Button("Add Slot") { store.addSlot() }
                         .disabled(!store.canAddSlot)
                     Button("Show Stage") { store.showStage() }
+                    WindowFeedItems(feeds: .shared)
                     Divider()
                     SavedFilesItems(store: store)
                 }

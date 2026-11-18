@@ -143,6 +143,19 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if WindowFeedStore.isAvailable {
+                    Section {
+                        Button("Send a Window to OBS (Syphon)…") { WindowFeedStore.shared.pickWindow() }
+                        Button("Windows Sent to OBS") { WindowFeedStore.shared.showList() }
+                    } header: {
+                        Text("Any window")
+                    } footer: {
+                        Text("Sends any Mac window, such as Screen Sharing, to OBS as a Syphon feed. Keep the window open (it can be behind other windows): macOS stops drawing a minimized window. Sending stops when Mirror Wall quits.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
             }
             .formStyle(.grouped)
             .tabItem { Label("OBS", systemImage: "video") }
