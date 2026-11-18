@@ -921,3 +921,97 @@ final class WindowFeedNameTests: XCTestCase {
         XCTAssertEqual(WindowFeedName.unique("Safari", among: ["Safari", "Safari 2"]), "Safari 3")
     }
 }
+
+final class StageSceneTests: XCTestCase {
+    private let area = StageRect(x: 0, y: 0, width: 1000, height: 600)
+
+    func testFitCentersAPictureInABox() {
+        // A 2:1 picture in a square box fills its width, with room above and below.
+        let wide = stageFit(aspect: 2, in: StageRect(x: 100, y: 100, width: 200, height: 200))
+        XCTAssertEqual(wide, StageRect(x: 100, y: 150, width: 200, height: 100))
+        // A 1:2 picture fills its height, with room at the sides.
+        let tall = stageFit(aspect: 0.5, in: StageRect(x: 100, y: 100, width: 200, height: 200))
+        XCTAssertEqual(tall, StageRect(x: 150, y: 100, width: 100, height: 200))
+        // No shape known: the box itself.
+        let box = StageRect(x: 1, y: 2, width: 3, height: 4)
+        XCTAssertEqual(stageFit(aspect: 0, in: box), box)
+    }
+
+    func testSourceSizes() {
+        XCTAssertEqual(stageSourceSize(aspect: 2).width, 1.2, accuracy: 0.0001)
+        XCTAssertEqual(stageSourceSize(aspect: 2).height, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(stageSourceSize(aspect: 0.5).width, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(stageSourceSize(aspect: 0.5).height, 1, accuracy: 0.0001)
+        XCTAssertEqual(stageSourceSize(aspect: 0).width, 1.2, accuracy: 0.0001)
+    }
+
+    func testClampKeepsARectangleInside() {
+        XCTAssertEqual(StageRect(x: -20, y: 590, width: 100, height: 50).clamped(inside: area), StageRect(x: 0, y: 550, width: 100, height: 50))
+        XCTAssertEqual(StageRect(x: 950, y: -5, width: 100, height: 50).clamped(inside: area), StageRect(x: 900, y: 0, width: 100, height: 50))
+        // Bigger than the area: lined up with its top left.
+        XCTAssertEqual(StageRect(x: 30, y: 30, width: 2000, height: 50).clamped(inside: area), StageRect(x: 0, y: 30, width: 2000, height: 50))
+    }
+
+    func testResizingKeepsTheShapeAndTheOppositeCorner() {
+        let rect = StageRect(x: 100, y: 100, width: 200, height: 100)
+        // Dragging the bottom right corner outward grows it from the top left.
+        let bigger = rect.resizing(corner: .bottomRight, dx: 100, dy: 50, minWidth: 20, bounds: area)
+        XCTAssertEqual(bigger.x, 100, accuracy: 0.0001)
+        XCTAssertEqual(bigger.y, 100, accuracy: 0.0001)
+        XCTAssertEqual(bigger.width, 300, accuracy: 0.0001)
+        XCTAssertEqual(bigger.height, 150, accuracy: 0.0001)
+        // Dragging the top left corner outward (up and left) grows it from the bottom right.
+        let fromTopLeft = rect.resizing(corner: .topLeft, dx: -40, dy: -20, minWidth: 20, bounds: area)
+        XCTAssertEqual(fromTopLeft.maxX, 300, accuracy: 0.0001)
+        XCTAssertEqual(fromTopLeft.maxY, 200, accuracy: 0.0001)
+        XCTAssertEqual(fromTopLeft.width, 240, accuracy: 0.0001)
+        XCTAssertEqual(fromTopLeft.height, 120, accuracy: 0.0001)
+    }
+
+    func testResizingStopsAtTheSmallestAndTheEdge() {
+        let rect = StageRect(x: 100, y: 100, width: 200, height: 100)
+        let tiny = rect.resizing(corner: .bottomRight, dx: -500, dy: -500, minWidth: 40, bounds: area)
+        XCTAssertEqual(tiny.width, 40, accuracy: 0.0001)
+        XCTAssertEqual(tiny.height, 20, accuracy: 0.0001)
+        // Growing toward the right edge, which is 900 away from x = 100, stops there.
+        let huge = rect.resizing(corner: .bottomRight, dx: 5000, dy: 2500, minWidth: 40, bounds: area)
+        XCTAssertEqual(huge.maxX, 1000, accuracy: 0.0001)
+        XCTAssertEqual(huge.width / huge.height, 2, accuracy: 0.0001)
+    }
+
+    func testSnapPullsEdgesAndMiddlesToTargets() {
+        let rect = StageRect(x: 8, y: 100, width: 100, height: 50)
+        // Its left edge is 8 from the Stage's edge, within 12: snaps left by 8. Vertically nothing is near.
+        let offset = stageSnapOffset(for: rect, xTargets: [0, 500, 1000], yTargets: [0, 300, 600], threshold: 12)
+        XCTAssertEqual(offset.dx, -8, accuracy: 0.0001)
+        XCTAssertEqual(offset.dy, 0, accuracy: 0.0001)
+        // Its middle (x = 58 + 450) lines up with the Stage's middle.
+        let moved = StageRect(x: 445, y: 100, width: 100, height: 50)
+        XCTAssertEqual(stageSnapOffset(for: moved, xTargets: [500], yTargets: [], threshold: 12).dx, 5, accuracy: 0.0001)
+        // Too far to snap.
+        XCTAssertEqual(stageSnapOffset(for: StageRect(x: 100, y: 100, width: 50, height: 50), xTargets: [0], yTargets: [0], threshold: 12).dx, 0)
+    }
+
+    func testDefaultFramesCascadeAndStayInside() {
+        XCTAssertNotEqual(stageDefaultFrame(index: 0), stageDefaultFrame(index: 1))
+        for index in 0..<20 {
+            let frame = stageDefaultFrame(index: index)
+            XCTAssertLessThanOrEqual(frame.maxX, 1)
+            XCTAssertLessThanOrEqual(frame.maxY, 1)
+        }
+    }
+
+    func testArrangementsSurviveSaving() throws {
+        let phone = StageItem(kind: .phone, key: "1", label: "Slot 1", frame: StageRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4))
+        let window = StageItem(kind: .window, key: "Safari – Docs", label: "Safari – Docs")
+        let camera = StageItem(kind: .camera, key: "0x1234", label: "Brio")
+        let free = SavedStageLayout(name: "Demo", arrangement: StageArrangement(automatic: nil, items: [phone, window, camera]))
+        let automatic = SavedStageLayout(name: "Row", arrangement: StageArrangement(automatic: .grid, items: [window]))
+        let data = try JSONEncoder().encode([free, automatic])
+        let back = try JSONDecoder().decode([SavedStageLayout].self, from: data)
+        XCTAssertEqual(back, [free, automatic])
+        XCTAssertTrue(back[0].arrangement.isFree)
+        XCTAssertFalse(back[1].arrangement.isFree)
+        XCTAssertNil(back[0].arrangement.items[1].frame)
+    }
+}

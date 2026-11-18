@@ -54,6 +54,8 @@ ${BETA:+    <key>MirrorWallBeta</key><string>$BETA</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Mirror Wall listens for iPhones and Android phones on your network so they can mirror their screens to this Mac.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Mirror Wall can show a camera on the Stage, next to the phones and Mac windows you share.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_airplay._tcp</string>

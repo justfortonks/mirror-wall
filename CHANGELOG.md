@@ -5,6 +5,24 @@ that build includes. When a change people will notice is merged, add a line here
 pull request: under a new `## <date>: <short title>` heading at the top, or under the top one
 if it hasn't been released yet.
 
+## November 18, 2026: Build your own Stage layout, with Mac windows and a camera (Mac)
+
+- The Stage can now show a Mac window, a camera and your phones side by side, so it can stand
+  in for OBS when all you do there is arrange pictures and show them (on a second screen, or in
+  a Teams or Zoom window share). On the Stage, move the mouse to bring up the control bar and
+  use Add: Mac Window… (pick it in macOS's own window picker), Camera (any camera the Mac sees),
+  or Phone Slot. Side by Side puts them in a row, and Layout › Free (or Edit) lets you drag each
+  picture where you want it and drag its corner to make it bigger or smaller; edges and middles
+  snap to each other and to the Stage. Each picture's chip in the control bar (or right-click it
+  while editing) moves it, swaps the window or camera, or removes it.
+- Layout › Save Layout As… keeps the arrangement under a name, such as "Camera + Phone + Mac
+  window", to bring back from the Layout menu; Update, Rename and Delete are there too, and the
+  Stage reopens as you left it. A window can't be remembered from one launch to the next
+  (macOS only hands one over for the moment), so a saved layout's window shows a "Choose
+  Window…" button after a restart; its place in the layout is kept.
+- Cameras and window captures only run while the Stage is open, so a camera's light goes off
+  when you close it. macOS asks for camera access the first time.
+
 ## November 18, 2026: Send any Mac window to OBS (Mac)
 
 - File › Send a Window to OBS (Syphon)… (also in the menu bar icon's menu, and by right-clicking

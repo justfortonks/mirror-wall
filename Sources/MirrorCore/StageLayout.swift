@@ -1,7 +1,7 @@
 import Foundation
 
 /// How the Stage window arranges the phones that are mirroring.
-public enum StageLayout: String, CaseIterable, Identifiable {
+public enum StageLayout: String, CaseIterable, Identifiable, Codable {
     /// In a row, lined up on their middles.
     case sideBySide
     /// In a column, lined up on their middles.
@@ -21,7 +21,7 @@ public enum StageLayout: String, CaseIterable, Identifiable {
 }
 
 /// Where one phone goes on the stage, y pointing down.
-public struct StageRect: Equatable {
+public struct StageRect: Equatable, Codable {
     public var x: Double
     public var y: Double
     public var width: Double
